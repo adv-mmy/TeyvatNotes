@@ -2,14 +2,18 @@
 
 from agent_runtime_foundation.domain import (
     InvalidTaskTransition,
+    JsonValue,
     Task,
     TaskResult,
     TaskStatus,
+    TaskType,
 )
 
 __all__ = [
     "InvalidTaskTransition",
+    "JsonValue",
     "Task",
     "TaskResult",
     "TaskStatus",
+    "TaskType",
 ]

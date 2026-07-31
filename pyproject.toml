@@ -8,10 +8,13 @@ version = "0.1.0"
 description = "用于学习可靠 Agent Runtime 基础能力的 Python 项目"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi[standard]",
+]
 
 [dependency-groups]
 dev = [
+    "httpx2",
     "mypy",
     "pytest",
     "ruff",
@@ -26,7 +29,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
-include = ["src/**/*.py", "tests/**/*.py"]
+include = ["main.py", "src/**/*.py", "tests/**/*.py"]
 line-length = 100
 target-version = "py312"
 
@@ -34,7 +37,7 @@ target-version = "py312"
 select = ["B", "E", "F", "I", "SIM", "UP"]
 
 [tool.mypy]
-files = ["src"]
+files = ["main.py", "src"]
 mypy_path = "src"
 python_version = "3.12"
 strict = true

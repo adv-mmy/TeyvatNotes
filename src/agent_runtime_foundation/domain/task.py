@@ -10,6 +10,8 @@ from uuid import UUID, uuid4
 
 from agent_runtime_foundation.domain.errors import InvalidTaskTransition
 
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -26,11 +28,18 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
 
 
+class TaskType(StrEnum):
+    """当前明确允许的确定性任务类型。"""
+
+    SUM_NUMBERS = "sum_numbers"
+    WORD_COUNT = "word_count"
+
+
 @dataclass(frozen=True, slots=True)
 class TaskResult:
     """任务执行产生的输出或错误。"""
 
-    output: object | None = None
+    output: JsonValue = None
     error: str | None = None
 
 
@@ -39,6 +48,8 @@ class Task:
     """具有受控状态转换行为的任务实体。"""
 
     id: UUID = field(default_factory=uuid4)
+    task_type: TaskType = TaskType.SUM_NUMBERS
+    payload: dict[str, JsonValue] = field(default_factory=dict)
     result: TaskResult | None = None
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
