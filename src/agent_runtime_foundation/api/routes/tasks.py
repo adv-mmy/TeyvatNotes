@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from agent_runtime_foundation.api.dependencies import get_task_service
+from agent_runtime_foundation.api.dependencies import get_task_runtime, get_task_service
 from agent_runtime_foundation.api.schemas import (
     ErrorResponse,
     TaskCreateRequest,
@@ -15,9 +15,11 @@ from agent_runtime_foundation.api.schemas import (
 )
 from agent_runtime_foundation.application import TaskService
 from agent_runtime_foundation.domain import TaskStatus
+from agent_runtime_foundation.runtime import TaskRuntime
 
 router = APIRouter(prefix="/tasks", tags=["任务"])
 ServiceDependency = Annotated[TaskService, Depends(get_task_service)]
+RuntimeDependency = Annotated[TaskRuntime, Depends(get_task_runtime)]
 
 
 @router.post(
@@ -36,15 +38,16 @@ ServiceDependency = Annotated[TaskService, Depends(get_task_service)]
             },
         },
         422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
     },
 )
-def create_task(
+async def create_task(
     payload: TaskCreateRequest,
     response: Response,
-    service: ServiceDependency,
+    runtime: RuntimeDependency,
 ) -> TaskResponse:
-    task = service.create(to_create_command(payload))
+    task = await runtime.create(to_create_command(payload))
     response.headers["Location"] = f"/v1/tasks/{task.id}"
     return TaskResponse.from_task(task)
 
@@ -102,8 +105,8 @@ def get_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
         500: {"model": ErrorResponse},
     },
 )
-def cancel_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
-    return TaskResponse.from_task(service.cancel(task_id))
+async def cancel_task(task_id: UUID, runtime: RuntimeDependency) -> TaskResponse:
+    return TaskResponse.from_task(await runtime.cancel(task_id))
 
 
 @router.post(
@@ -114,8 +117,9 @@ def cancel_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
         404: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
     },
 )
-def retry_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
-    return TaskResponse.from_task(service.retry(task_id))
+async def retry_task(task_id: UUID, runtime: RuntimeDependency) -> TaskResponse:
+    return TaskResponse.from_task(await runtime.retry(task_id))

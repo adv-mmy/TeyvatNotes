@@ -4,7 +4,7 @@ from copy import deepcopy
 from threading import RLock
 from uuid import UUID
 
-from agent_runtime_foundation.domain import Task, TaskStatus
+from agent_runtime_foundation.domain import Task, TaskResult, TaskStatus
 
 
 class InMemoryTaskRepository:
@@ -49,10 +49,12 @@ class InMemoryTaskRepository:
         self,
         task_id: UUID,
         target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
     ) -> Task | None:
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
                 return None
-            task.transition_to(target_status)
+            task.transition_to(target_status, result=deepcopy(result))
             return deepcopy(task)

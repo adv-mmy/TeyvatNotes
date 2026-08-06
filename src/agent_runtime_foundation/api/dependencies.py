@@ -5,6 +5,7 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 
 from agent_runtime_foundation.application import TaskRepository, TaskService
+from agent_runtime_foundation.runtime import TaskRuntime
 
 
 def get_task_repository(request: Request) -> TaskRepository:
@@ -23,3 +24,12 @@ def get_task_service(repository: RepositoryDependency) -> TaskService:
     """为当前请求构造使用共享 Repository 的应用服务。"""
 
     return TaskService(repository)
+
+
+def get_task_runtime(request: Request) -> TaskRuntime:
+    """从应用状态中取得共享的异步任务运行时。"""
+
+    runtime = getattr(request.app.state, "task_runtime", None)
+    if runtime is None:
+        raise RuntimeError("应用未配置 TaskRuntime")
+    return cast(TaskRuntime, runtime)

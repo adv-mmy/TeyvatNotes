@@ -1,8 +1,10 @@
 """任务 API 验收测试。"""
 
 import logging
+import time
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -28,6 +30,22 @@ def _task_in_status(status: TaskStatus) -> Task:
     for target_status in PATHS_FROM_QUEUED[status]:
         task.transition_to(target_status)
     return task
+
+
+def _wait_for_api_status(
+    client: TestClient,
+    path: str,
+    expected_status: str,
+    *,
+    timeout: float = 1.0,
+) -> httpx.Response:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get(path)
+        if response.json()["status"] == expected_status:
+            return response
+        time.sleep(0.001)
+    raise AssertionError(f"任务未在 {timeout} 秒内进入 {expected_status}")
 
 
 def test_create_task_returns_201(client: TestClient) -> None:
@@ -58,10 +76,19 @@ def test_created_task_can_be_queried_across_requests(client: TestClient) -> None
         },
     )
 
-    queried = client.get(created.headers["Location"])
+    queried = _wait_for_api_status(
+        client,
+        created.headers["Location"],
+        "succeeded",
+    )
 
     assert queried.status_code == 200
-    assert queried.json() == created.json()
+    assert queried.json()["id"] == created.json()["id"]
+    assert queried.json()["status"] == "succeeded"
+    assert queried.json()["result"] == {
+        "output": {"word_count": 2},
+        "error": None,
+    }
 
 
 def test_get_does_not_change_task_state_or_timestamp(
@@ -254,9 +281,15 @@ def test_retry_failed_task(client: TestClient, repository: InMemoryTaskRepositor
 
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
-    stored = repository.get(task.id)
-    assert stored is not None
-    assert stored.status is TaskStatus.QUEUED
+    completed = _wait_for_api_status(
+        client,
+        f"/v1/tasks/{task.id}",
+        "succeeded",
+    )
+    assert completed.json()["result"] == {
+        "output": {"total": 1},
+        "error": None,
+    }
 
 
 @pytest.mark.parametrize(
@@ -370,7 +403,10 @@ def test_openapi_contains_v1_task_routes(client: TestClient) -> None:
     create_operation = paths["/v1/tasks"]["post"]
     assert "Location" in create_operation["responses"]["201"]["headers"]
     assert "422" in create_operation["responses"]
+    assert "503" in create_operation["responses"]
     assert "500" in create_operation["responses"]
+    retry_operation = paths["/v1/tasks/{task_id}/retry"]["post"]
+    assert "503" in retry_operation["responses"]
 
 
 def test_docs_are_available(client: TestClient) -> None:

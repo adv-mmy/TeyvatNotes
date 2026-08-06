@@ -81,11 +81,17 @@ class Task:
 
         return self._status
 
-    def transition_to(self, target_status: TaskStatus) -> None:
-        """将任务转换到目标状态；非法转换不会改变任务。"""
+    def transition_to(
+        self,
+        target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
+    ) -> None:
+        """将任务转换到目标状态，并原子替换本次执行结果。"""
 
         if target_status not in self._ALLOWED_TRANSITIONS[self._status]:
             raise InvalidTaskTransition(self._status.value, target_status.value)
 
         self._status = target_status
+        self.result = result
         self.updated_at = _utc_now()

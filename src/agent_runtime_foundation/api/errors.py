@@ -11,3 +11,4 @@ class ErrorCode(StrEnum):
     VALIDATION_ERROR = "validation_error"
     INTERNAL_ERROR = "internal_error"
     HTTP_ERROR = "http_error"
+    RUNTIME_UNAVAILABLE = "runtime_unavailable"

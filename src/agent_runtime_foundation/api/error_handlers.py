@@ -18,6 +18,7 @@ from agent_runtime_foundation.application import (
     TaskNotFoundError,
 )
 from agent_runtime_foundation.domain import JsonValue
+from agent_runtime_foundation.runtime import RuntimeNotAcceptingError
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +124,22 @@ async def internal_error_handler(request: Request, exc: Exception) -> JSONRespon
     )
 
 
+async def runtime_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
+    cast(RuntimeNotAcceptingError, exc)
+    return _error_response(
+        request,
+        status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+        code=ErrorCode.RUNTIME_UNAVAILABLE,
+        message="任务运行时正在启动或停止，请稍后重试",
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """注册应用的统一错误处理器。"""
 
     app.add_exception_handler(TaskNotFoundError, task_not_found_handler)
     app.add_exception_handler(TaskActionConflictError, task_action_conflict_handler)
+    app.add_exception_handler(RuntimeNotAcceptingError, runtime_unavailable_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(Exception, internal_error_handler)

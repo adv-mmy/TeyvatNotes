@@ -8,6 +8,7 @@ import pytest
 from agent_runtime_foundation.domain import (
     InvalidTaskTransition,
     Task,
+    TaskResult,
     TaskStatus,
     TaskType,
 )
@@ -89,6 +90,54 @@ def test_transition_updates_task_atomically() -> None:
     stored = repository.get(task.id)
     assert stored is not None
     assert stored.status is TaskStatus.RUNNING
+
+
+def test_transition_atomically_saves_and_clears_result() -> None:
+    repository = InMemoryTaskRepository()
+    task = Task()
+    repository.add(task)
+    repository.transition(task.id, TaskStatus.RUNNING)
+
+    failed = repository.transition(
+        task.id,
+        TaskStatus.FAILED,
+        result=TaskResult(error="执行失败"),
+    )
+
+    assert failed is not None
+    assert failed.status is TaskStatus.FAILED
+    assert failed.result == TaskResult(error="执行失败")
+    retried = repository.transition(task.id, TaskStatus.QUEUED)
+    assert retried is not None
+    assert retried.status is TaskStatus.QUEUED
+    assert retried.result is None
+
+
+def test_invalid_transition_does_not_replace_existing_result() -> None:
+    repository = InMemoryTaskRepository()
+    task = Task()
+    repository.add(task)
+    repository.transition(task.id, TaskStatus.RUNNING)
+    failed = repository.transition(
+        task.id,
+        TaskStatus.FAILED,
+        result=TaskResult(error="原始错误"),
+    )
+    assert failed is not None
+    previous_updated_at = failed.updated_at
+
+    with pytest.raises(InvalidTaskTransition):
+        repository.transition(
+            task.id,
+            TaskStatus.SUCCEEDED,
+            result=TaskResult(output={"unexpected": True}),
+        )
+
+    stored = repository.get(task.id)
+    assert stored is not None
+    assert stored.status is TaskStatus.FAILED
+    assert stored.result == TaskResult(error="原始错误")
+    assert stored.updated_at == previous_updated_at
 
 
 def test_concurrent_transition_has_exactly_one_success() -> None:

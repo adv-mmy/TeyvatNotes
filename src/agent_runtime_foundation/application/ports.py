@@ -3,7 +3,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from agent_runtime_foundation.domain import Task, TaskStatus
+from agent_runtime_foundation.domain import Task, TaskResult, TaskStatus
 
 
 class TaskRepository(Protocol):
@@ -28,5 +28,7 @@ class TaskRepository(Protocol):
         self,
         task_id: UUID,
         target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
     ) -> Task | None:
-        """原子地转换已存在任务的状态。"""
+        """原子地转换已存在任务的状态并替换执行结果。"""
