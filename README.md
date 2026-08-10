@@ -4,7 +4,9 @@
 
 ## 当前阶段
 
-第 4 周：PostgreSQL、SQLAlchemy 2.x 异步仓储、事务、索引与 Alembic 迁移。
+第 5 周：独立 Worker 的 Python 边界、有界重试、指数退避/抖动、租约和崩溃恢复。
+
+第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL，因此第五周暂不增加原子领取 SQL、租约字段或 PostgreSQL Worker 适配器。
 
 当前实现包含：
 
@@ -28,6 +30,12 @@
 - Alembic 首个迁移，可从空数据库重建表、约束和索引；
 - `Idempotency-Key` 创建幂等性与数据库唯一约束；
 - 面向常用列表查询的联合索引及 JSON `EXPLAIN` 命令。
+- `TaskCommandHandler` 抽象，使 API 可选择内嵌执行或只持久化命令；
+- `WorkerRepository` 端口和可运行的内存原子领取/租约实现；
+- 保存每次 attempt 的 Worker、时间、结果、错误和下次重试时间；
+- 最大尝试次数、指数退避、有上限抖动和可注入时钟/随机源；
+- 可重试、永久错误和未预期错误分类；
+- 过期租约恢复、旧 Worker 防过期写入和无活动 attempt 取消收敛。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
 
@@ -41,13 +49,21 @@
 | `POST` | `/v1/tasks/{task_id}/cancel` | 请求取消任务 |
 | `POST` | `/v1/tasks/{task_id}/retry` | 重试失败任务 |
 
-本地启动：
+本地启动（默认 `embedded` 模式，保留第三周的进程内 Runtime）：
 
 ```powershell
 uv run fastapi dev main.py
 ```
 
 启动后可访问 `http://127.0.0.1:8000/docs` 查看 OpenAPI 交互文档。
+
+纯 API 进程入口：
+
+```powershell
+uv run fastapi dev api_main.py
+```
+
+`api_main.py` 使用 `api_only` 模式，只保存创建、取消和手动重试命令，不启动 `TaskRuntime`。未设置 PostgreSQL Worker 适配器时，不要把它当作已完成的双进程部署：新任务会保持 `queued`。
 
 当前允许的任务类型：
 
@@ -175,6 +191,39 @@ uv run pytest -m postgres -q
 
 > 集成测试开始时会把该数据库中本项目的 Alembic 版本先降到 `base`，再升级到 `head`。不要把 `TEST_DATABASE_URL` 指向开发或生产数据库。
 
+## 第五周 Worker 与故障恢复
+
+```text
+API-only 进程
+  → TaskCommandHandler 只持久化 queued 任务
+
+TaskWorker（独立进程主循环的 Python 部分）
+  → recover_expired()
+  → claim_next()：queued → running，创建 attempt 和租约
+  → TaskExecutor
+  → complete_claim() / fail_claim()
+  → 可重试时计算 retry_at，到期后重新领取
+```
+
+### 重试语义
+
+- `PermanentTaskError` 和现有 `TaskExecutionError` 属于永久错误，第一次失败后不自动重试。异常原文不写入公开任务结果，API 只返回稳定错误信息。
+- `RetryableTaskError`、执行超时和未预期异常属于可重试错误，但不得超过 `max_attempts`。
+- `max_attempts` 限制单轮自动执行预算；用户显式调用手动重试会开启新一轮预算，同时保留全局递增的 `attempt_number` 用于审计。
+- 第 `n` 次失败的基础等待为 `base_delay * 2 ** (n - 1)`，再受 `max_delay` 与 `jitter_ratio` 限制。
+- 时钟和随机源可注入，测试不依赖真实 `sleep` 或不稳定随机数。
+- 每次领取产生新 `attempt_id`，并保存 `running`、`retry_scheduled`、`retries_exhausted`、`permanent_failure`、`succeeded`、`lease_expired` 或 `cancelled` 结果。
+
+### 租约与至少一次执行
+
+Worker 领取任务后只拥有限时租约。如果 Worker 在执行完成后、保存成功结果前崩溃，新 Worker 会在租约过期后重新领取该任务。因此同一任务的业务副作用可能已经发生，却再次执行。
+
+这是“至少一次”而不是“恰好一次”。通常无法只靠任务队列承诺恰好一次，因为执行业务副作用和记录成功不能对任意外部系统构成同一原子事务。执行器仍应使用业务幂等键、去重记录或可安全重放的操作。
+
+### 当前边界
+
+本轮已完成 `TaskWorker`、`WorkerRepository` 端口和内存验收实现，但还不是可跨进程共享的生产队列。待本机安装 PostgreSQL 后，将按第四周 SQL 范畴补充和验收 PostgreSQL 原子领取、租约持久化与跨进程恢复；这些不计入本次第五周实现。
+
 ## 异步运行时
 
 ```text
@@ -263,6 +312,7 @@ src/agent_runtime_foundation/
 ├─ __init__.py
 ├─ application/
 │  ├─ models.py
+│  ├─ task_commands.py
 │  └─ task_service.py
 ├─ api/
 │  ├─ app.py
@@ -280,10 +330,16 @@ src/agent_runtime_foundation/
 │  ├─ errors.py
 │  ├─ executor.py
 │  └─ manager.py
-└─ repositories/
+├─ repositories/
    ├─ base.py
    ├─ memory.py
    └─ postgres.py
+└─ worker/
+   ├─ errors.py
+   ├─ models.py
+   ├─ ports.py
+   ├─ retry.py
+   └─ service.py
 
 migrations/
 ├─ env.py
@@ -295,5 +351,6 @@ tests/
 ├─ test_postgres_repository.py
 ├─ test_repository.py
 ├─ test_runtime.py
-└─ test_task.py
+├─ test_task.py
+└─ test_worker.py
 ```

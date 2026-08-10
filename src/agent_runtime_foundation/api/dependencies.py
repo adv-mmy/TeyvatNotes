@@ -4,7 +4,11 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from agent_runtime_foundation.application import TaskRepository, TaskService
+from agent_runtime_foundation.application import (
+    TaskCommandHandler,
+    TaskRepository,
+    TaskService,
+)
 from agent_runtime_foundation.runtime import TaskRuntime
 
 
@@ -33,3 +37,12 @@ def get_task_runtime(request: Request) -> TaskRuntime:
     if runtime is None:
         raise RuntimeError("应用未配置 TaskRuntime")
     return cast(TaskRuntime, runtime)
+
+
+def get_task_commands(request: Request) -> TaskCommandHandler:
+    """取得当前应用的任务命令处理器。"""
+
+    commands = getattr(request.app.state, "task_commands", None)
+    if commands is None:
+        raise RuntimeError("应用未配置 TaskCommandHandler")
+    return cast(TaskCommandHandler, commands)

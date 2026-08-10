@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 
-from agent_runtime_foundation.api.dependencies import get_task_runtime, get_task_service
+from agent_runtime_foundation.api.dependencies import get_task_commands, get_task_service
 from agent_runtime_foundation.api.schemas import (
     ErrorResponse,
     TaskCreateRequest,
@@ -13,13 +13,12 @@ from agent_runtime_foundation.api.schemas import (
     TaskResponse,
     to_create_command,
 )
-from agent_runtime_foundation.application import TaskService
+from agent_runtime_foundation.application import TaskCommandHandler, TaskService
 from agent_runtime_foundation.domain import TaskStatus
-from agent_runtime_foundation.runtime import TaskRuntime
 
 router = APIRouter(prefix="/tasks", tags=["任务"])
 ServiceDependency = Annotated[TaskService, Depends(get_task_service)]
-RuntimeDependency = Annotated[TaskRuntime, Depends(get_task_runtime)]
+CommandsDependency = Annotated[TaskCommandHandler, Depends(get_task_commands)]
 
 
 @router.post(
@@ -45,13 +44,13 @@ RuntimeDependency = Annotated[TaskRuntime, Depends(get_task_runtime)]
 async def create_task(
     payload: TaskCreateRequest,
     response: Response,
-    runtime: RuntimeDependency,
+    commands: CommandsDependency,
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", min_length=1, max_length=255),
     ] = None,
 ) -> TaskResponse:
-    task = await runtime.create(to_create_command(payload, idempotency_key=idempotency_key))
+    task = await commands.create(to_create_command(payload, idempotency_key=idempotency_key))
     response.headers["Location"] = f"/v1/tasks/{task.id}"
     return TaskResponse.from_task(task)
 
@@ -109,8 +108,8 @@ async def get_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
         500: {"model": ErrorResponse},
     },
 )
-async def cancel_task(task_id: UUID, runtime: RuntimeDependency) -> TaskResponse:
-    return TaskResponse.from_task(await runtime.cancel(task_id))
+async def cancel_task(task_id: UUID, commands: CommandsDependency) -> TaskResponse:
+    return TaskResponse.from_task(await commands.cancel(task_id))
 
 
 @router.post(
@@ -125,5 +124,5 @@ async def cancel_task(task_id: UUID, runtime: RuntimeDependency) -> TaskResponse
         500: {"model": ErrorResponse},
     },
 )
-async def retry_task(task_id: UUID, runtime: RuntimeDependency) -> TaskResponse:
-    return TaskResponse.from_task(await runtime.retry(task_id))
+async def retry_task(task_id: UUID, commands: CommandsDependency) -> TaskResponse:
+    return TaskResponse.from_task(await commands.retry(task_id))

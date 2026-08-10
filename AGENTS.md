@@ -15,11 +15,11 @@
 
 - 本项目是阶段一“Python 后端底座”的长期主项目，目标是先用确定性任务学习 Agent Runtime 同样需要的状态、并发、失败恢复、持久化和可观测性。
 - 阶段一禁止自行接入 LLM、Agent 框架、RAG 或任意函数/系统命令执行。只有用户明确要求进入相应阶段时才能引入。
-- 当前基线为 `0.4.0 / 第 4 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、SQLAlchemy 2.x 异步 PostgreSQL Repository 和 Alembic。
+- 当前基线为 `0.5.0 / 第 5 周非 SQL 部分`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架，以及独立 Worker 的端口、重试、租约与恢复逻辑。
 - 当前只允许两种确定性任务：
   - `sum_numbers`：`numbers` 含 1～100 个严格整数，每项范围为 `-1_000_000～1_000_000`；
   - `word_count`：`text` 为 1～10,000 字符的非空白字符串。
-- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`，并必须先执行 Alembic 迁移。独立 Worker、SSE、健康检查、鉴权、Docker Compose 和 CI 仍属于后续阶段，未实现前不得在文档或响应中声称已经具备。
+- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。SSE、健康检查、鉴权、Docker Compose 和 CI 仍属于后续阶段。
 - 当前默认运行时配置为 `worker_count=4`、`max_concurrency=2`、`task_timeout_seconds=30`、`shutdown_timeout_seconds=5`。
 
 ## 三、架构和依赖方向
@@ -40,6 +40,16 @@ HTTP / FastAPI
   → Semaphore 并发门控
   → TaskExecutor
   → Repository 原子状态转换
+
+API-only 进程
+  → TaskCommandHandler
+  → Repository 只持久化命令
+
+独立 Worker 逻辑
+  → WorkerRepository.recover_expired()
+  → WorkerRepository.claim_next()
+  → TaskExecutor
+  → complete_claim() / fail_claim()
 ```
 
 - `domain/`：只放任务实体、值对象、枚举和领域异常；不得导入 FastAPI、Pydantic、数据库、Runtime 或 LLM SDK。
@@ -85,6 +95,14 @@ running → failed → queued
 - 停机顺序保持为：先停止接收新任务，再等待已有任务；超时后请求取消并显式收敛 Worker、执行协程、队列计数和任务状态。不得静默丢弃已接受任务或遗留协程。
 - 不得在事件循环中直接执行阻塞 I/O 或 CPU 长任务；确需引入时，应明确采用线程、进程或外部 Worker，并补相应并发和停机测试。
 
+### 独立 Worker 策略
+
+- `claim_next()` 必须原子完成选择、`queued → running`、attempt 创建和租约所有权记录；两个 Worker 不得同时拥有同一任务的有效租约。
+- 租约过期后旧 Worker 不得提交成功或失败结果；新 Worker 应把它记录为 `lease_expired` 并在最大尝试次数内恢复。
+- 永久错误不自动重试；可重试错误、超时和未预期错误使用带上限抖动的指数退避，单轮自动执行不超过 `max_attempts`。手动重试开启新一轮预算，全局 `attempt_number` 仍持续递增。
+- Worker 被强制结束时不伪造完成记录，由租约过期机制恢复；因此只能保证至少一次执行，执行器必须考虑业务幂等。
+- 第五周不得把 SQL、索引、数据库事务或 Alembic 当作本周新内容；这些属于第四周，待 PostgreSQL 环境就绪后单独补完和验收。
+
 ## 五、当前 HTTP 契约
 
 | 方法 | 路径 | 成功行为 | 主要失败 |
@@ -112,8 +130,9 @@ running → failed → queued
 - `src/agent_runtime_foundation/database/` 与 `migrations/`：ORM 模型、迁移、约束和索引要保持一致；不在应用启动时自动改表。
 - `src/agent_runtime_foundation/runtime/manager.py`：修改队列、attempt、取消、超时或停机时，必须检查正常、异常、超时、双重停机超时和立即重试路径。
 - `src/agent_runtime_foundation/runtime/executor.py`：新增任务类型时，同步修改 `TaskType`、请求 Schema、显式转换、执行器、README 和测试；只允许注册的确定性任务。
+- `src/agent_runtime_foundation/worker/`：修改领取、租约、错误分类、退避或恢复时，同步覆盖并发领取、最大尝试、永久失败、过期写入和崩溃恢复。
 - `src/agent_runtime_foundation/api/`：修改公开契约时，同步更新 Schema、错误映射、OpenAPI 声明、API 测试和 README 示例。
-- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_database.py` 守护元数据与离线迁移，`test_postgres_repository.py` 使用专用可丢弃数据库验收真实 PostgreSQL 行为。
+- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_database.py` 守护元数据与离线迁移。
 - `uv.lock` 是自动生成的依赖锁文件，只说明用途和关键元数据，不手工编辑，也不做逐行讲解。
 
 ## 七、编码与测试规范
@@ -138,8 +157,8 @@ uv run mypy
 
 ## 八、阶段演进边界
 
-- 第 4 周：PostgreSQL、SQLAlchemy 2.x 异步接口、Alembic、事务、唯一约束和索引；目标表为 `tasks`、`task_attempts`、`task_events`。
-- 第 5 周：API 与 Worker 分进程、原子领取、幂等键、最大重试、指数退避/抖动、租约或行锁和崩溃恢复。
+- 第 4 周：PostgreSQL、SQL、SQLAlchemy 2.x 异步接口、Alembic、事务、原子领取、行锁、租约字段、唯一约束和索引；目标表为 `tasks`、`task_attempts`、`task_events`。
+- 第 5 周：API 与 Worker 的 Python 边界、最大重试、指数退避/抖动、错误分类、租约恢复语义与至少一次执行；支撑这些能力的具体 SQL 仍归第四周。
 - 第 6 周：`GET /v1/tasks/{task_id}/events`、SSE 断线续传、结构化日志、关联 ID、`/health/live` 和 `/health/ready`。
 - 第 7 周：配置、鉴权、限流、Dockerfile、Compose、持久卷、健康检查和非 root 容器。
 - 第 8 周：CI、真实 PostgreSQL 集成测试、并发基线、故障演练、架构图和恢复手册。

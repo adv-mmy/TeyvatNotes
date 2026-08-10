@@ -3,7 +3,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from agent_runtime_foundation.application.models import TaskCreation
+from agent_runtime_foundation.application.models import CreateTaskCommand, TaskCreation
 from agent_runtime_foundation.domain import Task, TaskResult, TaskStatus
 
 
@@ -34,3 +34,16 @@ class TaskRepository(Protocol):
         attempt_id: UUID | None = None,
     ) -> Task | None:
         """原子地转换已存在任务的状态并替换执行结果。"""
+
+
+class TaskCommandHandler(Protocol):
+    """API 可调用的创建、取消和手动重试命令端口。"""
+
+    async def create(self, command: CreateTaskCommand) -> Task:
+        """接收一个新任务。"""
+
+    async def cancel(self, task_id: UUID) -> Task:
+        """请求取消任务。"""
+
+    async def retry(self, task_id: UUID) -> Task:
+        """手动重试失败任务。"""

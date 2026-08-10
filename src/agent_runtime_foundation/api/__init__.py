@@ -1,5 +1,5 @@
-"""FastAPI 应用入口。"""
+"""FastAPI 应用工厂。"""
 
-from agent_runtime_foundation.api.app import app, create_app
+from agent_runtime_foundation.api.app import ExecutionMode, create_app
 
-__all__ = ["app", "create_app"]
+__all__ = ["ExecutionMode", "create_app"]
