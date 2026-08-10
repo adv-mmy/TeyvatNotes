@@ -4,6 +4,7 @@ from copy import deepcopy
 from threading import RLock
 from uuid import UUID
 
+from agent_runtime_foundation.application import TaskCreation
 from agent_runtime_foundation.domain import Task, TaskResult, TaskStatus
 
 
@@ -12,20 +13,28 @@ class InMemoryTaskRepository:
 
     def __init__(self) -> None:
         self._tasks: dict[UUID, Task] = {}
+        self._idempotency_keys: dict[str, UUID] = {}
         self._lock = RLock()
 
-    def add(self, task: Task) -> None:
+    async def add(self, task: Task) -> TaskCreation:
         with self._lock:
             if task.id in self._tasks:
                 raise ValueError(f"任务 {task.id} 已存在")
+            if task.idempotency_key is not None:
+                existing_id = self._idempotency_keys.get(task.idempotency_key)
+                if existing_id is not None:
+                    return TaskCreation(task=deepcopy(self._tasks[existing_id]), created=False)
             self._tasks[task.id] = deepcopy(task)
+            if task.idempotency_key is not None:
+                self._idempotency_keys[task.idempotency_key] = task.id
+            return TaskCreation(task=deepcopy(task), created=True)
 
-    def get(self, task_id: UUID) -> Task | None:
+    async def get(self, task_id: UUID) -> Task | None:
         with self._lock:
             task = self._tasks.get(task_id)
             return deepcopy(task) if task is not None else None
 
-    def list_tasks(
+    async def list_tasks(
         self,
         *,
         status: TaskStatus | None,
@@ -45,13 +54,15 @@ class InMemoryTaskRepository:
             total = len(tasks)
             return deepcopy(tasks[offset : offset + limit]), total
 
-    def transition(
+    async def transition(
         self,
         task_id: UUID,
         target_status: TaskStatus,
         *,
         result: TaskResult | None = None,
+        attempt_id: UUID | None = None,
     ) -> Task | None:
+        del attempt_id
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:

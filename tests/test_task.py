@@ -75,6 +75,37 @@ def test_task_result_stores_output_and_error() -> None:
     assert failed_result.error == "执行失败"
 
 
+def test_transition_increments_version() -> None:
+    task = Task()
+
+    task.transition_to(TaskStatus.RUNNING)
+    task.transition_to(TaskStatus.SUCCEEDED, result=TaskResult(output={"total": 1}))
+
+    assert task.version == 2
+
+
+def test_rehydrate_restores_persisted_state_without_synthetic_transition() -> None:
+    source = Task(idempotency_key="persisted")
+    source.transition_to(TaskStatus.RUNNING)
+    source.transition_to(TaskStatus.FAILED, result=TaskResult(error="失败"))
+
+    restored = Task.rehydrate(
+        task_id=source.id,
+        task_type=source.task_type,
+        payload=dict(source.payload),
+        idempotency_key=source.idempotency_key,
+        status=source.status,
+        result=source.result,
+        version=source.version,
+        created_at=source.created_at,
+        updated_at=source.updated_at,
+    )
+
+    assert restored == source
+    assert restored.status is TaskStatus.FAILED
+    assert restored.version == 2
+
+
 @pytest.mark.parametrize(
     ("current_status", "target_status"),
     LEGAL_TRANSITIONS,

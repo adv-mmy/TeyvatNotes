@@ -15,11 +15,11 @@
 
 - 本项目是阶段一“Python 后端底座”的长期主项目，目标是先用确定性任务学习 Agent Runtime 同样需要的状态、并发、失败恢复、持久化和可观测性。
 - 阶段一禁止自行接入 LLM、Agent 框架、RAG 或任意函数/系统命令执行。只有用户明确要求进入相应阶段时才能引入。
-- 当前基线为 `0.3.0 / 第 3 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime 和内存 Repository。
+- 当前基线为 `0.4.0 / 第 4 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、SQLAlchemy 2.x 异步 PostgreSQL Repository 和 Alembic。
 - 当前只允许两种确定性任务：
   - `sum_numbers`：`numbers` 含 1～100 个严格整数，每项范围为 `-1_000_000～1_000_000`；
   - `word_count`：`text` 为 1～10,000 字符的非空白字符串。
-- 当前存储仅为 `InMemoryTaskRepository`，数据只存在于单个应用进程，服务重启后丢失。PostgreSQL、独立 Worker、SSE、健康检查、鉴权、Docker Compose 和 CI 均属于后续阶段，未实现前不得在文档或响应中声称已经具备。
+- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`，并必须先执行 Alembic 迁移。独立 Worker、SSE、健康检查、鉴权、Docker Compose 和 CI 仍属于后续阶段，未实现前不得在文档或响应中声称已经具备。
 - 当前默认运行时配置为 `worker_count=4`、`max_concurrency=2`、`task_timeout_seconds=30`、`shutdown_timeout_seconds=5`。
 
 ## 三、架构和依赖方向
@@ -71,7 +71,8 @@ running → failed → queued
 
 - `transition()` 必须在一个临界区内完成“读取、校验、转换、保存”，并发竞争只能有一个合法结果。
 - 内存 Repository 写入和返回时保留 `deepcopy` 隔离，调用方不能通过返回对象绕过仓储修改已存任务。
-- 列表顺序稳定为 `created_at` 后接 `id`；先按状态过滤，再计算 `total`，最后执行 `offset/limit` 分页。
+- PostgreSQL 状态转换必须用行锁串行化同一任务，并在同一事务中写入 `tasks`、`task_attempts` 和 `task_events`；幂等键的并发唯一性必须交给数据库约束保证。
+- 列表顺序稳定为 `created_at` 后接 `id`；先按状态过滤，再计算 `total`，最后执行 `offset/limit` 分页。PostgreSQL 中的总数与分页查询必须共享同一事务快照。
 
 ### 异步 Runtime
 
@@ -88,7 +89,7 @@ running → failed → queued
 
 | 方法 | 路径 | 成功行为 | 主要失败 |
 | --- | --- | --- | --- |
-| `POST` | `/v1/tasks` | `201`，返回初始 `queued` 任务和 `Location` | `422`、`503`、`500` |
+| `POST` | `/v1/tasks` | `201`，返回初始 `queued` 任务和 `Location`；可携带 `Idempotency-Key` | `422`、`503`、`500` |
 | `GET` | `/v1/tasks/{task_id}` | `200`，只读查询 | `404`、`422`、`500` |
 | `GET` | `/v1/tasks?status=...&offset=0&limit=20` | `200`，过滤后分页 | `422`、`500` |
 | `POST` | `/v1/tasks/{task_id}/cancel` | `200`，请求取消 | `404`、`409`、`422`、`500` |
@@ -107,17 +108,19 @@ running → failed → queued
 - `src/agent_runtime_foundation/domain/task.py`：修改状态、转换或结果语义时，同步更新领域、Repository、API 和 Runtime 相关测试。
 - `src/agent_runtime_foundation/application/`：新增用例先扩展应用模型/端口，再由 API 或 Runtime 调用；不要让路由越过应用层操作仓储。
 - `src/agent_runtime_foundation/repositories/memory.py`：修改并发或复制策略时，必须覆盖重复 ID、对象隔离、原子转换和并发竞争。
+- `src/agent_runtime_foundation/repositories/postgres.py`：修改写路径时必须检查事务原子性、行锁、attempt/event 一致性、幂等冲突和稳定分页。
+- `src/agent_runtime_foundation/database/` 与 `migrations/`：ORM 模型、迁移、约束和索引要保持一致；不在应用启动时自动改表。
 - `src/agent_runtime_foundation/runtime/manager.py`：修改队列、attempt、取消、超时或停机时，必须检查正常、异常、超时、双重停机超时和立即重试路径。
 - `src/agent_runtime_foundation/runtime/executor.py`：新增任务类型时，同步修改 `TaskType`、请求 Schema、显式转换、执行器、README 和测试；只允许注册的确定性任务。
 - `src/agent_runtime_foundation/api/`：修改公开契约时，同步更新 Schema、错误映射、OpenAPI 声明、API 测试和 README 示例。
-- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；测试应放在能最直接证明该行为的层，不要在 API 测试中重复全部状态机内部细节。
+- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_database.py` 守护元数据与离线迁移，`test_postgres_repository.py` 使用专用可丢弃数据库验收真实 PostgreSQL 行为。
 - `uv.lock` 是自动生成的依赖锁文件，只说明用途和关键元数据，不手工编辑，也不做逐行讲解。
 
 ## 七、编码与测试规范
 
 - 使用 Python 3.12 语法和完整类型标注；`mypy` 保持 strict 通过。公共类、函数和非直观并发分支应有简洁中文 docstring 或注释。
 - 遵循 Ruff 配置：行宽 100，检查集合为 `B/E/F/I/SIM/UP`。不要用忽略规则掩盖可直接修复的问题。
-- 只有实际需要 `await` 的入口才使用 `async def`；同步内存查询可以保留普通 `def`。
+- `TaskRepository` 端口为兼容异步数据库而统一使用 `async def`；内存实现中不得伪造 I/O 或加入无意义的调度。
 - 优先写从公开边界观察行为的失败测试，再做最小实现和重构。并发测试优先使用 `Event`、门闩或可控 Fake Executor，避免依赖脆弱的固定 `sleep`。
 - API 测试使用 `TestClient` 或 HTTPX `ASGITransport` 直接调用 ASGI 应用，不启动真实服务器、不访问真实网络；需要 Runtime 时必须进入 lifespan，并在退出后断言资源已清理。
 - 测试至少覆盖成功、非法输入、非法状态转换、内部异常、并发竞争、取消、超时和停机路径；修复缺陷时先添加能复现问题的回归测试。

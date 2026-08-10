@@ -4,12 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-runtime-foundation"
-version = "0.3.0"
+version = "0.4.0"
 description = "用于学习可靠 Agent Runtime 基础能力的 Python 项目"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16,<2",
+    "asyncpg>=0.30,<1",
     "fastapi[standard]",
+    "sqlalchemy[asyncio]>=2.0,<3",
 ]
 
 [dependency-groups]
@@ -27,9 +30,13 @@ packages = ["src/agent_runtime_foundation"]
 addopts = "-ra"
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "postgres: 需要可丢弃的 TEST_DATABASE_URL，会先重建本项目的表",
+]
 
 [tool.ruff]
-include = ["main.py", "src/**/*.py", "tests/**/*.py"]
+include = ["main.py", "src/**/*.py", "tests/**/*.py", "migrations/**/*.py"]
+exclude = ["pytest-cache-files-*"]
 line-length = 100
 target-version = "py312"
 

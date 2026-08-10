@@ -1,7 +1,10 @@
 """任务 API 验收测试。"""
 
+import asyncio
 import logging
 import time
+from collections.abc import Coroutine
+from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
@@ -23,6 +26,10 @@ PATHS_FROM_QUEUED = {
     ),
     TaskStatus.FAILED: (TaskStatus.RUNNING, TaskStatus.FAILED),
 }
+
+
+def _run[T](coroutine: Coroutine[Any, Any, T]) -> T:
+    return asyncio.run(coroutine)
 
 
 def _task_in_status(status: TaskStatus) -> Task:
@@ -62,9 +69,41 @@ def test_create_task_returns_201(client: TestClient) -> None:
     assert UUID(body["id"])
     assert body["task_type"] == "sum_numbers"
     assert body["payload"] == {"numbers": [1, 2, 3]}
+    assert body["idempotency_key"] is None
     assert body["status"] == "queued"
     assert body["result"] is None
+    assert body["version"] == 0
     assert response.headers["Location"] == f"/v1/tasks/{body['id']}"
+
+
+def test_duplicate_idempotency_key_returns_same_task_without_duplicate_enqueue(
+    client: TestClient,
+) -> None:
+    headers = {"Idempotency-Key": "create-sum-once"}
+    request_body = {
+        "task_type": "sum_numbers",
+        "payload": {"numbers": [1, 2, 3]},
+    }
+
+    first = client.post("/v1/tasks", headers=headers, json=request_body)
+    replay = client.post(
+        "/v1/tasks",
+        headers=headers,
+        json={
+            "task_type": "sum_numbers",
+            "payload": {"numbers": [999]},
+        },
+    )
+
+    assert first.status_code == 201
+    assert replay.status_code == 201
+    assert replay.json()["id"] == first.json()["id"]
+    assert replay.json()["payload"] == request_body["payload"]
+    assert replay.json()["idempotency_key"] == "create-sum-once"
+    listed = client.get("/v1/tasks")
+    assert listed.json()["total"] == 1
+    completed = _wait_for_api_status(client, first.headers["Location"], "succeeded")
+    assert completed.json()["version"] == 2
 
 
 def test_created_task_can_be_queried_across_requests(client: TestClient) -> None:
@@ -96,13 +135,13 @@ def test_get_does_not_change_task_state_or_timestamp(
     repository: InMemoryTaskRepository,
 ) -> None:
     task = Task(payload={"numbers": [1]})
-    repository.add(task)
-    before = repository.get(task.id)
+    _run(repository.add(task))
+    before = _run(repository.get(task.id))
     assert before is not None
 
     response = client.get(f"/v1/tasks/{task.id}")
 
-    after = repository.get(task.id)
+    after = _run(repository.get(task.id))
     assert response.status_code == 200
     assert after is not None
     assert after.status is before.status
@@ -188,7 +227,7 @@ def test_list_tasks_supports_status_filter_and_pagination(
     running.transition_to(TaskStatus.RUNNING)
     second_queued = Task(task_type=TaskType.WORD_COUNT, payload={"text": "second"})
     for task in (first_queued, running, second_queued):
-        repository.add(task)
+        _run(repository.add(task))
 
     response = client.get("/v1/tasks?status=queued&offset=1&limit=1")
 
@@ -206,10 +245,12 @@ def test_list_order_is_stable_and_offset_can_exceed_total(
     repository: InMemoryTaskRepository,
 ) -> None:
     for number in range(3):
-        repository.add(
-            Task(
-                task_type=TaskType.SUM_NUMBERS,
-                payload={"numbers": [number]},
+        _run(
+            repository.add(
+                Task(
+                    task_type=TaskType.SUM_NUMBERS,
+                    payload={"numbers": [number]},
+                )
             )
         )
 
@@ -230,13 +271,13 @@ def test_cancel_allowed_task(
     current_status: TaskStatus,
 ) -> None:
     task = _task_in_status(current_status)
-    repository.add(task)
+    _run(repository.add(task))
 
     response = client.post(f"/v1/tasks/{task.id}/cancel")
 
     assert response.status_code == 200
     assert response.json()["status"] == "cancel_requested"
-    stored = repository.get(task.id)
+    stored = _run(repository.get(task.id))
     assert stored is not None
     assert stored.status is TaskStatus.CANCEL_REQUESTED
 
@@ -256,7 +297,7 @@ def test_cancel_conflict_returns_unified_409(
     current_status: TaskStatus,
 ) -> None:
     task = _task_in_status(current_status)
-    repository.add(task)
+    _run(repository.add(task))
 
     response = client.post(f"/v1/tasks/{task.id}/cancel")
 
@@ -275,7 +316,7 @@ def test_retry_failed_task(client: TestClient, repository: InMemoryTaskRepositor
     task = Task(task_type=TaskType.SUM_NUMBERS, payload={"numbers": [1]})
     task.transition_to(TaskStatus.RUNNING)
     task.transition_to(TaskStatus.FAILED)
-    repository.add(task)
+    _run(repository.add(task))
 
     response = client.post(f"/v1/tasks/{task.id}/retry")
 
@@ -308,7 +349,7 @@ def test_retry_conflict_returns_409(
     current_status: TaskStatus,
 ) -> None:
     task = _task_in_status(current_status)
-    repository.add(task)
+    _run(repository.add(task))
 
     response = client.post(f"/v1/tasks/{task.id}/retry")
 
@@ -371,7 +412,7 @@ def test_internal_error_does_not_leak_exception_details(
     secret = "database-password=do-not-leak"
 
     class FailingRepository(InMemoryTaskRepository):
-        def get(self, task_id: UUID) -> Task | None:
+        async def get(self, task_id: UUID) -> Task | None:
             raise RuntimeError(secret)
 
     application = create_app(FailingRepository())
@@ -405,6 +446,8 @@ def test_openapi_contains_v1_task_routes(client: TestClient) -> None:
     assert "422" in create_operation["responses"]
     assert "503" in create_operation["responses"]
     assert "500" in create_operation["responses"]
+    header_parameters = create_operation["parameters"]
+    assert any(parameter["name"] == "Idempotency-Key" for parameter in header_parameters)
     retry_operation = paths["/v1/tasks/{task_id}/retry"]["post"]
     assert "503" in retry_operation["responses"]
 

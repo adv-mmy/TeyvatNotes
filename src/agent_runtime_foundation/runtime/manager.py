@@ -134,9 +134,10 @@ class TaskRuntime:
         queue, state_lock = self._submission_resources()
         async with state_lock:
             self._ensure_accepting()
-            task = self._service.create(command)
-            self._enqueue(queue, task.id)
-        return task
+            creation = await self._service.create(command)
+            if creation.created:
+                self._enqueue(queue, creation.task.id)
+        return creation.task
 
     async def retry(self, task_id: UUID) -> Task:
         """把失败任务恢复为 queued，并作为一次新执行重新入队。"""
@@ -144,14 +145,14 @@ class TaskRuntime:
         queue, state_lock = self._submission_resources()
         async with state_lock:
             self._ensure_accepting()
-            task = self._service.retry(task_id)
+            task = await self._service.retry(task_id)
             self._enqueue(queue, task.id)
         return task
 
     async def cancel(self, task_id: UUID) -> Task:
         """记录取消请求，并把取消传播到当前执行协程。"""
 
-        task = self._service.cancel(task_id)
+        task = await self._service.cancel(task_id)
         for active in tuple(self._active.values()):
             if active.item.task_id == task_id:
                 active.execution.cancel()
@@ -186,7 +187,7 @@ class TaskRuntime:
                 await self.wait_until_idle(self._settings.shutdown_timeout_seconds)
             except TimeoutError:
                 logger.warning("优雅停机超时，开始取消 %d 个未完成 attempt", len(self._pending))
-                self._request_cancel_for_pending_tasks()
+                await self._request_cancel_for_pending_tasks()
                 try:
                     await self.wait_until_idle(self._settings.shutdown_timeout_seconds)
                 except TimeoutError:
@@ -237,13 +238,17 @@ class TaskRuntime:
             except Exception:
                 logger.exception("Worker %d 处理 attempt %s 时发生内部错误", worker_index, item)
                 if item is not None:
-                    self._finalize_failure(item.task_id, "任务运行时内部错误")
+                    await self._safe_finalize_failure(
+                        item.task_id,
+                        item.attempt_id,
+                        "任务运行时内部错误",
+                    )
             finally:
                 queue.task_done()
 
     async def _process(self, item: _WorkItem, worker_index: int) -> None:
         execution = asyncio.create_task(
-            self._execute(item.task_id),
+            self._execute(item),
             name=f"agent-runtime-execution-{item.task_id}-{item.attempt_id}",
         )
         self._active[item.attempt_id] = _ActiveAttempt(item=item, execution=execution)
@@ -260,70 +265,111 @@ class TaskRuntime:
                 self._active.pop(item.attempt_id)
             self._pending.pop(item.attempt_id, None)
 
-    async def _execute(self, task_id: UUID) -> None:
+    async def _execute(self, item: _WorkItem) -> None:
         semaphore = self._semaphore
         if semaphore is None:
             raise RuntimeError("任务执行时 Semaphore 尚未初始化")
 
         try:
             async with semaphore:
-                task = self._start_task(task_id)
+                task = await self._start_task(item)
                 if task is None:
                     return
                 try:
                     async with asyncio.timeout(self._settings.task_timeout_seconds):
                         output = await self._executor.execute(task)
                 except TimeoutError:
-                    self._finalize_failure(task_id, "任务执行超时")
+                    await self._finalize_failure(
+                        item.task_id,
+                        item.attempt_id,
+                        "任务执行超时",
+                    )
                 except TaskExecutionError as exc:
-                    self._finalize_failure(task_id, str(exc))
+                    await self._finalize_failure(item.task_id, item.attempt_id, str(exc))
                 except Exception:
-                    logger.exception("任务 %s 执行失败", task_id)
-                    self._finalize_failure(task_id, "任务执行失败")
+                    logger.exception("任务 %s 执行失败", item.task_id)
+                    await self._finalize_failure(
+                        item.task_id,
+                        item.attempt_id,
+                        "任务执行失败",
+                    )
                 else:
-                    self._finalize_success(task_id, output)
+                    await self._finalize_success(item.task_id, item.attempt_id, output)
         except asyncio.CancelledError:
-            self._finalize_cancel(task_id)
+            await self._finalize_cancel(item.task_id, item.attempt_id)
             raise
 
-    def _start_task(self, task_id: UUID) -> Task | None:
-        task = self._repository.get(task_id)
+    async def _start_task(self, item: _WorkItem) -> Task | None:
+        task = await self._repository.get(item.task_id)
         if task is None:
             return None
         if task.status is TaskStatus.CANCEL_REQUESTED:
-            self._finalize_cancel(task_id)
+            await self._finalize_cancel(item.task_id, item.attempt_id)
             return None
         if task.status is not TaskStatus.QUEUED:
             return None
 
         try:
-            return self._repository.transition(task_id, TaskStatus.RUNNING)
+            return await self._repository.transition(
+                item.task_id,
+                TaskStatus.RUNNING,
+                attempt_id=item.attempt_id,
+            )
         except InvalidTaskTransition:
-            self._finalize_cancel(task_id)
+            await self._finalize_cancel(item.task_id, item.attempt_id)
             return None
 
-    def _finalize_success(self, task_id: UUID, output: JsonValue) -> None:
+    async def _finalize_success(
+        self,
+        task_id: UUID,
+        attempt_id: UUID,
+        output: JsonValue,
+    ) -> None:
         try:
-            self._repository.transition(
+            await self._repository.transition(
                 task_id,
                 TaskStatus.SUCCEEDED,
                 result=TaskResult(output=output),
+                attempt_id=attempt_id,
             )
         except InvalidTaskTransition:
-            self._finalize_cancel(task_id)
+            await self._finalize_cancel(task_id, attempt_id)
 
-    def _finalize_failure(self, task_id: UUID, message: str) -> None:
+    async def _finalize_failure(
+        self,
+        task_id: UUID,
+        attempt_id: UUID,
+        message: str,
+    ) -> None:
         try:
-            self._repository.transition(
+            await self._repository.transition(
                 task_id,
                 TaskStatus.FAILED,
                 result=TaskResult(error=message),
+                attempt_id=attempt_id,
             )
         except InvalidTaskTransition:
-            self._finalize_cancel(task_id)
+            await self._finalize_cancel(task_id, attempt_id)
 
-    def _finalize_cancel(self, task_id: UUID) -> None:
-        task = self._repository.get(task_id)
+    async def _safe_finalize_failure(
+        self,
+        task_id: UUID,
+        attempt_id: UUID,
+        message: str,
+    ) -> None:
+        """尽力记录失败，但不让存储故障终止固定 Worker。"""
+
+        try:
+            await self._finalize_failure(task_id, attempt_id, message)
+        except Exception:
+            logger.exception("无法持久化 attempt %s 的失败状态", attempt_id)
+
+    async def _finalize_cancel(
+        self,
+        task_id: UUID,
+        attempt_id: UUID | None = None,
+    ) -> None:
+        task = await self._repository.get(task_id)
         if task is None or task.status in {
             TaskStatus.SUCCEEDED,
             TaskStatus.FAILED,
@@ -333,34 +379,53 @@ class TaskRuntime:
 
         if task.status in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
             try:
-                task = self._service.cancel(task_id)
+                task = await self._service.cancel(task_id)
             except TaskActionConflictError:
-                task = self._repository.get(task_id)
+                task = await self._repository.get(task_id)
                 if task is None:
                     return
 
         if task.status is TaskStatus.CANCEL_REQUESTED:
             try:
-                self._repository.transition(task_id, TaskStatus.CANCELLED)
+                await self._repository.transition(
+                    task_id,
+                    TaskStatus.CANCELLED,
+                    attempt_id=attempt_id,
+                )
             except InvalidTaskTransition:
                 logger.debug("任务 %s 已由并发路径完成取消", task_id)
 
-    def _request_cancel_for_pending_tasks(self) -> None:
+    async def _request_cancel_for_pending_tasks(self) -> None:
         task_ids = {item.task_id for item in self._pending.values()}
-        for task_id in task_ids:
-            task = self._repository.get(task_id)
-            if task is not None and task.status in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
-                with suppress(TaskActionConflictError):
-                    self._service.cancel(task_id)
-
         for active in tuple(self._active.values()):
             active.execution.cancel()
+
+        for task_id in task_ids:
+            try:
+                task = await self._repository.get(task_id)
+                if task is not None and task.status in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
+                    with suppress(TaskActionConflictError):
+                        await self._service.cancel(task_id)
+            except Exception:
+                logger.exception("停机时无法持久化任务 %s 的取消请求", task_id)
+
+    async def _safe_finalize_cancel(
+        self,
+        task_id: UUID,
+        attempt_id: UUID | None = None,
+    ) -> None:
+        """尽力持久化取消，数据库故障时仍继续收敛本地资源。"""
+
+        try:
+            await self._finalize_cancel(task_id, attempt_id)
+        except Exception:
+            logger.exception("无法持久化任务 %s 的取消状态", task_id)
 
     async def _final_cleanup(self, queue: asyncio.Queue[_WorkItem | None]) -> None:
         """无论停机路径是否超时，都收敛协程、队列计数和任务状态。"""
 
         if self._pending or any(not worker.done() for worker in self._workers):
-            self._request_cancel_for_pending_tasks()
+            await self._request_cancel_for_pending_tasks()
 
         for active in tuple(self._active.values()):
             active.execution.cancel()
@@ -376,13 +441,13 @@ class TaskRuntime:
                 break
             try:
                 if item is not None:
-                    self._finalize_cancel(item.task_id)
+                    await self._safe_finalize_cancel(item.task_id, item.attempt_id)
                     self._pending.pop(item.attempt_id, None)
             finally:
                 queue.task_done()
 
         for item in tuple(self._pending.values()):
-            self._finalize_cancel(item.task_id)
+            await self._safe_finalize_cancel(item.task_id, item.attempt_id)
         self._pending.clear()
         self._active.clear()
         await queue.join()

@@ -50,7 +50,9 @@ class Task:
     id: UUID = field(default_factory=uuid4)
     task_type: TaskType = TaskType.SUM_NUMBERS
     payload: dict[str, JsonValue] = field(default_factory=dict)
+    idempotency_key: str | None = None
     result: TaskResult | None = None
+    version: int = 0
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     _status: TaskStatus = field(default=TaskStatus.QUEUED, init=False, repr=False)
@@ -81,6 +83,35 @@ class Task:
 
         return self._status
 
+    @classmethod
+    def rehydrate(
+        cls,
+        *,
+        task_id: UUID,
+        task_type: TaskType,
+        payload: dict[str, JsonValue],
+        idempotency_key: str | None,
+        status: TaskStatus,
+        result: TaskResult | None,
+        version: int,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> Task:
+        """从持久化数据重建任务，不伪造历史状态转换。"""
+
+        task = cls(
+            id=task_id,
+            task_type=task_type,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            result=result,
+            version=version,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+        task._status = status
+        return task
+
     def transition_to(
         self,
         target_status: TaskStatus,
@@ -94,4 +125,5 @@ class Task:
 
         self._status = target_status
         self.result = result
+        self.version += 1
         self.updated_at = _utc_now()

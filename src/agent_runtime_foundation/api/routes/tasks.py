@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Response, status
 
 from agent_runtime_foundation.api.dependencies import get_task_runtime, get_task_service
 from agent_runtime_foundation.api.schemas import (
@@ -46,8 +46,12 @@ async def create_task(
     payload: TaskCreateRequest,
     response: Response,
     runtime: RuntimeDependency,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", min_length=1, max_length=255),
+    ] = None,
 ) -> TaskResponse:
-    task = await runtime.create(to_create_command(payload))
+    task = await runtime.create(to_create_command(payload, idempotency_key=idempotency_key))
     response.headers["Location"] = f"/v1/tasks/{task.id}"
     return TaskResponse.from_task(task)
 
@@ -61,13 +65,13 @@ async def create_task(
         500: {"model": ErrorResponse},
     },
 )
-def list_tasks(
+async def list_tasks(
     service: ServiceDependency,
     task_status: Annotated[TaskStatus | None, Query(alias="status")] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> TaskListResponse:
-    page = service.list_tasks(
+    page = await service.list_tasks(
         status=task_status,
         offset=offset,
         limit=limit,
@@ -90,8 +94,8 @@ def list_tasks(
         500: {"model": ErrorResponse},
     },
 )
-def get_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
-    return TaskResponse.from_task(service.get(task_id))
+async def get_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
+    return TaskResponse.from_task(await service.get(task_id))
 
 
 @router.post(

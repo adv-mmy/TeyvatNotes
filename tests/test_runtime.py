@@ -1,14 +1,15 @@
 """第三周异步任务运行时验收测试。"""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 import httpx
 import pytest
 
 from agent_runtime_foundation.api import create_app
 from agent_runtime_foundation.application import CreateTaskCommand
-from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus, TaskType
+from agent_runtime_foundation.domain import JsonValue, Task, TaskResult, TaskStatus, TaskType
 from agent_runtime_foundation.repositories import InMemoryTaskRepository
 from agent_runtime_foundation.runtime import (
     RuntimeNotAcceptingError,
@@ -32,6 +33,16 @@ async def _wait_until(
 ) -> None:
     async with asyncio.timeout(timeout):
         while not condition():
+            await asyncio.sleep(0)
+
+
+async def _wait_until_async(
+    condition: Callable[[], Awaitable[bool]],
+    *,
+    timeout: float = 1.0,
+) -> None:
+    async with asyncio.timeout(timeout):
+        while not await condition():
             await asyncio.sleep(0)
 
 
@@ -114,6 +125,51 @@ class SlowCancellationExecutor:
         return {"task_id": str(task.id)}
 
 
+class FailingTransitionRepository(InMemoryTaskRepository):
+    """每次状态写入都失败，用于验证 Worker 不被补偿异常击穿。"""
+
+    async def transition(
+        self,
+        task_id: UUID,
+        target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
+        attempt_id: UUID | None = None,
+    ) -> Task | None:
+        del task_id, target_status, result, attempt_id
+        raise RuntimeError("模拟数据库写入失败")
+
+
+class SwitchableFailureRepository(InMemoryTaskRepository):
+    """在任务开始后切换为完全不可用，用于覆盖停机故障。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.unavailable = False
+
+    async def get(self, task_id: UUID) -> Task | None:
+        if self.unavailable:
+            raise RuntimeError("模拟数据库读取失败")
+        return await super().get(task_id)
+
+    async def transition(
+        self,
+        task_id: UUID,
+        target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
+        attempt_id: UUID | None = None,
+    ) -> Task | None:
+        if self.unavailable:
+            raise RuntimeError("模拟数据库写入失败")
+        return await super().transition(
+            task_id,
+            target_status,
+            result=result,
+            attempt_id=attempt_id,
+        )
+
+
 def test_runtime_settings_reject_non_positive_values() -> None:
     with pytest.raises(ValueError, match="worker_count"):
         RuntimeSettings(worker_count=0)
@@ -174,9 +230,10 @@ def test_semaphore_enforces_real_concurrency_limit() -> None:
             await runtime.wait_until_idle(timeout=1)
 
             assert executor.peak == 2
+            stored_tasks = [await repository.get(task.id) for task in tasks]
             assert all(
-                repository.get(task.id).status is TaskStatus.SUCCEEDED  # type: ignore[union-attr]
-                for task in tasks
+                stored is not None and stored.status is TaskStatus.SUCCEEDED
+                for stored in stored_tasks
             )
         finally:
             executor.release.set()
@@ -252,7 +309,7 @@ def test_task_timeout_records_failed_result() -> None:
             task = await runtime.create(_sum_command(1))
             await runtime.wait_until_idle(timeout=1)
 
-            stored = repository.get(task.id)
+            stored = await repository.get(task.id)
             assert stored is not None
             assert stored.status is TaskStatus.FAILED
             assert stored.result is not None
@@ -285,7 +342,7 @@ def test_cancel_propagates_and_leaves_no_execution_coroutine() -> None:
         assert cancelled.status is TaskStatus.CANCEL_REQUESTED
         await runtime.wait_until_idle(timeout=1)
 
-        stored = repository.get(task.id)
+        stored = await repository.get(task.id)
         assert stored is not None
         assert stored.status is TaskStatus.CANCELLED
         assert executor.cleaned_up.is_set()
@@ -329,8 +386,8 @@ def test_cancelled_queued_task_is_finalized_when_worker_reaches_it() -> None:
         executor.release.set()
         await runtime.wait_until_idle(timeout=1)
 
-        stored_first = repository.get(first.id)
-        stored_second = repository.get(second.id)
+        stored_first = await repository.get(first.id)
+        stored_second = await repository.get(second.id)
         assert stored_first is not None
         assert stored_first.status is TaskStatus.SUCCEEDED
         assert stored_second is not None
@@ -360,7 +417,7 @@ def test_shutdown_marks_every_accepted_task_instead_of_silently_losing_it() -> N
 
         await runtime.stop()
 
-        stored_tasks = [repository.get(task.id) for task in tasks]
+        stored_tasks = [await repository.get(task.id) for task in tasks]
         assert all(stored is not None for stored in stored_tasks)
         assert all(
             stored is not None and stored.status is TaskStatus.CANCELLED for stored in stored_tasks
@@ -393,12 +450,12 @@ def test_immediate_retry_uses_independent_attempt_tracking() -> None:
         )
         await runtime.start()
         task = await runtime.create(_sum_command(1))
-        await _wait_until(
-            lambda: (
-                (stored := repository.get(task.id)) is not None
-                and stored.status is TaskStatus.FAILED
-            )
-        )
+
+        async def task_has_failed() -> bool:
+            stored = await repository.get(task.id)
+            return stored is not None and stored.status is TaskStatus.FAILED
+
+        await _wait_until_async(task_has_failed)
 
         retried = await runtime.retry(task.id)
         assert retried.status is TaskStatus.QUEUED
@@ -409,7 +466,7 @@ def test_immediate_retry_uses_independent_attempt_tracking() -> None:
         assert runtime.snapshot.active == 1
 
         await runtime.stop()
-        stored = repository.get(task.id)
+        stored = await repository.get(task.id)
         assert stored is not None
         assert stored.status is TaskStatus.CANCELLED
         assert runtime.snapshot.pending == 0
@@ -439,10 +496,79 @@ def test_second_shutdown_timeout_still_runs_final_cleanup() -> None:
 
         await asyncio.wait_for(runtime.stop(), timeout=1)
 
-        stored = repository.get(task.id)
+        stored = await repository.get(task.id)
         assert stored is not None
         assert stored.status is TaskStatus.CANCELLED
         assert executor.cleanup_started.is_set()
+        assert runtime.snapshot.pending == 0
+        assert runtime.snapshot.active == 0
+        assert runtime.snapshot.workers == 0
+        leaked = [
+            running
+            for running in asyncio.all_tasks()
+            if running is not asyncio.current_task()
+            and running.get_name().startswith("agent-runtime-")
+        ]
+        assert leaked == []
+
+    asyncio.run(scenario())
+
+
+def test_repository_failure_does_not_permanently_stop_worker() -> None:
+    async def scenario() -> None:
+        repository = FailingTransitionRepository()
+        runtime = TaskRuntime(
+            repository,
+            GateExecutor(),
+            RuntimeSettings(
+                worker_count=1,
+                max_concurrency=1,
+                task_timeout_seconds=1,
+                shutdown_timeout_seconds=0.05,
+            ),
+        )
+        await runtime.start()
+
+        await runtime.create(_sum_command(1))
+        await runtime.wait_until_idle(timeout=1)
+        assert runtime.snapshot.workers == 1
+
+        await runtime.create(_sum_command(2))
+        await runtime.wait_until_idle(timeout=1)
+        assert runtime.snapshot.workers == 1
+
+        await runtime.stop()
+        assert runtime.snapshot.pending == 0
+        assert runtime.snapshot.active == 0
+        assert runtime.snapshot.workers == 0
+
+    asyncio.run(scenario())
+
+
+def test_repository_outage_during_stop_still_cleans_local_resources() -> None:
+    async def scenario() -> None:
+        repository = SwitchableFailureRepository()
+        executor = GateExecutor()
+        runtime = TaskRuntime(
+            repository,
+            executor,
+            RuntimeSettings(
+                worker_count=1,
+                max_concurrency=1,
+                task_timeout_seconds=10,
+                shutdown_timeout_seconds=0.01,
+            ),
+        )
+        await runtime.start()
+        await runtime.create(_sum_command(1))
+        await asyncio.wait_for(executor.started.wait(), timeout=1)
+        repository.unavailable = True
+
+        await asyncio.wait_for(runtime.stop(), timeout=1)
+
+        assert executor.cleaned_up.is_set()
+        assert runtime.snapshot.accepting is False
+        assert runtime.snapshot.queued == 0
         assert runtime.snapshot.pending == 0
         assert runtime.snapshot.active == 0
         assert runtime.snapshot.workers == 0

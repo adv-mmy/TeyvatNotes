@@ -7,6 +7,7 @@ from agent_runtime_foundation.application.errors import (
 from agent_runtime_foundation.application.models import (
     CreateTaskCommand,
     TaskAction,
+    TaskCreation,
     TaskPage,
 )
 from agent_runtime_foundation.application.ports import TaskRepository
@@ -16,6 +17,7 @@ __all__ = [
     "CreateTaskCommand",
     "TaskAction",
     "TaskActionConflictError",
+    "TaskCreation",
     "TaskNotFoundError",
     "TaskPage",
     "TaskRepository",

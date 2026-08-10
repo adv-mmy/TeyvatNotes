@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第 3 周：asyncio、并发、取消、超时与优雅停机。
+第 4 周：PostgreSQL、SQLAlchemy 2.x 异步仓储、事务、索引与 Alembic 迁移。
 
 当前实现包含：
 
@@ -22,6 +22,12 @@
 - 任务级超时、运行中取消和重试后重新入队；
 - FastAPI lifespan 启停运行时，关闭时先等待任务，超时后显式取消；
 - `sum_numbers` 和 `word_count` 的异步确定性执行器。
+- `tasks`、`task_attempts`、`task_events` 三张 PostgreSQL 表；
+- SQLAlchemy 2.x `AsyncEngine` / `AsyncSession` 和可配置连接池；
+- PostgreSQL Repository，在同一事务中保存状态、结果、attempt 和 event；
+- Alembic 首个迁移，可从空数据库重建表、约束和索引；
+- `Idempotency-Key` 创建幂等性与数据库唯一约束；
+- 面向常用列表查询的联合索引及 JSON `EXPLAIN` 命令。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
 
@@ -29,7 +35,7 @@
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `POST` | `/v1/tasks` | 创建任务 |
+| `POST` | `/v1/tasks` | 创建任务，可携带 `Idempotency-Key` |
 | `GET` | `/v1/tasks/{task_id}` | 查询任务 |
 | `GET` | `/v1/tasks?status=queued&offset=0&limit=20` | 分页列表和状态过滤 |
 | `POST` | `/v1/tasks/{task_id}/cancel` | 请求取消任务 |
@@ -55,11 +61,13 @@ uv run fastapi dev main.py
 ```powershell
 curl.exe -i -X POST http://127.0.0.1:8000/v1/tasks `
   -H "Content-Type: application/json" `
+  -H "Idempotency-Key: demo-sum-001" `
   -d '{"task_type":"sum_numbers","payload":{"numbers":[1,2,3]}}'
 ```
 
 成功时返回 `201 Created`，并在 `Location` 响应头中给出查询路径。
 创建接口只完成持久化和入队，响应中的初始状态为 `queued`；Worker 会在后台把任务推进到 `running`，最终变为 `succeeded`、`failed` 或 `cancelled`。
+对同一个非空 `Idempotency-Key` 重复发起创建请求时，系统返回第一次创建的任务，不会再次入队。
 
 查询单个任务：
 
@@ -116,7 +124,56 @@ HTTP / FastAPI
 
 路由只负责输入转换、调用用例和输出转换。取消与重试的合法性由第一周实现的 `Task.transition_to()` 保证，避免 API 层出现第二套状态规则。
 
-当前使用内存 Repository：数据仅在单个应用进程内保留，服务重启后会丢失。数据库持久化留到后续阶段。
+设置 `DATABASE_URL` 时使用 PostgreSQL Repository；未设置时保留内存 Repository，方便无数据库的本地练习和单元测试。
+
+## PostgreSQL 持久化
+
+### 建表与迁移
+
+使用专用 PostgreSQL 数据库，然后先执行迁移：
+
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/agent_runtime"
+uv run alembic upgrade head
+uv run fastapi dev main.py
+```
+
+应用不会在启动时自动改表，避免多个应用实例并发执行迁移。启动前应由部署步骤明确运行 `alembic upgrade head`。
+
+| 表 | 主要用途 |
+| --- | --- |
+| `tasks` | 任务类型、参数、当前状态、结果/错误、幂等键、版本号和时间 |
+| `task_attempts` | 每次执行的编号、开始/结束时间及错误 |
+| `task_events` | 创建与状态变化审计事件，为后续 SSE 保留数据基础 |
+
+`PostgresTaskRepository.transition()` 用 `SELECT ... FOR UPDATE` 锁定任务行。领取、领域状态校验、`tasks` 更新、`task_attempts` 更新和 `task_events` 插入在同一个事务中提交；任一 SQL 失败都会整体回滚。
+列表查询在短生命周期 `REPEATABLE READ` 事务中先计算 `total` 再取分页数据，使两条 SQL 共享同一 MVCC 快照，避免并发插入导致单次响应的总数与列表不属于同一时点。
+
+### 约束与索引
+
+- `uq_tasks_idempotency_key` 由 PostgreSQL 保证非空幂等键唯一，Repository 使用 `INSERT ... ON CONFLICT DO NOTHING` 处理并发重复请求。
+- `ix_tasks_created_at_id` 支持不过滤状态的稳定分页排序。
+- `ix_tasks_status_created_at_id` 支持按状态过滤后再按 `created_at, id` 排序。
+- CHECK、FOREIGN KEY、UNIQUE 和非空约束作为应用校验之后的最后一层不变量保护。
+
+对主要列表查询执行 JSON `EXPLAIN`：
+
+```powershell
+uv run python -m agent_runtime_foundation.database.explain
+```
+
+数据量很小时 PostgreSQL 可能正确地选择顺序扫描，因此不应只凭“是否出现 Index Scan”判断索引设计；还要结合数据分布、行数估算和实际耗时。
+
+### PostgreSQL 集成测试
+
+默认测试不需要数据库。如需验收空库迁移、持久化、事务回滚、并发幂等和 `EXPLAIN`，设置一个可丢弃的专用测试库：
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/agent_runtime_test"
+uv run pytest -m postgres -q
+```
+
+> 集成测试开始时会把该数据库中本项目的 Alembic 版本先降到 `base`，再升级到 `head`。不要把 `TEST_DATABASE_URL` 指向开发或生产数据库。
 
 ## 异步运行时
 
@@ -187,6 +244,7 @@ running → failed → queued
 
 - Python 3.12 或更高版本；
 - uv。
+- PostgreSQL（只有持久化运行和 `postgres` 集成测试需要）。
 
 ## 安装与检查
 
@@ -211,6 +269,10 @@ src/agent_runtime_foundation/
 │  ├─ error_handlers.py
 │  ├─ schemas.py
 │  └─ routes/tasks.py
+├─ database/
+│  ├─ models.py
+│  ├─ session.py
+│  └─ explain.py
 ├─ domain/
 │  ├─ errors.py
 │  └─ task.py
@@ -220,10 +282,17 @@ src/agent_runtime_foundation/
 │  └─ manager.py
 └─ repositories/
    ├─ base.py
-   └─ memory.py
+   ├─ memory.py
+   └─ postgres.py
+
+migrations/
+├─ env.py
+└─ versions/20260810_0001_create_task_tables.py
 
 tests/
 ├─ test_api.py
+├─ test_database.py
+├─ test_postgres_repository.py
 ├─ test_repository.py
 ├─ test_runtime.py
 └─ test_task.py

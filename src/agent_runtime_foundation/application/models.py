@@ -20,6 +20,15 @@ class CreateTaskCommand:
 
     task_type: TaskType
     payload: Mapping[str, JsonValue]
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCreation:
+    """Repository 创建结果；幂等重放时 created 为 False。"""
+
+    task: Task
+    created: bool
 
 
 @dataclass(frozen=True, slots=True)

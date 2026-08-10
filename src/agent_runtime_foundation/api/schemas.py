@@ -66,7 +66,11 @@ class TaskCreateRequest(RootModel[TaskCreateVariant]):
     """使用 task_type 区分的创建任务请求。"""
 
 
-def to_create_command(request: TaskCreateRequest) -> CreateTaskCommand:
+def to_create_command(
+    request: TaskCreateRequest,
+    *,
+    idempotency_key: str | None = None,
+) -> CreateTaskCommand:
     """将 HTTP 请求 Schema 显式转换为应用用例输入。"""
 
     value = request.root
@@ -75,10 +79,12 @@ def to_create_command(request: TaskCreateRequest) -> CreateTaskCommand:
         return CreateTaskCommand(
             task_type=TaskType.SUM_NUMBERS,
             payload={"numbers": numbers},
+            idempotency_key=idempotency_key,
         )
     return CreateTaskCommand(
         task_type=TaskType.WORD_COUNT,
         payload={"text": value.payload.text},
+        idempotency_key=idempotency_key,
     )
 
 
@@ -95,8 +101,10 @@ class TaskResponse(BaseModel):
     id: UUID
     task_type: TaskType
     payload: dict[str, JsonValue]
+    idempotency_key: str | None
     status: TaskStatus
     result: TaskResultResponse | None
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -112,8 +120,10 @@ class TaskResponse(BaseModel):
             id=task.id,
             task_type=task.task_type,
             payload=dict(task.payload),
+            idempotency_key=task.idempotency_key,
             status=task.status,
             result=result,
+            version=task.version,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )

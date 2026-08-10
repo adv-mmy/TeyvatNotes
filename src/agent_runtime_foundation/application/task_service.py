@@ -9,6 +9,7 @@ from agent_runtime_foundation.application.errors import (
 from agent_runtime_foundation.application.models import (
     CreateTaskCommand,
     TaskAction,
+    TaskCreation,
     TaskPage,
 )
 from agent_runtime_foundation.application.ports import TaskRepository
@@ -21,28 +22,28 @@ class TaskService:
     def __init__(self, repository: TaskRepository) -> None:
         self._repository = repository
 
-    def create(self, command: CreateTaskCommand) -> Task:
+    async def create(self, command: CreateTaskCommand) -> TaskCreation:
         task = Task(
             task_type=command.task_type,
             payload=dict(command.payload),
+            idempotency_key=command.idempotency_key,
         )
-        self._repository.add(task)
-        return task
+        return await self._repository.add(task)
 
-    def get(self, task_id: UUID) -> Task:
-        task = self._repository.get(task_id)
+    async def get(self, task_id: UUID) -> Task:
+        task = await self._repository.get(task_id)
         if task is None:
             raise TaskNotFoundError(task_id)
         return task
 
-    def list_tasks(
+    async def list_tasks(
         self,
         *,
         status: TaskStatus | None,
         offset: int,
         limit: int,
     ) -> TaskPage:
-        tasks, total = self._repository.list_tasks(
+        tasks, total = await self._repository.list_tasks(
             status=status,
             offset=offset,
             limit=limit,
@@ -54,21 +55,21 @@ class TaskService:
             limit=limit,
         )
 
-    def cancel(self, task_id: UUID) -> Task:
-        return self._transition(
+    async def cancel(self, task_id: UUID) -> Task:
+        return await self._transition(
             task_id=task_id,
             target_status=TaskStatus.CANCEL_REQUESTED,
             action=TaskAction.CANCEL,
         )
 
-    def retry(self, task_id: UUID) -> Task:
-        return self._transition(
+    async def retry(self, task_id: UUID) -> Task:
+        return await self._transition(
             task_id=task_id,
             target_status=TaskStatus.QUEUED,
             action=TaskAction.RETRY,
         )
 
-    def _transition(
+    async def _transition(
         self,
         *,
         task_id: UUID,
@@ -76,7 +77,7 @@ class TaskService:
         action: TaskAction,
     ) -> Task:
         try:
-            task = self._repository.transition(task_id, target_status)
+            task = await self._repository.transition(task_id, target_status)
         except InvalidTaskTransition as exc:
             raise TaskActionConflictError(
                 task_id=task_id,
