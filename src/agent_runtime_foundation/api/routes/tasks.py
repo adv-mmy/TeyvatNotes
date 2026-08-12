@@ -3,9 +3,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 
-from agent_runtime_foundation.api.dependencies import get_task_commands, get_task_service
+from agent_runtime_foundation.api.dependencies import (
+    get_task_commands,
+    get_task_event_service,
+    get_task_service,
+)
 from agent_runtime_foundation.api.schemas import (
     ErrorResponse,
     TaskCreateRequest,
@@ -13,12 +18,18 @@ from agent_runtime_foundation.api.schemas import (
     TaskResponse,
     to_create_command,
 )
-from agent_runtime_foundation.application import TaskCommandHandler, TaskService
+from agent_runtime_foundation.api.sse import stream_task_events
+from agent_runtime_foundation.application import (
+    TaskCommandHandler,
+    TaskEventService,
+    TaskService,
+)
 from agent_runtime_foundation.domain import TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["任务"])
 ServiceDependency = Annotated[TaskService, Depends(get_task_service)]
 CommandsDependency = Annotated[TaskCommandHandler, Depends(get_task_commands)]
+EventServiceDependency = Annotated[TaskEventService, Depends(get_task_event_service)]
 
 
 @router.post(
@@ -80,6 +91,50 @@ async def list_tasks(
         total=page.total,
         offset=page.offset,
         limit=page.limit,
+    )
+
+
+@router.get(
+    "/{task_id}/events",
+    summary="订阅任务事件",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "SSE 事件流",
+            "content": {"text/event-stream": {}},
+        },
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def stream_events(
+    task_id: UUID,
+    request: Request,
+    service: ServiceDependency,
+    event_service: EventServiceDependency,
+    last_event_id: Annotated[
+        int | None,
+        Header(alias="Last-Event-ID", ge=0),
+    ] = None,
+) -> StreamingResponse:
+    """从 Last-Event-ID 之后推送事件，不重复已确认事件。"""
+
+    await event_service.ensure_task_exists(task_id)
+    return StreamingResponse(
+        stream_task_events(
+            request,
+            task_id=task_id,
+            after_id=last_event_id or 0,
+            event_service=event_service,
+            task_service=service,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

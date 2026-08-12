@@ -429,7 +429,8 @@ def test_internal_error_does_not_leak_exception_details(
     assert response.json()["code"] == "internal_error"
     assert response.json()["details"] == {}
     assert response.json()["request_id"] == response.headers["X-Request-ID"]
-    assert secret in caplog.text
+    assert secret not in caplog.text
+    assert "未处理异常" in caplog.text
 
 
 def test_openapi_contains_v1_task_routes(client: TestClient) -> None:
@@ -439,8 +440,12 @@ def test_openapi_contains_v1_task_routes(client: TestClient) -> None:
     paths = response.json()["paths"]
     assert "/v1/tasks" in paths
     assert "/v1/tasks/{task_id}" in paths
+    assert "/v1/tasks/{task_id}/events" in paths
     assert "/v1/tasks/{task_id}/cancel" in paths
     assert "/v1/tasks/{task_id}/retry" in paths
+    assert "/health/live" in paths
+    assert "/health/ready" in paths
+    assert "/metrics" in paths
     create_operation = paths["/v1/tasks"]["post"]
     assert "Location" in create_operation["responses"]["201"]["headers"]
     assert "422" in create_operation["responses"]

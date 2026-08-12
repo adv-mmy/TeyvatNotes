@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 from threading import RLock
 from uuid import UUID, uuid4
 
-from agent_runtime_foundation.application import TaskCreation
+from agent_runtime_foundation.application import TaskCreation, TaskEvent, TaskEventType
 from agent_runtime_foundation.domain import JsonValue, Task, TaskResult, TaskStatus
+from agent_runtime_foundation.observability import current_request_id
 from agent_runtime_foundation.worker.errors import LeaseOwnershipError
 from agent_runtime_foundation.worker.models import (
     AttemptOutcome,
@@ -24,6 +25,7 @@ class _WorkState:
     attempt_count: int = 0
     attempts_in_cycle: int = 0
     active_claim: WorkClaim | None = None
+    request_id: str | None = None
 
 
 class InMemoryTaskRepository:
@@ -34,6 +36,8 @@ class InMemoryTaskRepository:
         self._idempotency_keys: dict[str, UUID] = {}
         self._work_states: dict[UUID, _WorkState] = {}
         self._attempts: dict[UUID, list[AttemptRecord]] = {}
+        self._events: dict[UUID, list[TaskEvent]] = {}
+        self._next_event_id = 1
         self._lock = RLock()
 
     async def add(self, task: Task) -> TaskCreation:
@@ -45,10 +49,25 @@ class InMemoryTaskRepository:
                 if existing_id is not None:
                     return TaskCreation(task=deepcopy(self._tasks[existing_id]), created=False)
             self._tasks[task.id] = deepcopy(task)
-            self._work_states[task.id] = _WorkState(available_at=task.created_at)
+            request_id = current_request_id()
+            self._work_states[task.id] = _WorkState(
+                available_at=task.created_at,
+                request_id=request_id,
+            )
             self._attempts[task.id] = []
+            self._events[task.id] = []
             if task.idempotency_key is not None:
                 self._idempotency_keys[task.idempotency_key] = task.id
+            payload: dict[str, JsonValue] = {"version": task.version}
+            if request_id is not None:
+                payload["request_id"] = request_id
+            self._append_event(
+                task,
+                event_type=TaskEventType.TASK_CREATED,
+                from_status=None,
+                to_status=task.status,
+                payload=payload,
+            )
             return TaskCreation(task=deepcopy(task), created=True)
 
     async def get(self, task_id: UUID) -> Task | None:
@@ -84,19 +103,49 @@ class InMemoryTaskRepository:
         result: TaskResult | None = None,
         attempt_id: UUID | None = None,
     ) -> Task | None:
-        del attempt_id
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
                 return None
-            task.transition_to(target_status, result=deepcopy(result))
+            self._transition_with_events(
+                task,
+                target_status,
+                result=deepcopy(result),
+                attempt_id=attempt_id,
+            )
             if target_status is TaskStatus.QUEUED:
                 state = self._work_states[task_id]
                 state.available_at = task.updated_at
                 # 只有显式的 failed -> queued 手动重试经过此处。
                 # fail_claim() 内部的自动重试不重置该轮预算。
                 state.attempts_in_cycle = 0
+                state.request_id = current_request_id() or state.request_id
             return deepcopy(task)
+
+    async def list_events(
+        self,
+        task_id: UUID,
+        *,
+        after_id: int,
+        limit: int,
+    ) -> tuple[TaskEvent, ...] | None:
+        """按全局递增 ID 返回任务事件快照。"""
+
+        if after_id < 0:
+            raise ValueError("after_id 不能为负数")
+        if limit < 1:
+            raise ValueError("limit 必须大于 0")
+        with self._lock:
+            stored_events = self._events.get(task_id)
+            if stored_events is None:
+                return None
+            events = [event for event in stored_events if event.id > after_id]
+            return tuple(deepcopy(events[:limit]))
+
+    async def is_ready(self) -> bool:
+        """内存存储在进程存活时始终就绪。"""
+
+        return True
 
     async def claim_next(
         self,
@@ -124,10 +173,16 @@ class InMemoryTaskRepository:
                 if state.active_claim is not None or state.available_at > now:
                     continue
 
-                task.transition_to(TaskStatus.RUNNING)
+                attempt_id = uuid4()
+                self._transition_with_events(
+                    task,
+                    TaskStatus.RUNNING,
+                    attempt_id=attempt_id,
+                    worker_id=worker_id,
+                    request_id=state.request_id,
+                )
                 state.attempt_count += 1
                 state.attempts_in_cycle += 1
-                attempt_id = uuid4()
                 claim = WorkClaim(
                     task=deepcopy(task),
                     attempt_id=attempt_id,
@@ -136,6 +191,7 @@ class InMemoryTaskRepository:
                     worker_id=worker_id,
                     claimed_at=now,
                     lease_expires_at=now + lease_duration,
+                    request_id=state.request_id,
                 )
                 state.active_claim = claim
                 self._attempts[task.id].append(
@@ -164,12 +220,22 @@ class InMemoryTaskRepository:
         with self._lock:
             state, task = self._owned_claim(claim, now=now)
             if task.status is TaskStatus.CANCEL_REQUESTED:
-                task.transition_to(TaskStatus.CANCELLED)
+                self._transition_with_events(
+                    task,
+                    TaskStatus.CANCELLED,
+                    attempt_id=claim.attempt_id,
+                    worker_id=claim.worker_id,
+                    request_id=claim.request_id,
+                )
                 outcome = AttemptOutcome.CANCELLED
             elif task.status is TaskStatus.RUNNING:
-                task.transition_to(
+                self._transition_with_events(
+                    task,
                     TaskStatus.SUCCEEDED,
                     result=TaskResult(output=deepcopy(output)),
+                    attempt_id=claim.attempt_id,
+                    worker_id=claim.worker_id,
+                    request_id=claim.request_id,
                 )
                 outcome = AttemptOutcome.SUCCEEDED
             else:
@@ -198,11 +264,24 @@ class InMemoryTaskRepository:
         with self._lock:
             state, task = self._owned_claim(claim, now=now)
             if task.status is TaskStatus.CANCEL_REQUESTED:
-                task.transition_to(TaskStatus.CANCELLED)
+                self._transition_with_events(
+                    task,
+                    TaskStatus.CANCELLED,
+                    attempt_id=claim.attempt_id,
+                    worker_id=claim.worker_id,
+                    request_id=claim.request_id,
+                )
                 outcome = AttemptOutcome.CANCELLED
                 retry_at = None
             elif task.status is TaskStatus.RUNNING:
-                task.transition_to(TaskStatus.FAILED, result=TaskResult(error=error))
+                self._transition_with_events(
+                    task,
+                    TaskStatus.FAILED,
+                    result=TaskResult(error=error),
+                    attempt_id=claim.attempt_id,
+                    worker_id=claim.worker_id,
+                    request_id=claim.request_id,
+                )
                 if retry_at is None:
                     outcome = (
                         AttemptOutcome.RETRIES_EXHAUSTED
@@ -210,7 +289,13 @@ class InMemoryTaskRepository:
                         else AttemptOutcome.PERMANENT_FAILURE
                     )
                 else:
-                    task.transition_to(TaskStatus.QUEUED)
+                    self._transition_with_events(
+                        task,
+                        TaskStatus.QUEUED,
+                        attempt_id=claim.attempt_id,
+                        worker_id=claim.worker_id,
+                        request_id=claim.request_id,
+                    )
                     state.available_at = retry_at
                     outcome = AttemptOutcome.RETRY_SCHEDULED
             else:
@@ -240,23 +325,39 @@ class InMemoryTaskRepository:
                 task = self._tasks[task_id]
                 if claim is None:
                     if task.status is TaskStatus.CANCEL_REQUESTED:
-                        task.transition_to(TaskStatus.CANCELLED)
+                        self._transition_with_events(task, TaskStatus.CANCELLED)
                         recovered += 1
                     continue
                 if claim.lease_expires_at > now:
                     continue
 
                 if task.status is TaskStatus.CANCEL_REQUESTED:
-                    task.transition_to(TaskStatus.CANCELLED)
+                    self._transition_with_events(
+                        task,
+                        TaskStatus.CANCELLED,
+                        attempt_id=claim.attempt_id,
+                        worker_id=claim.worker_id,
+                        request_id=claim.request_id,
+                    )
                     outcome = AttemptOutcome.CANCELLED
                 elif task.status is TaskStatus.RUNNING:
-                    task.transition_to(
+                    self._transition_with_events(
+                        task,
                         TaskStatus.FAILED,
                         result=TaskResult(error="Worker 租约过期"),
+                        attempt_id=claim.attempt_id,
+                        worker_id=claim.worker_id,
+                        request_id=claim.request_id,
                     )
                     outcome = AttemptOutcome.LEASE_EXPIRED
                     if claim.attempt_in_cycle < max_attempts:
-                        task.transition_to(TaskStatus.QUEUED)
+                        self._transition_with_events(
+                            task,
+                            TaskStatus.QUEUED,
+                            attempt_id=claim.attempt_id,
+                            worker_id=claim.worker_id,
+                            request_id=claim.request_id,
+                        )
                         state.available_at = now
                 else:
                     outcome = AttemptOutcome.LEASE_EXPIRED
@@ -283,6 +384,74 @@ class InMemoryTaskRepository:
 
         with self._lock:
             return tuple(deepcopy(self._attempts.get(task_id, [])))
+
+    def _transition_with_events(
+        self,
+        task: Task,
+        target_status: TaskStatus,
+        *,
+        result: TaskResult | None = None,
+        attempt_id: UUID | None = None,
+        worker_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        """在仓储锁内同时更新任务和事件序列。"""
+
+        from_status = task.status
+        task.transition_to(target_status, result=result)
+        payload: dict[str, JsonValue] = {"version": task.version}
+        resolved_request_id = request_id or current_request_id()
+        if resolved_request_id is not None:
+            payload["request_id"] = resolved_request_id
+        if attempt_id is not None:
+            payload["attempt_id"] = str(attempt_id)
+        if worker_id is not None:
+            payload["worker_id"] = worker_id
+
+        if target_status is TaskStatus.SUCCEEDED:
+            self._append_event(
+                task,
+                event_type=TaskEventType.TASK_PROGRESS,
+                from_status=from_status,
+                to_status=target_status,
+                payload={**payload, "progress": 100},
+            )
+        self._append_event(
+            task,
+            event_type=TaskEventType.STATUS_CHANGED,
+            from_status=from_status,
+            to_status=target_status,
+            payload=payload,
+        )
+        if target_status is TaskStatus.RUNNING:
+            self._append_event(
+                task,
+                event_type=TaskEventType.TASK_PROGRESS,
+                from_status=from_status,
+                to_status=target_status,
+                payload={**payload, "progress": 0},
+            )
+
+    def _append_event(
+        self,
+        task: Task,
+        *,
+        event_type: TaskEventType,
+        from_status: TaskStatus | None,
+        to_status: TaskStatus | None,
+        payload: dict[str, JsonValue],
+    ) -> None:
+        event = TaskEvent(
+            id=self._next_event_id,
+            task_id=task.id,
+            event_type=event_type,
+            from_status=from_status,
+            to_status=to_status,
+            payload=deepcopy(payload),
+            created_at=task.updated_at,
+        )
+        self._events[task.id].append(event)
+        self._next_event_id += 1
 
     def _owned_claim(self, claim: WorkClaim, *, now: datetime) -> tuple[_WorkState, Task]:
         state = self._work_states.get(claim.task.id)

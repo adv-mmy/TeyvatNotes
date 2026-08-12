@@ -32,6 +32,7 @@ class WorkClaim:
     worker_id: str
     claimed_at: datetime
     lease_expires_at: datetime
+    request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

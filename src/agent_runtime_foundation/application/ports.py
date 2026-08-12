@@ -1,10 +1,15 @@
 """应用层依赖的外部端口。"""
 
-from typing import Protocol
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from agent_runtime_foundation.application.models import CreateTaskCommand, TaskCreation
 from agent_runtime_foundation.domain import Task, TaskResult, TaskStatus
+
+if TYPE_CHECKING:
+    from agent_runtime_foundation.application.events import TaskEvent
 
 
 class TaskRepository(Protocol):
@@ -34,6 +39,26 @@ class TaskRepository(Protocol):
         attempt_id: UUID | None = None,
     ) -> Task | None:
         """原子地转换已存在任务的状态并替换执行结果。"""
+
+
+class TaskEventRepository(Protocol):
+    """任务事件游标查询端口。"""
+
+    async def list_events(
+        self,
+        task_id: UUID,
+        *,
+        after_id: int,
+        limit: int,
+    ) -> tuple[TaskEvent, ...] | None:
+        """按递增 ID 返回事件；任务不存在时返回 None。"""
+
+
+class ReadinessProbe(Protocol):
+    """存储依赖的就绪检查端口。"""
+
+    async def is_ready(self) -> bool:
+        """检查存储依赖是否可接受请求。"""
 
 
 class TaskCommandHandler(Protocol):

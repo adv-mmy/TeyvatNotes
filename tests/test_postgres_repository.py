@@ -4,8 +4,10 @@ import asyncio
 import json
 import os
 from collections.abc import Iterator
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import cast
+from types import TracebackType
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -70,6 +72,35 @@ def test_migration_creates_required_tables(postgres_database_url: str) -> None:
             assert table_names == {"tasks", "task_attempts", "task_events"}
         finally:
             await database.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_readiness_probe_queries_every_required_table() -> None:
+    class RecordingSession(AbstractAsyncContextManager[Any]):
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            return None
+
+        async def execute(self, statement: object) -> None:
+            self.statements.append(str(statement))
+
+    async def scenario() -> None:
+        session = RecordingSession()
+        repository = PostgresTaskRepository(lambda: session)  # type: ignore[arg-type]
+
+        assert await repository.is_ready() is True
+        assert len(session.statements) == 3
+        assert any("FROM tasks" in statement for statement in session.statements)
+        assert any("FROM task_attempts" in statement for statement in session.statements)
+        assert any("FROM task_events" in statement for statement in session.statements)
 
     asyncio.run(scenario())
 
@@ -220,7 +251,7 @@ def test_failed_transaction_rolls_back_task_attempt_and_event(
         assert restored is not None
         assert restored.status is TaskStatus.RUNNING
         assert restored.version == 1
-        assert counts_before == (1, 1, 2)
+        assert counts_before == (1, 1, 3)
         assert counts_after == counts_before
 
     asyncio.run(scenario())
@@ -255,7 +286,7 @@ def test_transition_commits_result_attempt_and_events(
         assert succeeded is not None
         assert succeeded.result == TaskResult(output=3)
         assert succeeded.version == 2
-        assert counts == (1, 0, 3)
+        assert counts == (1, 0, 5)
 
     asyncio.run(scenario())
 

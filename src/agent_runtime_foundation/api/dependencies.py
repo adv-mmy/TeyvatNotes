@@ -6,6 +6,8 @@ from fastapi import Depends, Request
 
 from agent_runtime_foundation.application import (
     TaskCommandHandler,
+    TaskEventRepository,
+    TaskEventService,
     TaskRepository,
     TaskService,
 )
@@ -28,6 +30,29 @@ def get_task_service(repository: RepositoryDependency) -> TaskService:
     """为当前请求构造使用共享 Repository 的应用服务。"""
 
     return TaskService(repository)
+
+
+def get_task_event_repository(request: Request) -> TaskEventRepository:
+    """从应用状态中取得独立的事件查询端口。"""
+
+    repository = getattr(request.app.state, "task_event_repository", None)
+    if repository is None:
+        raise RuntimeError("应用未配置 TaskEventRepository")
+    return cast(TaskEventRepository, repository)
+
+
+EventRepositoryDependency = Annotated[
+    TaskEventRepository,
+    Depends(get_task_event_repository),
+]
+
+
+def get_task_event_service(
+    repository: EventRepositoryDependency,
+) -> TaskEventService:
+    """为当前请求构造只依赖事件端口的查询服务。"""
+
+    return TaskEventService(repository)
 
 
 def get_task_runtime(request: Request) -> TaskRuntime:

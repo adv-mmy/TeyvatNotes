@@ -6,7 +6,10 @@ import random
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 
+from agent_runtime_foundation.domain import TaskStatus
+from agent_runtime_foundation.observability import MetricsRegistry, bind_correlation_context
 from agent_runtime_foundation.runtime import TaskExecutionError, TaskExecutor
 from agent_runtime_foundation.worker.errors import PermanentTaskError, RetryableTaskError
 from agent_runtime_foundation.worker.models import WorkClaim, WorkerSettings
@@ -34,12 +37,14 @@ class TaskWorker:
         *,
         clock: Clock = _utc_now,
         random_source: RandomSource = random.random,
+        metrics: MetricsRegistry | None = None,
     ) -> None:
         self._repository = repository
         self._executor = executor
         self._settings = settings
         self._clock = clock
         self._random_source = random_source
+        self._metrics = metrics or MetricsRegistry()
 
     async def run_once(self) -> bool:
         """恢复过期任务并最多执行一个 claim。"""
@@ -68,8 +73,14 @@ class TaskWorker:
                 processed = await self.run_once()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("Worker %s 本轮处理失败", self._settings.worker_id)
+            except Exception as exc:
+                logger.error(
+                    "Worker 本轮处理失败",
+                    extra={
+                        "event": "worker_iteration_failed",
+                        "exception_type": type(exc).__name__,
+                    },
+                )
                 processed = False
             if processed:
                 continue
@@ -80,37 +91,96 @@ class TaskWorker:
                 )
 
     async def _execute_claim(self, claim: WorkClaim) -> None:
-        try:
-            async with asyncio.timeout(self._settings.task_timeout_seconds):
-                output = await self._executor.execute(claim.task)
-        except asyncio.CancelledError:
-            # Worker 被强制结束时不伪造完成记录，由租约过期恢复。
-            raise
-        except (PermanentTaskError, TaskExecutionError) as exc:
-            logger.warning(
-                "任务 %s 发生永久错误（%s）",
-                claim.task.id,
-                type(exc).__name__,
-            )
-            await self._record_failure(claim, error="任务无法执行", retryable=False)
-        except RetryableTaskError as exc:
-            logger.warning(
-                "任务 %s 发生可重试错误（%s）",
-                claim.task.id,
-                type(exc).__name__,
-            )
-            await self._record_failure(claim, error="任务暂时无法执行", retryable=True)
-        except TimeoutError:
-            await self._record_failure(claim, error="任务执行超时", retryable=True)
-        except Exception:
-            logger.exception("任务 %s 发生未预期执行错误", claim.task.id)
-            await self._record_failure(claim, error="任务执行失败", retryable=True)
-        else:
-            await self._repository.complete_claim(
-                claim,
-                output=output,
-                now=self._clock(),
-            )
+        with bind_correlation_context(
+            request_id=claim.request_id,
+            task_id=claim.task.id,
+            attempt_id=claim.attempt_id,
+            worker_id=claim.worker_id,
+            inherit=False,
+        ):
+            started_at = perf_counter()
+            outcome = "failed"
+            failure_type: str | None = None
+            self._metrics.record_started()
+            logger.info("任务开始执行", extra={"event": "task_started"})
+            try:
+                async with asyncio.timeout(self._settings.task_timeout_seconds):
+                    output = await self._executor.execute(claim.task)
+            except asyncio.CancelledError:
+                # Worker 被强制结束时不伪造完成记录，由租约过期恢复。
+                outcome = "cancelled"
+                raise
+            except (PermanentTaskError, TaskExecutionError) as exc:
+                failure_type = type(exc).__name__
+                logger.warning(
+                    "任务发生永久错误",
+                    extra={"event": "task_failed", "failure_type": failure_type},
+                )
+                final_status = await self._record_failure(
+                    claim,
+                    error="任务无法执行",
+                    retryable=False,
+                )
+                outcome = self._metric_outcome(final_status, default="failed")
+            except RetryableTaskError as exc:
+                failure_type = type(exc).__name__
+                logger.warning(
+                    "任务发生可重试错误",
+                    extra={"event": "task_failed", "failure_type": failure_type},
+                )
+                final_status = await self._record_failure(
+                    claim,
+                    error="任务暂时无法执行",
+                    retryable=True,
+                )
+                outcome = self._metric_outcome(final_status, default="failed")
+            except TimeoutError:
+                failure_type = "timeout"
+                final_status = await self._record_failure(
+                    claim,
+                    error="任务执行超时",
+                    retryable=True,
+                )
+                outcome = self._metric_outcome(final_status, default="failed")
+            except Exception as exc:
+                failure_type = "unexpected_error"
+                logger.error(
+                    "任务发生未预期执行错误",
+                    extra={
+                        "event": "task_failed",
+                        "failure_type": failure_type,
+                        "exception_type": type(exc).__name__,
+                    },
+                )
+                final_status = await self._record_failure(
+                    claim,
+                    error="任务执行失败",
+                    retryable=True,
+                )
+                outcome = self._metric_outcome(final_status, default="failed")
+            else:
+                completed = await self._repository.complete_claim(
+                    claim,
+                    output=output,
+                    now=self._clock(),
+                )
+                outcome = self._metric_outcome(completed.status, default="succeeded")
+            finally:
+                duration = perf_counter() - started_at
+                self._metrics.record_completed(
+                    outcome=outcome,
+                    duration_seconds=duration,
+                    failure_type=failure_type,
+                )
+                logger.info(
+                    "任务执行结束",
+                    extra={
+                        "event": "task_completed",
+                        "task_status": outcome,
+                        "duration_ms": round(duration * 1000, 3),
+                        "failure_type": failure_type,
+                    },
+                )
 
     async def _record_failure(
         self,
@@ -118,7 +188,7 @@ class TaskWorker:
         *,
         error: str,
         retryable: bool,
-    ) -> None:
+    ) -> TaskStatus:
         now = self._clock()
         retry_at = None
         if retryable and claim.attempt_in_cycle < self._settings.retry_policy.max_attempts:
@@ -129,10 +199,17 @@ class TaskWorker:
             )
             retry_at = now + timedelta(seconds=delay)
 
-        await self._repository.fail_claim(
+        task = await self._repository.fail_claim(
             claim,
             error=error,
             retryable=retryable,
             retry_at=retry_at,
             now=now,
         )
+        return task.status
+
+    @staticmethod
+    def _metric_outcome(status: TaskStatus, *, default: str) -> str:
+        """取消竞态获胜时以最终持久化状态修正指标。"""
+
+        return "cancelled" if status is TaskStatus.CANCELLED else default

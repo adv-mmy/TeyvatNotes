@@ -15,11 +15,11 @@
 
 - 本项目是阶段一“Python 后端底座”的长期主项目，目标是先用确定性任务学习 Agent Runtime 同样需要的状态、并发、失败恢复、持久化和可观测性。
 - 阶段一禁止自行接入 LLM、Agent 框架、RAG 或任意函数/系统命令执行。只有用户明确要求进入相应阶段时才能引入。
-- 当前基线为 `0.5.0 / 第 5 周非 SQL 部分`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架，以及独立 Worker 的端口、重试、租约与恢复逻辑。
+- 当前基线为 `0.6.0 / 第 6 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架、第五周 Worker 策略，以及 SSE、结构化日志、关联 ID、健康检查和进程内指标。
 - 当前只允许两种确定性任务：
   - `sum_numbers`：`numbers` 含 1～100 个严格整数，每项范围为 `-1_000_000～1_000_000`；
   - `word_count`：`text` 为 1～10,000 字符的非空白字符串。
-- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。SSE、健康检查、鉴权、Docker Compose 和 CI 仍属于后续阶段。
+- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。SSE 与健康检查已实现；鉴权、Docker Compose 和 CI 仍属后续阶段。
 - 当前默认运行时配置为 `worker_count=4`、`max_concurrency=2`、`task_timeout_seconds=30`、`shutdown_timeout_seconds=5`。
 
 ## 三、架构和依赖方向
@@ -50,6 +50,16 @@ API-only 进程
   → WorkerRepository.claim_next()
   → TaskExecutor
   → complete_claim() / fail_claim()
+
+SSE 事件流
+  → TaskEventService 按 id > Last-Event-ID 读取
+  → StreamingResponse 编码 id/event/data
+  → 无事件发送心跳，终态排空后关闭
+
+可观测性
+  → ContextVar 关联 request/task/attempt/worker
+  → JSON Log + MetricsRegistry
+  → live/ready 分离的健康检查
 ```
 
 - `domain/`：只放任务实体、值对象、枚举和领域异常；不得导入 FastAPI、Pydantic、数据库、Runtime 或 LLM SDK。
@@ -103,15 +113,29 @@ running → failed → queued
 - Worker 被强制结束时不伪造完成记录，由租约过期机制恢复；因此只能保证至少一次执行，执行器必须考虑业务幂等。
 - 第五周不得把 SQL、索引、数据库事务或 Alembic 当作本周新内容；这些属于第四周，待 PostgreSQL 环境就绪后单独补完和验收。
 
+### 事件与可观测性
+
+- 任务创建和每次状态变化必须产生递增 ID 事件；当前确定性执行的进度事件为 0% 和 100%。
+- `Last-Event-ID` 是已确认游标，重连只能返回严格大于它的事件；分页排空前不得因终态提前断流。
+- 任务未终止且暂无事件时发送 SSE 心跳；客户端断开或终态事件排空后必须停止生成器。
+- 请求、任务、attempt 和 Worker 使用 `request_id/task_id/attempt_id/worker_id` 关联；ContextVar 作用域退出后必须恢复，不得串扰后续任务。
+- 日志只记录白名单结构化字段；不记录 payload、查询参数、请求体、异常原文、原始未匹配 URL、密钥或凭据。
+- liveness 只表示进程存活；readiness 必须有界检查存储，PostgreSQL 模式需验证 `tasks/task_attempts/task_events` 可访问，内嵌 Runtime 还必须处于 accepting。依赖失联或表未迁移时返回稳定 `503/not_ready`，不泄漏内部异常。
+- `MetricsRegistry` 只是单进程瞬时快照；必须明确它不持久、不跨进程聚合，不得把它描述成生产级 Metrics/Trace 后端。
+
 ## 五、当前 HTTP 契约
 
 | 方法 | 路径 | 成功行为 | 主要失败 |
 | --- | --- | --- | --- |
 | `POST` | `/v1/tasks` | `201`，返回初始 `queued` 任务和 `Location`；可携带 `Idempotency-Key` | `422`、`503`、`500` |
 | `GET` | `/v1/tasks/{task_id}` | `200`，只读查询 | `404`、`422`、`500` |
+| `GET` | `/v1/tasks/{task_id}/events` | `200 text/event-stream`，支持 `Last-Event-ID` | `404`、`422`、`500` |
 | `GET` | `/v1/tasks?status=...&offset=0&limit=20` | `200`，过滤后分页 | `422`、`500` |
 | `POST` | `/v1/tasks/{task_id}/cancel` | `200`，请求取消 | `404`、`409`、`422`、`500` |
 | `POST` | `/v1/tasks/{task_id}/retry` | `200`，失败任务重新入队 | `404`、`409`、`422`、`503`、`500` |
+| `GET` | `/health/live` | `200`，进程存活 | - |
+| `GET` | `/health/ready` | `200`，依赖就绪 | `503/not_ready` |
+| `GET` | `/metrics` | `200`，进程内 attempt 快照 | `500` |
 
 - 创建接口只负责持久化和入队，不等待任务执行完成；Worker 随后推进状态。
 - `GET` 请求不得改变任务状态或时间戳。`offset >= 0`，`1 <= limit <= 100`，`total` 表示过滤后、分页前的总数。
@@ -131,8 +155,10 @@ running → failed → queued
 - `src/agent_runtime_foundation/runtime/manager.py`：修改队列、attempt、取消、超时或停机时，必须检查正常、异常、超时、双重停机超时和立即重试路径。
 - `src/agent_runtime_foundation/runtime/executor.py`：新增任务类型时，同步修改 `TaskType`、请求 Schema、显式转换、执行器、README 和测试；只允许注册的确定性任务。
 - `src/agent_runtime_foundation/worker/`：修改领取、租约、错误分类、退避或恢复时，同步覆盖并发领取、最大尝试、永久失败、过期写入和崩溃恢复。
+- `src/agent_runtime_foundation/observability/`：修改关联上下文、日志白名单或指标时，必须覆盖作用域恢复、敏感数据脱敏、并发计数和快照隔离。
+- `src/agent_runtime_foundation/api/sse.py`：修改游标、心跳或关闭语义时，覆盖断线重连的无重复、无缺口与无遗留生成器。
 - `src/agent_runtime_foundation/api/`：修改公开契约时，同步更新 Schema、错误映射、OpenAPI 声明、API 测试和 README 示例。
-- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_database.py` 守护元数据与离线迁移。
+- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_observability.py` 守护 SSE、关联日志、健康检查和指标；`test_database.py` 守护元数据与离线迁移。
 - `uv.lock` 是自动生成的依赖锁文件，只说明用途和关键元数据，不手工编辑，也不做逐行讲解。
 
 ## 七、编码与测试规范

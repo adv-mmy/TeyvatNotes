@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 
 from agent_runtime_foundation.application import CreateTaskCommand
 from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus, TaskType
+from agent_runtime_foundation.observability import MetricsSnapshot
 
 BoundedInteger = Annotated[
     int,
@@ -145,3 +146,50 @@ class ErrorResponse(BaseModel):
     message: str
     details: JsonValue = Field(default_factory=dict)
     request_id: str
+
+
+class HealthResponse(BaseModel):
+    """健康检查成功响应。"""
+
+    status: str
+    checks: dict[str, str]
+
+
+class DurationMetricsResponse(BaseModel):
+    """任务耗时聚合响应。"""
+
+    count: int
+    total_seconds: float
+    average_seconds: float
+    max_seconds: float
+
+
+class MetricsResponse(BaseModel):
+    """进程内 attempt 指标响应。"""
+
+    started: int
+    completed: int
+    succeeded: int
+    failed: int
+    cancelled: int
+    success_rate: float
+    duration: DurationMetricsResponse
+    failure_types: dict[str, int]
+
+    @classmethod
+    def from_snapshot(cls, snapshot: MetricsSnapshot) -> "MetricsResponse":
+        return cls(
+            started=snapshot.started,
+            completed=snapshot.completed,
+            succeeded=snapshot.succeeded,
+            failed=snapshot.failed,
+            cancelled=snapshot.cancelled,
+            success_rate=snapshot.success_rate,
+            duration=DurationMetricsResponse(
+                count=snapshot.duration.count,
+                total_seconds=snapshot.duration.total_seconds,
+                average_seconds=snapshot.duration.average_seconds,
+                max_seconds=snapshot.duration.max_seconds,
+            ),
+            failure_types=dict(snapshot.failure_types),
+        )

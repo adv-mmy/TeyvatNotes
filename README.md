@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-第 5 周：独立 Worker 的 Python 边界、有界重试、指数退避/抖动、租约和崩溃恢复。
+第 6 周：SSE 事件流与断点续传、结构化日志、关联 ID、健康检查和进程内指标。
 
-第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL，因此第五周暂不增加原子领取 SQL、租约字段或 PostgreSQL Worker 适配器。
+第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL；本周沿用已有 `task_events` 表的 ORM 模型，不新增表、迁移或 Worker 原子领取 SQL。
 
 当前实现包含：
 
@@ -36,6 +36,10 @@
 - 最大尝试次数、指数退避、有上限抖动和可注入时钟/随机源；
 - 可重试、永久错误和未预期错误分类；
 - 过期租约恢复、旧 Worker 防过期写入和无活动 attempt 取消收敛。
+- `task_created`、`status_changed` 和 `task_progress` 事件，以递增 ID 提供 SSE 断点续传；
+- 通过 `request_id`、`task_id`、`attempt_id` 和 `worker_id` 串联 API 与 Worker 日志；
+- 单行 JSON 结构化日志，不记录请求体、查询参数、异常原文或原始 URL；
+- `/health/live`、`/health/ready` 和进程内 `/metrics` 快照。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
 
@@ -45,9 +49,13 @@
 | --- | --- | --- |
 | `POST` | `/v1/tasks` | 创建任务，可携带 `Idempotency-Key` |
 | `GET` | `/v1/tasks/{task_id}` | 查询任务 |
+| `GET` | `/v1/tasks/{task_id}/events` | 订阅 SSE 事件，支持 `Last-Event-ID` |
 | `GET` | `/v1/tasks?status=queued&offset=0&limit=20` | 分页列表和状态过滤 |
 | `POST` | `/v1/tasks/{task_id}/cancel` | 请求取消任务 |
 | `POST` | `/v1/tasks/{task_id}/retry` | 重试失败任务 |
+| `GET` | `/health/live` | 检查进程存活 |
+| `GET` | `/health/ready` | 检查存储和 Runtime 是否就绪 |
+| `GET` | `/metrics` | 读取当前进程的 attempt 指标 |
 
 本地启动（默认 `embedded` 模式，保留第三周的进程内 Runtime）：
 
@@ -109,6 +117,19 @@ curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/cancel
 curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/retry
 ```
 
+订阅任务事件：
+
+```powershell
+curl.exe -N http://127.0.0.1:8000/v1/tasks/<task_id>/events
+```
+
+断线前最后已确认的 SSE `id` 为 `3` 时，重连只读取更新事件：
+
+```powershell
+curl.exe -N http://127.0.0.1:8000/v1/tasks/<task_id>/events `
+  -H "Last-Event-ID: 3"
+```
+
 错误响应示例：
 
 ```json
@@ -160,7 +181,7 @@ uv run fastapi dev main.py
 | --- | --- |
 | `tasks` | 任务类型、参数、当前状态、结果/错误、幂等键、版本号和时间 |
 | `task_attempts` | 每次执行的编号、开始/结束时间及错误 |
-| `task_events` | 创建与状态变化审计事件，为后续 SSE 保留数据基础 |
+| `task_events` | 创建、状态和 0/100 进度事件，作为 SSE 数据源 |
 
 `PostgresTaskRepository.transition()` 用 `SELECT ... FOR UPDATE` 锁定任务行。领取、领域状态校验、`tasks` 更新、`task_attempts` 更新和 `task_events` 插入在同一个事务中提交；任一 SQL 失败都会整体回滚。
 列表查询在短生命周期 `REPEATABLE READ` 事务中先计算 `total` 再取分页数据，使两条 SQL 共享同一 MVCC 快照，避免并发插入导致单次响应的总数与列表不属于同一时点。
@@ -223,6 +244,30 @@ Worker 领取任务后只拥有限时租约。如果 Worker 在执行完成后�
 ### 当前边界
 
 本轮已完成 `TaskWorker`、`WorkerRepository` 端口和内存验收实现，但还不是可跨进程共享的生产队列。待本机安装 PostgreSQL 后，将按第四周 SQL 范畴补充和验收 PostgreSQL 原子领取、租约持久化与跨进程恢复；这些不计入本次第五周实现。
+
+## 第六周 SSE 与可观测性
+
+### 事件与断点续传
+
+`task_events.id` 是严格递增的事件游标。SSE 消息同时写入 `id`、`event` 和 JSON `data`；客户端重连时把最后已确认 ID 放入 `Last-Event-ID`，服务端只返回 `id > Last-Event-ID` 的事件。这避免重复已确认事件，也不跳过中间事件。
+
+当前确定性任务只报告 0% 和 100% 进度。无新事件时发送 SSE 注释心跳；任务进入 `succeeded`、`failed` 或 `cancelled` 后，当前连接在排空已持久化事件后关闭。
+
+### 关联 ID 与结构化日志
+
+- `request_id` 标识一次 HTTP 请求，由服务端生成；客户端传入的 `X-Request-ID` 不会原样进入日志或事件；
+- `task_id` 标识业务任务，`attempt_id` 标识一次执行，`worker_id` 标识执行者；
+- 日志只记录白名单字段和异常类型，不记录 payload、查询参数、异常原文或未匹配原始 URL。
+
+`main.py` 和 `api_main.py` 会为 `agent_runtime_foundation` logger 安装单行 JSON formatter。一条典型执行日志同时含有四个关联 ID，可从 API 请求追踪到 Worker attempt。
+
+### 健康检查与指标
+
+- `/health/live` 只表示 HTTP 进程存活；
+- `/health/ready` 在 1 秒超时内检查存储；PostgreSQL 模式会验证 `tasks`、`task_attempts`、`task_events` 三张既有表可访问，存储失联、表未迁移或内嵌 Runtime 不接收任务时返回 `503/not_ready`；
+- `/metrics` 返回 attempt 的开始/完成数、成功率、耗时总和/平均/最大值以及失败类型计数。
+
+这里的 Metric 是数值聚合，Log 是离散事件记录，Trace 则是一次请求跨组件的因果链。本项目当前通过关联 ID 提供轻量追踪，尚未接入分布式 Trace 后端。`/metrics` 也是单进程、内存中的瞬时快照，重启会清零，API-only 与独立 Worker 之间不会自动聚合。
 
 ## 异步运行时
 
@@ -312,13 +357,17 @@ src/agent_runtime_foundation/
 ├─ __init__.py
 ├─ application/
 │  ├─ models.py
+│  ├─ events.py
 │  ├─ task_commands.py
 │  └─ task_service.py
 ├─ api/
 │  ├─ app.py
 │  ├─ error_handlers.py
+│  ├─ sse.py
 │  ├─ schemas.py
-│  └─ routes/tasks.py
+│  └─ routes/
+│     ├─ health.py
+│     └─ tasks.py
 ├─ database/
 │  ├─ models.py
 │  ├─ session.py
@@ -326,6 +375,10 @@ src/agent_runtime_foundation/
 ├─ domain/
 │  ├─ errors.py
 │  └─ task.py
+├─ observability/
+│  ├─ context.py
+│  ├─ logging.py
+│  └─ metrics.py
 ├─ runtime/
 │  ├─ errors.py
 │  ├─ executor.py
@@ -348,6 +401,7 @@ migrations/
 tests/
 ├─ test_api.py
 ├─ test_database.py
+├─ test_observability.py
 ├─ test_postgres_repository.py
 ├─ test_repository.py
 ├─ test_runtime.py

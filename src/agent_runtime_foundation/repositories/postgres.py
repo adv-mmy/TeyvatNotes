@@ -9,7 +9,11 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_runtime_foundation.application import TaskCreation
+from agent_runtime_foundation.application import (
+    TaskCreation,
+    TaskEvent,
+    TaskEventType,
+)
 from agent_runtime_foundation.database import (
     TaskAttemptRecord,
     TaskEventRecord,
@@ -22,6 +26,7 @@ from agent_runtime_foundation.domain import (
     TaskStatus,
     TaskType,
 )
+from agent_runtime_foundation.observability import current_request_id
 
 
 def _as_json_value(value: Any) -> JsonValue:
@@ -74,6 +79,38 @@ def _to_domain(record: TaskRecord) -> Task:
     )
 
 
+def _to_event(record: TaskEventRecord) -> TaskEvent:
+    payload = _as_json_value(record.event_payload)
+    if not isinstance(payload, dict):
+        raise ValueError("task_events.payload 必须是 JSON 对象")
+    return TaskEvent(
+        id=record.id,
+        task_id=record.task_id,
+        event_type=TaskEventType(record.event_type),
+        from_status=TaskStatus(record.from_status) if record.from_status is not None else None,
+        to_status=TaskStatus(record.to_status) if record.to_status is not None else None,
+        payload=payload,
+        created_at=record.created_at,
+    )
+
+
+def _event_payload(
+    task: Task,
+    *,
+    attempt_id: UUID | None = None,
+    progress: int | None = None,
+) -> dict[str, JsonValue]:
+    payload: dict[str, JsonValue] = {"version": task.version}
+    request_id = current_request_id()
+    if request_id is not None:
+        payload["request_id"] = request_id
+    if attempt_id is not None:
+        payload["attempt_id"] = str(attempt_id)
+    if progress is not None:
+        payload["progress"] = progress
+    return payload
+
+
 class PostgresTaskRepository:
     """用短生命周期 AsyncSession 实现事务化任务持久化。"""
 
@@ -114,7 +151,7 @@ class PostgresTaskRepository:
                     event_type="task_created",
                     from_status=None,
                     to_status=TaskStatus.QUEUED.value,
-                    event_payload={"version": 0},
+                    event_payload=_event_payload(task),
                     created_at=record.created_at,
                 )
             )
@@ -154,6 +191,47 @@ class PostgresTaskRepository:
             ).all()
         return [_to_domain(record) for record in records], int(total or 0)
 
+    async def list_events(
+        self,
+        task_id: UUID,
+        *,
+        after_id: int,
+        limit: int,
+    ) -> tuple[TaskEvent, ...] | None:
+        """按全局递增事件 ID 读取任务事件。"""
+
+        if after_id < 0:
+            raise ValueError("after_id 不能为负数")
+        if limit < 1:
+            raise ValueError("limit 必须大于 0")
+        async with self._session_factory() as session:
+            task_exists = await session.scalar(
+                select(TaskRecord.id).where(TaskRecord.id == task_id)
+            )
+            if task_exists is None:
+                return None
+            records = (
+                await session.scalars(
+                    select(TaskEventRecord)
+                    .where(
+                        TaskEventRecord.task_id == task_id,
+                        TaskEventRecord.id > after_id,
+                    )
+                    .order_by(TaskEventRecord.id)
+                    .limit(limit)
+                )
+            ).all()
+        return tuple(_to_event(record) for record in records)
+
+    async def is_ready(self) -> bool:
+        """验证连接与第六周运行必需的任务、事件表均可访问。"""
+
+        async with self._session_factory() as session:
+            await session.execute(select(TaskRecord.id).limit(1))
+            await session.execute(select(TaskAttemptRecord.id).limit(1))
+            await session.execute(select(TaskEventRecord.id).limit(1))
+        return True
+
     async def transition(
         self,
         task_id: UUID,
@@ -181,16 +259,40 @@ class PostgresTaskRepository:
                 from_status=from_status,
                 attempt_id=attempt_id,
             )
-            session.add(
+            event_records: list[TaskEventRecord] = []
+            if task.status is TaskStatus.SUCCEEDED:
+                event_records.append(
+                    TaskEventRecord(
+                        task_id=task.id,
+                        event_type=TaskEventType.TASK_PROGRESS.value,
+                        from_status=from_status.value,
+                        to_status=task.status.value,
+                        event_payload=_event_payload(task, attempt_id=attempt_id, progress=100),
+                        created_at=task.updated_at,
+                    )
+                )
+            event_records.append(
                 TaskEventRecord(
                     task_id=task.id,
-                    event_type="status_changed",
+                    event_type=TaskEventType.STATUS_CHANGED.value,
                     from_status=from_status.value,
                     to_status=task.status.value,
-                    event_payload={"version": task.version},
+                    event_payload=_event_payload(task, attempt_id=attempt_id),
                     created_at=task.updated_at,
                 )
             )
+            if task.status is TaskStatus.RUNNING:
+                event_records.append(
+                    TaskEventRecord(
+                        task_id=task.id,
+                        event_type=TaskEventType.TASK_PROGRESS.value,
+                        from_status=from_status.value,
+                        to_status=task.status.value,
+                        event_payload=_event_payload(task, attempt_id=attempt_id, progress=0),
+                        created_at=task.updated_at,
+                    )
+                )
+            session.add_all(event_records)
             await session.flush()
             return _to_domain(record)
 

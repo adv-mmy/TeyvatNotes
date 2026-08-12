@@ -18,6 +18,7 @@ from agent_runtime_foundation.application import (
     TaskNotFoundError,
 )
 from agent_runtime_foundation.domain import JsonValue
+from agent_runtime_foundation.observability import bind_correlation_context
 from agent_runtime_foundation.runtime import RuntimeNotAcceptingError
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,11 @@ logger = logging.getLogger(__name__)
 
 def _request_id(request: Request) -> str:
     request_id = getattr(request.state, "request_id", None)
-    return request_id if isinstance(request_id, str) else str(uuid4())
+    if isinstance(request_id, str):
+        return request_id
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    return request_id
 
 
 def _error_response(
@@ -115,7 +120,11 @@ async def http_error_handler(request: Request, exc: Exception) -> JSONResponse:
 
 async def internal_error_handler(request: Request, exc: Exception) -> JSONResponse:
     request_id = _request_id(request)
-    logger.exception("未处理异常 request_id=%s", request_id, exc_info=exc)
+    with bind_correlation_context(request_id=request_id, inherit=False):
+        logger.error(
+            "未处理异常",
+            extra={"event": "request_failed", "exception_type": type(exc).__name__},
+        )
     return _error_response(
         request,
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
