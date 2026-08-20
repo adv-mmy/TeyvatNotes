@@ -12,3 +12,5 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = "internal_error"
     HTTP_ERROR = "http_error"
     RUNTIME_UNAVAILABLE = "runtime_unavailable"
+    AUTHENTICATION_REQUIRED = "authentication_required"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"

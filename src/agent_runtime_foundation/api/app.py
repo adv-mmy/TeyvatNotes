@@ -1,11 +1,10 @@
 """FastAPI 应用工厂。"""
 
 import logging
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from time import perf_counter
-from typing import Literal, cast
+from typing import cast
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
@@ -13,6 +12,10 @@ from fastapi import FastAPI, Request, Response
 from agent_runtime_foundation.api.error_handlers import register_error_handlers
 from agent_runtime_foundation.api.routes.health import router as health_router
 from agent_runtime_foundation.api.routes.tasks import router as tasks_router
+from agent_runtime_foundation.api.security import (
+    ApiKeyAuthenticator,
+    SlidingWindowRateLimiter,
+)
 from agent_runtime_foundation.application import (
     PersistedTaskCommands,
     ReadinessProbe,
@@ -21,6 +24,7 @@ from agent_runtime_foundation.application import (
     TaskRepository,
     TaskService,
 )
+from agent_runtime_foundation.config import AppSettings, ExecutionMode
 from agent_runtime_foundation.database import Database, create_database
 from agent_runtime_foundation.observability import MetricsRegistry, bind_correlation_context
 from agent_runtime_foundation.repositories import (
@@ -36,7 +40,6 @@ from agent_runtime_foundation.runtime import (
 
 REQUEST_ID_HEADER = "X-Request-ID"
 logger = logging.getLogger(__name__)
-type ExecutionMode = Literal["embedded", "api_only"]
 
 
 def _resolve_request_id() -> str:
@@ -58,10 +61,11 @@ def create_app(
     *,
     event_repository: TaskEventRepository | None = None,
     readiness_probe: ReadinessProbe | None = None,
+    settings: AppSettings | None = None,
     executor: TaskExecutor | None = None,
     runtime_settings: RuntimeSettings | None = None,
     database_url: str | None = None,
-    execution_mode: ExecutionMode = "embedded",
+    execution_mode: ExecutionMode | None = None,
     metrics: MetricsRegistry | None = None,
 ) -> FastAPI:
     """创建可注入仓储、执行器和运行时配置的 FastAPI 应用。"""
@@ -71,8 +75,11 @@ def create_app(
     if repository is None and (event_repository is not None or readiness_probe is not None):
         raise ValueError("独立 event_repository/readiness_probe 必须与 repository 一起传入")
 
+    resolved_settings = settings or AppSettings.from_env()
     database: Database | None = None
-    resolved_database_url = database_url or os.getenv("DATABASE_URL")
+    resolved_database_url = database_url
+    if resolved_database_url is None and resolved_settings.database_url is not None:
+        resolved_database_url = resolved_settings.database_url.get_secret_value()
     if repository is not None:
         task_repository = repository
     elif resolved_database_url is not None:
@@ -97,22 +104,24 @@ def create_app(
         ),
     )
     metrics_registry = metrics or MetricsRegistry()
+    resolved_execution_mode = execution_mode or resolved_settings.execution_mode
+    resolved_runtime_settings = runtime_settings or resolved_settings.runtime
     task_runtime: TaskRuntime | None
     task_commands: TaskCommandHandler
-    if execution_mode == "embedded":
+    if resolved_execution_mode == "embedded":
         task_executor = executor if executor is not None else DeterministicTaskExecutor()
         task_runtime = TaskRuntime(
             repository=task_repository,
             executor=task_executor,
-            settings=runtime_settings,
+            settings=resolved_runtime_settings,
             metrics=metrics_registry,
         )
         task_commands = task_runtime
-    elif execution_mode == "api_only":
+    elif resolved_execution_mode == "api_only":
         task_runtime = None
         task_commands = PersistedTaskCommands(TaskService(task_repository))
     else:
-        raise ValueError(f"不支持的 execution_mode：{execution_mode}")
+        raise ValueError(f"不支持的 execution_mode：{resolved_execution_mode}")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -130,7 +139,7 @@ def create_app(
 
     application = FastAPI(
         title="Agent Runtime Foundation",
-        version="0.6.0",
+        version="0.7.0",
         lifespan=lifespan,
     )
     application.state.task_repository = task_repository
@@ -138,9 +147,11 @@ def create_app(
     application.state.readiness_probe = resolved_readiness_probe
     application.state.task_runtime = task_runtime
     application.state.task_commands = task_commands
-    application.state.execution_mode = execution_mode
+    application.state.execution_mode = resolved_execution_mode
     application.state.database = database
     application.state.metrics = metrics_registry
+    application.state.api_key_authenticator = ApiKeyAuthenticator(resolved_settings.api_key)
+    application.state.rate_limiter = SlidingWindowRateLimiter(resolved_settings.rate_limit)
 
     @application.middleware("http")
     async def request_id_middleware(

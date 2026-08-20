@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from conftest import AUTH_HEADERS
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import StatementError
@@ -134,7 +135,10 @@ def test_task_remains_queryable_after_application_restart(
     postgres_database_url: str,
 ) -> None:
     idempotency_key = f"restart-{uuid4()}"
-    with TestClient(create_app(database_url=postgres_database_url)) as first_client:
+    with TestClient(
+        create_app(database_url=postgres_database_url),
+        headers=AUTH_HEADERS,
+    ) as first_client:
         created_response = first_client.post(
             "/v1/tasks",
             headers={"Idempotency-Key": idempotency_key},

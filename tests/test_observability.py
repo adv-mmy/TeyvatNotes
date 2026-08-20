@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import pytest
+from conftest import AUTH_HEADERS
 from fastapi.testclient import TestClient
 
 from agent_runtime_foundation.api import create_app
@@ -55,7 +56,7 @@ def _create_sum(
 ) -> tuple[UUID, str]:
     response = client.post(
         "/v1/tasks",
-        headers={"X-Request-ID": client_request_id},
+        headers={**AUTH_HEADERS, "X-Request-ID": client_request_id},
         json={"task_type": "sum_numbers", "payload": {"numbers": [1, 2, 3]}},
     )
     assert response.status_code == 201
@@ -548,6 +549,7 @@ def test_metrics_endpoint_reports_success_rate_duration_and_failure_types() -> N
         _create_sum(client, client_request_id="metrics-success")
         failed = client.post(
             "/v1/tasks",
+            headers=AUTH_HEADERS,
             json={"task_type": "sum_numbers", "payload": {"numbers": [0]}},
         )
         failed_id = UUID(failed.json()["id"])

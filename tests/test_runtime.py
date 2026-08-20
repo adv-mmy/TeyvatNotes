@@ -6,6 +6,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from conftest import AUTH_HEADERS
 
 from agent_runtime_foundation.api import create_app
 from agent_runtime_foundation.application import CreateTaskCommand
@@ -179,6 +180,10 @@ def test_runtime_settings_reject_non_positive_values() -> None:
         RuntimeSettings(task_timeout_seconds=0)
     with pytest.raises(ValueError, match="shutdown_timeout_seconds"):
         RuntimeSettings(shutdown_timeout_seconds=0)
+    with pytest.raises(ValueError, match="task_timeout_seconds"):
+        RuntimeSettings(task_timeout_seconds=float("nan"))
+    with pytest.raises(ValueError, match="shutdown_timeout_seconds"):
+        RuntimeSettings(shutdown_timeout_seconds=float("inf"))
 
 
 def test_runtime_rejects_create_before_lifespan_with_unified_503() -> None:
@@ -188,6 +193,7 @@ def test_runtime_rejects_create_before_lifespan_with_unified_503() -> None:
         async with httpx.AsyncClient(
             transport=transport,
             base_url="http://testserver",
+            headers=AUTH_HEADERS,
         ) as client:
             response = await client.post(
                 "/v1/tasks",
@@ -263,6 +269,7 @@ def test_slow_execution_does_not_block_query_api() -> None:
             httpx.AsyncClient(
                 transport=transport,
                 base_url="http://testserver",
+                headers=AUTH_HEADERS,
             ) as client,
         ):
             created = await client.post(

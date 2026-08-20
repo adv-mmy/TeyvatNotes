@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.venv
+__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
+*.py[cod]
+pytest-cache-files-*
+tests
+agent_runtime_foundation_Code_Review与Python语法学习.md

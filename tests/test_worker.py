@@ -8,6 +8,7 @@ from threading import Barrier, Lock
 from uuid import UUID
 
 import pytest
+from conftest import AUTH_HEADERS
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -528,7 +529,7 @@ def test_api_only_mode_persists_without_embedded_execution() -> None:
     repository = InMemoryTaskRepository()
     application = create_app(repository, execution_mode="api_only")
 
-    with TestClient(application) as client:
+    with TestClient(application, headers=AUTH_HEADERS) as client:
         response = client.post(
             "/v1/tasks",
             json={
@@ -572,7 +573,7 @@ def test_worker_error_details_are_not_exposed_by_task_api() -> None:
     asyncio.run(execute(repository, task))
     application = create_app(repository, execution_mode="api_only")
 
-    with TestClient(application) as client:
+    with TestClient(application, headers=AUTH_HEADERS) as client:
         response = client.get(f"/v1/tasks/{task.id}")
 
     assert response.status_code == 200
@@ -585,7 +586,7 @@ def test_api_only_mode_replays_duplicate_idempotency_key() -> None:
     application = create_app(repository, execution_mode="api_only")
     headers = {"Idempotency-Key": "week5-create-once"}
 
-    with TestClient(application) as client:
+    with TestClient(application, headers=AUTH_HEADERS) as client:
         original = client.post(
             "/v1/tasks",
             headers=headers,
@@ -624,7 +625,7 @@ def test_worker_finalizes_queued_cancellation_from_api_only_mode() -> None:
 
     repository = InMemoryTaskRepository()
     application = create_app(repository, execution_mode="api_only")
-    with TestClient(application) as client:
+    with TestClient(application, headers=AUTH_HEADERS) as client:
         created = client.post(
             "/v1/tasks",
             json={

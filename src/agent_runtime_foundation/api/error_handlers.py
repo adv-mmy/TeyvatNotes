@@ -1,6 +1,7 @@
 """API 统一异常处理。"""
 
 import logging
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import cast
 from uuid import uuid4
@@ -12,6 +13,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agent_runtime_foundation.api.errors import ErrorCode
 from agent_runtime_foundation.api.schemas import ErrorResponse
+from agent_runtime_foundation.api.security import (
+    AuthenticationError,
+    RateLimitExceededError,
+)
 from agent_runtime_foundation.application import (
     TaskAction,
     TaskActionConflictError,
@@ -40,6 +45,7 @@ def _error_response(
     code: str,
     message: str,
     details: JsonValue = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     request_id = _request_id(request)
     body = ErrorResponse(
@@ -48,10 +54,12 @@ def _error_response(
         details={} if details is None else details,
         request_id=request_id,
     )
+    response_headers = dict(headers or {})
+    response_headers["X-Request-ID"] = request_id
     return JSONResponse(
         status_code=status_code,
         content=body.model_dump(mode="json"),
-        headers={"X-Request-ID": request_id},
+        headers=response_headers,
     )
 
 
@@ -143,12 +151,37 @@ async def runtime_unavailable_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+async def authentication_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    cast(AuthenticationError, exc)
+    return _error_response(
+        request,
+        status_code=HTTPStatus.UNAUTHORIZED,
+        code=ErrorCode.AUTHENTICATION_REQUIRED,
+        message="需要有效的 Bearer API Key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def rate_limit_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    error = cast(RateLimitExceededError, exc)
+    return _error_response(
+        request,
+        status_code=HTTPStatus.TOO_MANY_REQUESTS,
+        code=ErrorCode.RATE_LIMIT_EXCEEDED,
+        message="高成本接口请求过于频繁，请稍后重试",
+        details={"retry_after_seconds": error.retry_after_seconds},
+        headers={"Retry-After": str(error.retry_after_seconds)},
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """注册应用的统一错误处理器。"""
 
     app.add_exception_handler(TaskNotFoundError, task_not_found_handler)
     app.add_exception_handler(TaskActionConflictError, task_action_conflict_handler)
     app.add_exception_handler(RuntimeNotAcceptingError, runtime_unavailable_handler)
+    app.add_exception_handler(AuthenticationError, authentication_error_handler)
+    app.add_exception_handler(RateLimitExceededError, rate_limit_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(Exception, internal_error_handler)

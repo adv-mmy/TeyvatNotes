@@ -15,11 +15,11 @@
 
 - 本项目是阶段一“Python 后端底座”的长期主项目，目标是先用确定性任务学习 Agent Runtime 同样需要的状态、并发、失败恢复、持久化和可观测性。
 - 阶段一禁止自行接入 LLM、Agent 框架、RAG 或任意函数/系统命令执行。只有用户明确要求进入相应阶段时才能引入。
-- 当前基线为 `0.6.0 / 第 6 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架、第五周 Worker 策略，以及 SSE、结构化日志、关联 ID、健康检查和进程内指标。
+- 当前基线为 `0.7.0 / 第 7 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架、第五周 Worker 策略、第六周可观测性，以及集中配置、Bearer API Key、基础限流和非 root Compose 部署。
 - 当前只允许两种确定性任务：
   - `sum_numbers`：`numbers` 含 1～100 个严格整数，每项范围为 `-1_000_000～1_000_000`；
   - `word_count`：`text` 为 1～10,000 字符的非空白字符串。
-- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。SSE 与健康检查已实现；鉴权、Docker Compose 和 CI 仍属后续阶段。
+- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。Compose 当前运行 API 与内嵌 Worker，不得描述成已完成独立 Worker；CI 仍属后续阶段。
 - 当前默认运行时配置为 `worker_count=4`、`max_concurrency=2`、`task_timeout_seconds=30`、`shutdown_timeout_seconds=5`。
 
 ## 三、架构和依赖方向
@@ -60,6 +60,11 @@ SSE 事件流
   → ContextVar 关联 request/task/attempt/worker
   → JSON Log + MetricsRegistry
   → live/ready 分离的健康检查
+
+写接口安全
+  → AppSettings 环境变量校验
+  → Bearer API Key 恒定时间比较
+  → 创建/重试进程内滑动窗口限流
 ```
 
 - `domain/`：只放任务实体、值对象、枚举和领域异常；不得导入 FastAPI、Pydantic、数据库、Runtime 或 LLM SDK。
@@ -123,16 +128,26 @@ running → failed → queued
 - liveness 只表示进程存活；readiness 必须有界检查存储，PostgreSQL 模式需验证 `tasks/task_attempts/task_events` 可访问，内嵌 Runtime 还必须处于 accepting。依赖失联或表未迁移时返回稳定 `503/not_ready`，不泄漏内部异常。
 - `MetricsRegistry` 只是单进程瞬时快照；必须明确它不持久、不跨进程聚合，不得把它描述成生产级 Metrics/Trace 后端。
 
+### 安全、配置与容器
+
+- `AGENT_RUNTIME_API_KEY` 必须由部署环境提供，不得在源码、Compose、镜像层、Git 或日志中写入真实值；示例只能使用明显占位符。
+- 创建、取消和重试必须通过 Bearer API Key 鉴权；读取、SSE、存活、就绪和当前学习用指标保持公开。修改鉴权范围时同步更新 OpenAPI、README 和测试。
+- Bearer 凭据只用于恒定时间比较，不得作为主体 ID、日志字段、限流键、异常文本或响应内容保存。客户端自定义请求 ID 同样不得直接进入日志。
+- 创建与重试属于高成本接口，共享线程安全的进程内滑动窗口；限流只适用于单进程，不得暗示跨容器一致性。
+- 任务类型和 payload 必须继续由枚举、判别联合与 `extra="forbid"` 白名单约束；阶段一禁止用户选择 Python 函数、模块、系统命令或任意执行器。
+- 应用容器以非 root 用户运行，文件系统只读，通过 `/health/ready` 检查就绪，并让 SIGTERM 进入 FastAPI lifespan 完成优雅退出。
+- PostgreSQL 使用命名卷；迁移由一次性 Compose 服务显式执行。当前 Compose 的 Worker 是 API 进程内 Runtime，独立 PostgreSQL Worker 仍待第四周 SQL 补完。
+
 ## 五、当前 HTTP 契约
 
 | 方法 | 路径 | 成功行为 | 主要失败 |
 | --- | --- | --- | --- |
-| `POST` | `/v1/tasks` | `201`，返回初始 `queued` 任务和 `Location`；可携带 `Idempotency-Key` | `422`、`503`、`500` |
+| `POST` | `/v1/tasks` | Bearer 鉴权并限流；`201`，返回初始 `queued` 任务和 `Location`；可携带 `Idempotency-Key` | `401`、`422`、`429`、`503`、`500` |
 | `GET` | `/v1/tasks/{task_id}` | `200`，只读查询 | `404`、`422`、`500` |
 | `GET` | `/v1/tasks/{task_id}/events` | `200 text/event-stream`，支持 `Last-Event-ID` | `404`、`422`、`500` |
 | `GET` | `/v1/tasks?status=...&offset=0&limit=20` | `200`，过滤后分页 | `422`、`500` |
-| `POST` | `/v1/tasks/{task_id}/cancel` | `200`，请求取消 | `404`、`409`、`422`、`500` |
-| `POST` | `/v1/tasks/{task_id}/retry` | `200`，失败任务重新入队 | `404`、`409`、`422`、`503`、`500` |
+| `POST` | `/v1/tasks/{task_id}/cancel` | Bearer 鉴权；`200`，请求取消 | `401`、`404`、`409`、`422`、`500` |
+| `POST` | `/v1/tasks/{task_id}/retry` | Bearer 鉴权并限流；`200`，失败任务重新入队 | `401`、`404`、`409`、`422`、`429`、`503`、`500` |
 | `GET` | `/health/live` | `200`，进程存活 | - |
 | `GET` | `/health/ready` | `200`，依赖就绪 | `503/not_ready` |
 | `GET` | `/metrics` | `200`，进程内 attempt 快照 | `500` |
@@ -141,7 +156,7 @@ running → failed → queued
 - `GET` 请求不得改变任务状态或时间戳。`offset >= 0`，`1 <= limit <= 100`，`total` 表示过滤后、分页前的总数。
 - 输入任务类型必须来自显式白名单；Pydantic 模型使用 `extra="forbid"` 拒绝多余字段，并为长度、范围和类型设置边界。
 - 所有公开错误统一为 `code/message/details/request_id`，并在响应头返回相同的 `X-Request-ID`。
-- 固定映射：不存在为 `404/task_not_found`，状态冲突为 `409/invalid_task_transition`，校验失败为 `422/validation_error`，未预期异常为 `500/internal_error`，运行时不可接收任务为 `503/runtime_unavailable`。
+- 固定映射：鉴权失败为 `401/authentication_required`，不存在为 `404/task_not_found`，状态冲突为 `409/invalid_task_transition`，校验失败为 `422/validation_error`，超限为 `429/rate_limit_exceeded`，未预期异常为 `500/internal_error`，运行时不可接收任务为 `503/runtime_unavailable`。
 - 不得把 `str(exc)`、堆栈、文件路径、密钥或内部实现细节返回给客户端；真实异常仅进入受控日志。
 - 路由变化必须同步核对响应模型、状态码、错误声明、`/docs` 和 `/openapi.json`。
 
@@ -156,9 +171,11 @@ running → failed → queued
 - `src/agent_runtime_foundation/runtime/executor.py`：新增任务类型时，同步修改 `TaskType`、请求 Schema、显式转换、执行器、README 和测试；只允许注册的确定性任务。
 - `src/agent_runtime_foundation/worker/`：修改领取、租约、错误分类、退避或恢复时，同步覆盖并发领取、最大尝试、永久失败、过期写入和崩溃恢复。
 - `src/agent_runtime_foundation/observability/`：修改关联上下文、日志白名单或指标时，必须覆盖作用域恢复、敏感数据脱敏、并发计数和快照隔离。
+- `src/agent_runtime_foundation/config.py` 与 `api/security.py`：修改环境变量、鉴权或限流时，必须覆盖缺失/非法配置、密钥隐藏、无凭据/错误凭据、配额恢复、并发计数和 OpenAPI 安全声明。
+- `Dockerfile`、`compose.yaml`、`.env.example`：修改容器配置时，必须检查非 root、无真实密钥、持久卷、迁移依赖、健康检查、只读文件系统和停机宽限期。
 - `src/agent_runtime_foundation/api/sse.py`：修改游标、心跳或关闭语义时，覆盖断线重连的无重复、无缺口与无遗留生成器。
 - `src/agent_runtime_foundation/api/`：修改公开契约时，同步更新 Schema、错误映射、OpenAPI 声明、API 测试和 README 示例。
-- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_observability.py` 守护 SSE、关联日志、健康检查和指标；`test_database.py` 守护元数据与离线迁移。
+- `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_observability.py` 守护 SSE、关联日志、健康检查和指标；`test_security.py` 与 `test_deployment.py` 守护第七周安全配置和容器契约；`test_database.py` 守护元数据与离线迁移。
 - `uv.lock` 是自动生成的依赖锁文件，只说明用途和关键元数据，不手工编辑，也不做逐行讲解。
 
 ## 七、编码与测试规范
@@ -186,7 +203,7 @@ uv run mypy
 - 第 4 周：PostgreSQL、SQL、SQLAlchemy 2.x 异步接口、Alembic、事务、原子领取、行锁、租约字段、唯一约束和索引；目标表为 `tasks`、`task_attempts`、`task_events`。
 - 第 5 周：API 与 Worker 的 Python 边界、最大重试、指数退避/抖动、错误分类、租约恢复语义与至少一次执行；支撑这些能力的具体 SQL 仍归第四周。
 - 第 6 周：`GET /v1/tasks/{task_id}/events`、SSE 断线续传、结构化日志、关联 ID、`/health/live` 和 `/health/ready`。
-- 第 7 周：配置、鉴权、限流、Dockerfile、Compose、持久卷、健康检查和非 root 容器。
+- 第 7 周：集中配置、Bearer API Key、进程内限流、Dockerfile、API 与内嵌 Worker Compose、持久卷、健康检查和非 root 容器。独立 Worker Compose 需等待第四周 PostgreSQL 原子领取 SQL。
 - 第 8 周：CI、真实 PostgreSQL 集成测试、并发基线、故障演练、架构图和恢复手册。
 - 后续阶段的核心验收始终是：长时间运行、可能失败、重试、取消和中断的任务，在并发及服务重启后仍然可解释、可恢复、可测试。
 - 未收到对应阶段的明确任务前，保持当前实现简单；不得提前引入 Redis、Celery、Kafka、Kubernetes、DDD、CQRS、Event Sourcing、复杂 OAuth 或完整可观测性平台。

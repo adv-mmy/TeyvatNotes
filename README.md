@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-第 6 周：SSE 事件流与断点续传、结构化日志、关联 ID、健康检查和进程内指标。
+第 7 周：集中环境配置、Bearer API Key 鉴权、高成本接口限流，以及非 root Docker Compose 部署。
 
-第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL；本周沿用已有 `task_events` 表的 ORM 模型，不新增表、迁移或 Worker 原子领取 SQL。
+第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL；本周不新增表、迁移或 Worker 原子领取 SQL。Compose 暂时让 API 与内嵌 Worker 同进程运行，待 PostgreSQL Worker SQL 完成后再拆成两个进程。
 
 当前实现包含：
 
@@ -40,6 +40,10 @@
 - 通过 `request_id`、`task_id`、`attempt_id` 和 `worker_id` 串联 API 与 Worker 日志；
 - 单行 JSON 结构化日志，不记录请求体、查询参数、异常原文或原始 URL；
 - `/health/live`、`/health/ready` 和进程内 `/metrics` 快照。
+- 从环境变量集中加载并校验密钥、数据库、Runtime 和限流配置；
+- `Authorization: Bearer <API Key>` 保护创建、取消和重试；
+- 创建与重试共享线程安全的进程内滑动窗口限流；
+- 非 root、只读文件系统的应用镜像，以及 PostgreSQL 持久卷、迁移、健康检查和优雅退出 Compose 配置。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
 
@@ -47,12 +51,12 @@
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `POST` | `/v1/tasks` | 创建任务，可携带 `Idempotency-Key` |
+| `POST` | `/v1/tasks` | Bearer 鉴权并限流；创建任务，可携带 `Idempotency-Key` |
 | `GET` | `/v1/tasks/{task_id}` | 查询任务 |
 | `GET` | `/v1/tasks/{task_id}/events` | 订阅 SSE 事件，支持 `Last-Event-ID` |
 | `GET` | `/v1/tasks?status=queued&offset=0&limit=20` | 分页列表和状态过滤 |
-| `POST` | `/v1/tasks/{task_id}/cancel` | 请求取消任务 |
-| `POST` | `/v1/tasks/{task_id}/retry` | 重试失败任务 |
+| `POST` | `/v1/tasks/{task_id}/cancel` | Bearer 鉴权；请求取消任务 |
+| `POST` | `/v1/tasks/{task_id}/retry` | Bearer 鉴权并限流；重试失败任务 |
 | `GET` | `/health/live` | 检查进程存活 |
 | `GET` | `/health/ready` | 检查存储和 Runtime 是否就绪 |
 | `GET` | `/metrics` | 读取当前进程的 attempt 指标 |
@@ -60,6 +64,7 @@
 本地启动（默认 `embedded` 模式，保留第三周的进程内 Runtime）：
 
 ```powershell
+$env:AGENT_RUNTIME_API_KEY = python -c "import secrets; print(secrets.token_urlsafe(32))"
 uv run fastapi dev main.py
 ```
 
@@ -84,6 +89,7 @@ uv run fastapi dev api_main.py
 
 ```powershell
 curl.exe -i -X POST http://127.0.0.1:8000/v1/tasks `
+  -H "Authorization: Bearer $env:AGENT_RUNTIME_API_KEY" `
   -H "Content-Type: application/json" `
   -H "Idempotency-Key: demo-sum-001" `
   -d '{"task_type":"sum_numbers","payload":{"numbers":[1,2,3]}}'
@@ -108,13 +114,15 @@ curl.exe "http://127.0.0.1:8000/v1/tasks?status=queued&offset=0&limit=20"
 请求取消任务：
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/cancel
+curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/cancel `
+  -H "Authorization: Bearer $env:AGENT_RUNTIME_API_KEY"
 ```
 
 重试失败任务：
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/retry
+curl.exe -X POST http://127.0.0.1:8000/v1/tasks/<task_id>/retry `
+  -H "Authorization: Bearer $env:AGENT_RUNTIME_API_KEY"
 ```
 
 订阅任务事件：
@@ -143,8 +151,10 @@ curl.exe -N http://127.0.0.1:8000/v1/tasks/<task_id>/events `
 
 | HTTP 状态码 | 错误代码 | 含义 |
 | --- | --- | --- |
+| `401` | `authentication_required` | 缺少 Bearer API Key 或凭据不匹配 |
 | `404` | `task_not_found` | 指定任务不存在 |
 | `409` | `invalid_task_transition` | 当前状态不允许取消或重试 |
+| `429` | `rate_limit_exceeded` | 创建或重试超过当前滑动窗口配额 |
 | `422` | `validation_error` | 请求体或查询参数不符合 Schema |
 | `500` | `internal_error` | 未预期的服务端错误 |
 | `503` | `runtime_unavailable` | 运行时尚未启动或正在停止，不接收新任务 |
@@ -171,6 +181,7 @@ HTTP / FastAPI
 
 ```powershell
 $env:DATABASE_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/agent_runtime"
+$env:AGENT_RUNTIME_API_KEY = python -c "import secrets; print(secrets.token_urlsafe(32))"
 uv run alembic upgrade head
 uv run fastapi dev main.py
 ```
@@ -269,6 +280,47 @@ Worker 领取任务后只拥有限时租约。如果 Worker 在执行完成后�
 
 这里的 Metric 是数值聚合，Log 是离散事件记录，Trace 则是一次请求跨组件的因果链。本项目当前通过关联 ID 提供轻量追踪，尚未接入分布式 Trace 后端。`/metrics` 也是单进程、内存中的瞬时快照，重启会清零，API-only 与独立 Worker 之间不会自动聚合。
 
+## 第七周安全、配置与 Docker Compose
+
+### 配置与密钥
+
+应用启动时由 `AppSettings.from_env()` 一次性读取配置。`AGENT_RUNTIME_API_KEY` 是必填项，必须是 32～256 位 Bearer 安全字符；密钥和 `DATABASE_URL` 使用 `SecretStr` 保存，并从配置对象的 `repr()` 中隐藏。真实 `.env` 已加入 `.gitignore`，仓库只提供不含真实凭据的 `.env.example`。
+
+| 环境变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `AGENT_RUNTIME_API_KEY` | 无，必填 | 创建、取消和重试接口的 Bearer API Key |
+| `DATABASE_URL` | 无 | PostgreSQL 异步连接串；未设置时使用内存仓储 |
+| `AGENT_RUNTIME_EXECUTION_MODE` | `embedded` | `embedded` 或 `api_only` |
+| `AGENT_RUNTIME_WORKER_COUNT` | `4` | 内嵌 Worker 协程数 |
+| `AGENT_RUNTIME_MAX_CONCURRENCY` | `2` | 执行器并发上限 |
+| `AGENT_RUNTIME_TASK_TIMEOUT_SECONDS` | `30` | 单任务超时 |
+| `AGENT_RUNTIME_SHUTDOWN_TIMEOUT_SECONDS` | `5` | Runtime 停机宽限期 |
+| `AGENT_RUNTIME_RATE_LIMIT_REQUESTS` | `30` | 一个滑动窗口允许的创建/重试总数 |
+| `AGENT_RUNTIME_RATE_LIMIT_WINDOW_SECONDS` | `60` | 滑动窗口秒数 |
+
+Bearer 鉴权使用恒定时间比较，凭据不会进入响应、事件或日志。当前只有一个配置主体，因此创建与重试共享同一配额；限流器只在单进程内生效，重启会清零，也不会在多个容器间自动共享。
+
+任务类型仍由 `TaskType` 与请求 Schema 白名单限定，额外字段被拒绝。客户端输入不能指定 Python 函数、模块或系统命令。
+
+### Compose 启动
+
+先创建本机私有配置；`POSTGRES_PASSWORD` 应使用 URL-safe 值，因为它也会进入异步数据库 URL：
+
+```powershell
+Copy-Item .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+把两次生成的随机值分别填入 `.env` 的 `AGENT_RUNTIME_API_KEY` 和 `POSTGRES_PASSWORD`，然后在安装 Docker Desktop 的新机器上用一条命令构建并启动：
+
+```powershell
+docker compose up --build -d
+```
+
+Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 `alembic upgrade head` → API readiness 通过。PostgreSQL 数据保存在命名卷 `postgres-data` 中，普通 `docker compose down` 后再次启动仍会恢复。应用镜像和 Compose 都固定使用 UID/GID `10001`，应用文件系统只读，仅挂载临时 `/tmp`，并用 `SIGTERM`、FastAPI lifespan 和 15 秒容器宽限期完成优雅退出。
+
+当前 `api` 容器运行 `main.py`，其中同时包含 API 与内嵌 Worker。这是为了遵守“PostgreSQL Worker 原子领取 SQL 待数据库环境就绪后再实现”的现有边界。它能完成单容器创建、执行与持久化演示，但强制终止后自动领取遗留 `queued/running` 任务仍未完成；不得把它描述为已经实现独立 Worker 的生产部署。
+
 ## 异步运行时
 
 ```text
@@ -337,8 +389,9 @@ running → failed → queued
 ## 环境要求
 
 - Python 3.12 或更高版本；
-- uv。
+- uv；
 - PostgreSQL（只有持久化运行和 `postgres` 集成测试需要）。
+- Docker Desktop（只有 Compose 部署需要）。
 
 ## 安装与检查
 
@@ -355,6 +408,7 @@ uv run mypy
 ```text
 src/agent_runtime_foundation/
 ├─ __init__.py
+├─ config.py
 ├─ application/
 │  ├─ models.py
 │  ├─ events.py
@@ -363,6 +417,7 @@ src/agent_runtime_foundation/
 ├─ api/
 │  ├─ app.py
 │  ├─ error_handlers.py
+│  ├─ security.py
 │  ├─ sse.py
 │  ├─ schemas.py
 │  └─ routes/
@@ -401,10 +456,16 @@ migrations/
 tests/
 ├─ test_api.py
 ├─ test_database.py
+├─ test_deployment.py
 ├─ test_observability.py
 ├─ test_postgres_repository.py
 ├─ test_repository.py
 ├─ test_runtime.py
+├─ test_security.py
 ├─ test_task.py
 └─ test_worker.py
+
+Dockerfile
+compose.yaml
+.env.example
 ```

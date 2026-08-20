@@ -18,6 +18,10 @@ from agent_runtime_foundation.api.schemas import (
     TaskResponse,
     to_create_command,
 )
+from agent_runtime_foundation.api.security import (
+    AuthenticatedDependency,
+    RateLimitedDependency,
+)
 from agent_runtime_foundation.api.sse import stream_task_events
 from agent_runtime_foundation.application import (
     TaskCommandHandler,
@@ -47,6 +51,8 @@ EventServiceDependency = Annotated[TaskEventService, Depends(get_task_event_serv
                 }
             },
         },
+        401: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
@@ -56,6 +62,7 @@ async def create_task(
     payload: TaskCreateRequest,
     response: Response,
     commands: CommandsDependency,
+    _principal: RateLimitedDependency,
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", min_length=1, max_length=255),
@@ -158,12 +165,17 @@ async def get_task(task_id: UUID, service: ServiceDependency) -> TaskResponse:
     summary="请求取消任务",
     responses={
         404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
     },
 )
-async def cancel_task(task_id: UUID, commands: CommandsDependency) -> TaskResponse:
+async def cancel_task(
+    task_id: UUID,
+    commands: CommandsDependency,
+    _principal: AuthenticatedDependency,
+) -> TaskResponse:
     return TaskResponse.from_task(await commands.cancel(task_id))
 
 
@@ -173,11 +185,17 @@ async def cancel_task(task_id: UUID, commands: CommandsDependency) -> TaskRespon
     summary="重试失败任务",
     responses={
         404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
         409: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
         500: {"model": ErrorResponse},
     },
 )
-async def retry_task(task_id: UUID, commands: CommandsDependency) -> TaskResponse:
+async def retry_task(
+    task_id: UUID,
+    commands: CommandsDependency,
+    _principal: RateLimitedDependency,
+) -> TaskResponse:
     return TaskResponse.from_task(await commands.retry(task_id))

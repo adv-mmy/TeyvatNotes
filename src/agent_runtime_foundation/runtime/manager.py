@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from contextlib import suppress
 from dataclasses import dataclass
 from time import perf_counter
@@ -46,14 +47,16 @@ class RuntimeSettings:
     shutdown_timeout_seconds: float = 5.0
 
     def __post_init__(self) -> None:
+        if self.worker_count <= 0:
+            raise ValueError("worker_count 必须大于 0")
+        if self.max_concurrency <= 0:
+            raise ValueError("max_concurrency 必须大于 0")
         for name, value in (
-            ("worker_count", self.worker_count),
-            ("max_concurrency", self.max_concurrency),
             ("task_timeout_seconds", self.task_timeout_seconds),
             ("shutdown_timeout_seconds", self.shutdown_timeout_seconds),
         ):
-            if value <= 0:
-                raise ValueError(f"{name} 必须大于 0")
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} 必须是大于 0 的有限数")
 
 
 @dataclass(frozen=True, slots=True)

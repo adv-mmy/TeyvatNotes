@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from conftest import AUTH_HEADERS
 from fastapi.testclient import TestClient
 
 from agent_runtime_foundation.api import create_app
@@ -152,8 +153,8 @@ def test_application_instances_do_not_share_tasks() -> None:
     first_application = create_app(InMemoryTaskRepository())
     second_application = create_app(InMemoryTaskRepository())
     with (
-        TestClient(first_application) as first_client,
-        TestClient(second_application) as second_client,
+        TestClient(first_application, headers=AUTH_HEADERS) as first_client,
+        TestClient(second_application, headers=AUTH_HEADERS) as second_client,
     ):
         created = first_client.post(
             "/v1/tasks",

@@ -1,4 +1,5 @@
 .idea/
+.env
 .venv/
 __pycache__/
 *.py[cod]
@@ -10,3 +11,4 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+pytest-cache-files-*/
