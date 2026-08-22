@@ -101,6 +101,7 @@ class TaskWorker:
             started_at = perf_counter()
             outcome = "failed"
             failure_type: str | None = None
+            interrupted = False
             self._metrics.record_started()
             logger.info("任务开始执行", extra={"event": "task_started"})
             try:
@@ -108,7 +109,7 @@ class TaskWorker:
                     output = await self._executor.execute(claim.task)
             except asyncio.CancelledError:
                 # Worker 被强制结束时不伪造完成记录，由租约过期恢复。
-                outcome = "cancelled"
+                interrupted = True
                 raise
             except (PermanentTaskError, TaskExecutionError) as exc:
                 failure_type = type(exc).__name__
@@ -167,20 +168,29 @@ class TaskWorker:
                 outcome = self._metric_outcome(completed.status, default="succeeded")
             finally:
                 duration = perf_counter() - started_at
-                self._metrics.record_completed(
-                    outcome=outcome,
-                    duration_seconds=duration,
-                    failure_type=failure_type,
-                )
-                logger.info(
-                    "任务执行结束",
-                    extra={
-                        "event": "task_completed",
-                        "task_status": outcome,
-                        "duration_ms": round(duration * 1000, 3),
-                        "failure_type": failure_type,
-                    },
-                )
+                if interrupted:
+                    logger.warning(
+                        "Worker 执行被中断，等待租约恢复",
+                        extra={
+                            "event": "task_abandoned",
+                            "duration_ms": round(duration * 1000, 3),
+                        },
+                    )
+                else:
+                    self._metrics.record_completed(
+                        outcome=outcome,
+                        duration_seconds=duration,
+                        failure_type=failure_type,
+                    )
+                    logger.info(
+                        "任务执行结束",
+                        extra={
+                            "event": "task_completed",
+                            "task_status": outcome,
+                            "duration_ms": round(duration * 1000, 3),
+                            "failure_type": failure_type,
+                        },
+                    )
 
     async def _record_failure(
         self,

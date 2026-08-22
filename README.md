@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-第 7 周：集中环境配置、Bearer API Key 鉴权、高成本接口限流，以及非 root Docker Compose 部署。
+第 8 周：GitHub Actions CI、真实 PostgreSQL 集成测试、七场景验收演示、并发基线、架构图和故障恢复手册。
 
 第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL；本周不新增表、迁移或 Worker 原子领取 SQL。Compose 暂时让 API 与内嵌 Worker 同进程运行，待 PostgreSQL Worker SQL 完成后再拆成两个进程。
 
@@ -44,6 +44,9 @@
 - `Authorization: Bearer <API Key>` 保护创建、取消和重试；
 - 创建与重试共享线程安全的进程内滑动窗口限流；
 - 非 root、只读文件系统的应用镜像，以及 PostgreSQL 持久卷、迁移、健康检查和优雅退出 Compose 配置。
+- GitHub Actions 自动运行 Ruff、格式、mypy、单测、并发基线、Alembic 迁移和真实 PostgreSQL 集成测试；
+- 可重复的阶段一七场景演示与进程内并发基线；
+- Mermaid 架构图、状态机图、表关系图，以及不删除数据的故障恢复手册。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
 
@@ -250,6 +253,8 @@ TaskWorker（独立进程主循环的 Python 部分）
 
 Worker 领取任务后只拥有限时租约。如果 Worker 在执行完成后、保存成功结果前崩溃，新 Worker 会在租约过期后重新领取该任务。因此同一任务的业务副作用可能已经发生，却再次执行。
 
+Worker 执行协程被强制取消时不会伪造持久化完成，也不会增加 completed/cancelled 指标；它记录 `task_abandoned` 日志并保留 running attempt，等待租约过期后由替代 Worker 恢复。
+
 这是“至少一次”而不是“恰好一次”。通常无法只靠任务队列承诺恰好一次，因为执行业务副作用和记录成功不能对任意外部系统构成同一原子事务。执行器仍应使用业务幂等键、去重记录或可安全重放的操作。
 
 ### 当前边界
@@ -320,6 +325,37 @@ docker compose up --build -d
 Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 `alembic upgrade head` → API readiness 通过。PostgreSQL 数据保存在命名卷 `postgres-data` 中，普通 `docker compose down` 后再次启动仍会恢复。应用镜像和 Compose 都固定使用 UID/GID `10001`，应用文件系统只读，仅挂载临时 `/tmp`，并用 `SIGTERM`、FastAPI lifespan 和 15 秒容器宽限期完成优雅退出。
 
 当前 `api` 容器运行 `main.py`，其中同时包含 API 与内嵌 Worker。这是为了遵守“PostgreSQL Worker 原子领取 SQL 待数据库环境就绪后再实现”的现有边界。它能完成单容器创建、执行与持久化演示，但强制终止后自动领取遗留 `queued/running` 任务仍未完成；不得把它描述为已经实现独立 Worker 的生产部署。
+
+## 第八周 CI、故障演练与阶段验收
+
+### 自动化 CI
+
+`.github/workflows/ci.yml` 在 push、pull request 和手动触发时运行两个 Job：
+
+- `quality`：按 `uv.lock` 安装依赖，执行 Ruff、格式检查、mypy、非 PostgreSQL 测试和并发基线；
+- `postgres`：启动带健康检查的 PostgreSQL 17，执行 Alembic 迁移，再运行所有 `postgres` 标记的真实 Repository 集成测试。
+
+CI 中的测试数据库凭据仅属于隔离服务容器，不是部署密钥。测试失败不能用 `continue-on-error` 或 `|| true` 绕过；真实数据库测试也不能以 skip 代替通过。
+
+### 七场景演示
+
+以下命令会运行正常完成、幂等创建、运行中取消、超时自动重试、Worker 强制中断、替代 Worker 恢复，以及 SSE/日志关联七个场景：
+
+```powershell
+uv run python -m scripts.stage_one_demo
+```
+
+演示使用运行时随机生成的 API Key，不把凭据写入代码或日志。Worker 中断恢复使用现有内存租约模型和可控时钟，报告中的 `lease_expired -> succeeded` 证明 Python 策略；它不代表 PostgreSQL 跨进程 Worker SQL 已经完成。
+
+完整步骤和期望结果见 [`docs/stage-one-acceptance.md`](docs/stage-one-acceptance.md)。架构、状态机和表关系见 [`docs/architecture.md`](docs/architecture.md)，故障处理见 [`docs/recovery-runbook.md`](docs/recovery-runbook.md)。
+
+### 并发基线
+
+```powershell
+uv run python -m scripts.concurrency_baseline --tasks 200 --concurrency 20
+```
+
+脚本在真实 `await` 调度点记录并发峰值，验证 Semaphore 上限和所有任务正确收敛，再输出吞吐观测值。CI 不设置固定吞吐门槛，避免共享 Runner 性能抖动制造假失败；比较版本时应在同一环境多轮运行。当前结果只代表进程内内存实现，不代表 PostgreSQL 或生产容量。
 
 ## 异步运行时
 
@@ -396,11 +432,13 @@ running → failed → queued
 ## 安装与检查
 
 ```powershell
-uv sync
+uv sync --locked
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
+uv run python -m scripts.stage_one_demo --no-logs
+uv run python -m scripts.concurrency_baseline --tasks 200 --concurrency 20
 ```
 
 ## 项目结构
@@ -462,8 +500,20 @@ tests/
 ├─ test_repository.py
 ├─ test_runtime.py
 ├─ test_security.py
+├─ test_stage_one_acceptance.py
 ├─ test_task.py
 └─ test_worker.py
+
+scripts/
+├─ concurrency_baseline.py
+└─ stage_one_demo.py
+
+docs/
+├─ architecture.md
+├─ recovery-runbook.md
+└─ stage-one-acceptance.md
+
+.github/workflows/ci.yml
 
 Dockerfile
 compose.yaml

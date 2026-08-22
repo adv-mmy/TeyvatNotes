@@ -1,6 +1,9 @@
 """第五周 Worker、重试、租约和崩溃恢复验收测试。"""
 
 import asyncio
+import io
+import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -16,6 +19,7 @@ import agent_runtime_foundation.api as api_package
 from agent_runtime_foundation.api import create_app
 from agent_runtime_foundation.application import TaskService
 from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus
+from agent_runtime_foundation.observability import JsonLogFormatter, MetricsRegistry
 from agent_runtime_foundation.repositories import InMemoryTaskRepository
 from agent_runtime_foundation.worker import (
     AttemptOutcome,
@@ -115,6 +119,19 @@ class TimeoutThenSuccessExecutor:
         if self.calls == 1:
             await asyncio.Event().wait()
         return {"task_id": str(task.id)}
+
+
+class CancellationBlockingExecutor:
+    """确认进入执行后阻塞，供测试强制中断 Worker。"""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def execute(self, task: Task) -> JsonValue:
+        del task
+        self.started.set()
+        await asyncio.Event().wait()
+        return None
 
 
 class ClaimFailsOnceRepository(InMemoryTaskRepository):
@@ -449,6 +466,69 @@ def test_manual_retry_starts_a_new_automatic_retry_cycle() -> None:
         assert all(attempt.outcome is AttemptOutcome.RETRIES_EXHAUSTED for attempt in attempts)
 
     asyncio.run(scenario())
+
+
+def test_forced_worker_cancellation_is_abandoned_not_completed() -> None:
+    async def scenario() -> None:
+        repository = InMemoryTaskRepository()
+        clock = MutableClock(datetime(2026, 8, 10, tzinfo=UTC))
+        task = _task_at(clock)
+        await repository.add(task)
+        executor = CancellationBlockingExecutor()
+        metrics = MetricsRegistry()
+        worker = TaskWorker(
+            repository,
+            executor,
+            _settings("worker-force-stopped"),
+            clock=clock,
+            metrics=metrics,
+        )
+
+        running = asyncio.create_task(worker.run_once())
+        await asyncio.wait_for(executor.started.wait(), timeout=1)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+        stored = await repository.get(task.id)
+        attempts = await repository.list_attempts(task.id)
+        snapshot = metrics.snapshot()
+        assert stored is not None
+        assert stored.status is TaskStatus.RUNNING
+        assert len(attempts) == 1
+        assert attempts[0].outcome is AttemptOutcome.RUNNING
+        assert snapshot.started == 1
+        assert snapshot.completed == 0
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonLogFormatter())
+    worker_logger = logging.getLogger("agent_runtime_foundation.worker.service")
+    original = (
+        list(worker_logger.handlers),
+        worker_logger.level,
+        worker_logger.disabled,
+        worker_logger.propagate,
+    )
+    worker_logger.handlers = [handler]
+    worker_logger.setLevel(logging.INFO)
+    worker_logger.disabled = False
+    worker_logger.propagate = False
+    try:
+        asyncio.run(scenario())
+    finally:
+        handlers, level, disabled, propagate = original
+        worker_logger.handlers = handlers
+        worker_logger.setLevel(level)
+        worker_logger.disabled = disabled
+        worker_logger.propagate = propagate
+
+    records = [json.loads(line) for line in stream.getvalue().splitlines()]
+    assert any(record.get("event") == "task_abandoned" for record in records)
+    assert not any(
+        record.get("event") == "task_completed" and record.get("task_status") == "cancelled"
+        for record in records
+    )
 
 
 def test_expired_lease_is_recovered_after_worker_crash() -> None:
