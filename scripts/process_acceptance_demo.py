@@ -126,13 +126,17 @@ def _free_port() -> int:
 
 
 async def _start_process(*args: str, environ: dict[str, str]) -> asyncio.subprocess.Process:
+    creationflags = 0
+    # 显式平台分支让类型检查器在 Linux 上跳过 Windows 专用常量。
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW
     return await asyncio.create_subprocess_exec(
         sys.executable,
         *args,
         env=environ,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        creationflags=creationflags,
     )
 
 

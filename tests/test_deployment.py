@@ -108,6 +108,7 @@ def test_ci_runs_quality_and_real_postgres_in_separate_jobs() -> None:
     assert "uv run ruff check ." in quality_commands
     assert "uv run ruff format --check ." in quality_commands
     assert "uv run mypy" in quality_commands
+    assert "uv run mypy --platform win32" in quality_commands
     assert "uv sync --locked --dev" in quality_commands
     assert 'uv run pytest -m "not postgres" -q' in quality_commands
     assert any("scripts.concurrency_baseline" in command for command in quality_commands)
