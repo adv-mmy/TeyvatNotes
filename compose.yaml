@@ -43,10 +43,7 @@ services:
     environment:
       DATABASE_URL: *database-url
       AGENT_RUNTIME_API_KEY: ${AGENT_RUNTIME_API_KEY:?请在 .env 中设置 AGENT_RUNTIME_API_KEY}
-      AGENT_RUNTIME_EXECUTION_MODE: embedded
-      AGENT_RUNTIME_WORKER_COUNT: ${AGENT_RUNTIME_WORKER_COUNT:-4}
-      AGENT_RUNTIME_MAX_CONCURRENCY: ${AGENT_RUNTIME_MAX_CONCURRENCY:-2}
-      AGENT_RUNTIME_TASK_TIMEOUT_SECONDS: ${AGENT_RUNTIME_TASK_TIMEOUT_SECONDS:-30}
+      AGENT_RUNTIME_EXECUTION_MODE: api_only
       AGENT_RUNTIME_SHUTDOWN_TIMEOUT_SECONDS: ${AGENT_RUNTIME_SHUTDOWN_TIMEOUT_SECONDS:-5}
       AGENT_RUNTIME_RATE_LIMIT_REQUESTS: ${AGENT_RUNTIME_RATE_LIMIT_REQUESTS:-30}
       AGENT_RUNTIME_RATE_LIMIT_WINDOW_SECONDS: ${AGENT_RUNTIME_RATE_LIMIT_WINDOW_SECONDS:-60}
@@ -72,6 +69,43 @@ services:
     user: "10001:10001"
     restart: unless-stopped
     stop_grace_period: 15s
+
+  worker:
+    build:
+      context: .
+    command: ["python", "worker_main.py"]
+    environment:
+      DATABASE_URL: *database-url
+      AGENT_RUNTIME_WORKER_ID: ${AGENT_RUNTIME_WORKER_ID:-}
+      AGENT_RUNTIME_WORKER_POLL_INTERVAL_SECONDS: ${AGENT_RUNTIME_WORKER_POLL_INTERVAL_SECONDS:-0.2}
+      AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS: ${AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS:-45}
+      AGENT_RUNTIME_TASK_TIMEOUT_SECONDS: ${AGENT_RUNTIME_TASK_TIMEOUT_SECONDS:-30}
+      AGENT_RUNTIME_MAX_ATTEMPTS: ${AGENT_RUNTIME_MAX_ATTEMPTS:-3}
+      AGENT_RUNTIME_RETRY_BASE_DELAY_SECONDS: ${AGENT_RUNTIME_RETRY_BASE_DELAY_SECONDS:-1}
+      AGENT_RUNTIME_RETRY_MAX_DELAY_SECONDS: ${AGENT_RUNTIME_RETRY_MAX_DELAY_SECONDS:-30}
+      AGENT_RUNTIME_RETRY_JITTER_RATIO: ${AGENT_RUNTIME_RETRY_JITTER_RATIO:-0.2}
+      AGENT_RUNTIME_WORKER_MONITOR_HOST: 127.0.0.1
+      AGENT_RUNTIME_WORKER_MONITOR_PORT: "9101"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:9101/health/ready', timeout=2).read()
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "10001:10001"
+    restart: unless-stopped
+    stop_grace_period: 40s
 
 volumes:
   postgres-data:

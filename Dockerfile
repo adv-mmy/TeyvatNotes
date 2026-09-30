@@ -20,7 +20,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY migrations ./migrations
-COPY alembic.ini main.py api_main.py ./
+COPY alembic.ini main.py api_main.py worker_main.py ./
 
 RUN uv sync --frozen --no-dev \
     && chown -R 10001:10001 /app

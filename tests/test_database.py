@@ -51,13 +51,23 @@ def test_metadata_contains_required_tables_constraints_and_indexes() -> None:
         "ck_tasks_task_type_allowed",
         "ck_tasks_status_allowed",
         "ck_tasks_version_non_negative",
+        "ck_tasks_attempts_in_cycle_non_negative",
     }
     assert {index.name for index in tasks.indexes} == {
         "ix_tasks_created_at_id",
         "ix_tasks_status_created_at_id",
     }
     attempts = Base.metadata.tables["task_attempts"]
-    assert attempts.indexes == set()
+    assert {index.name for index in attempts.indexes} == {
+        "ix_task_attempts_outcome_lease_expires_at",
+        "uq_task_attempts_active_task",
+    }
+    assert {constraint.name for constraint in attempts.constraints} >= {
+        "ck_task_attempts_attempt_in_cycle_positive",
+        "ck_task_attempts_worker_id_non_empty",
+        "ck_task_attempts_lease_not_before_start",
+        "ck_task_attempts_outcome_allowed",
+    }
 
 
 def test_alembic_head_generates_three_tables_from_empty_schema() -> None:
@@ -72,4 +82,7 @@ def test_alembic_head_generates_three_tables_from_empty_schema() -> None:
     assert "CREATE TABLE task_events" in migration_sql
     assert "uq_tasks_idempotency_key" in migration_sql
     assert "ix_tasks_status_created_at_id" in migration_sql
+    assert "available_at" in migration_sql
+    assert "lease_expires_at" in migration_sql
+    assert "uq_task_attempts_active_task" in migration_sql
     assert "ix_task_attempts_task_id_attempt_number" not in migration_sql

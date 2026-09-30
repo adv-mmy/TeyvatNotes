@@ -19,6 +19,7 @@ class AttemptOutcome(StrEnum):
     PERMANENT_FAILURE = "permanent_failure"
     LEASE_EXPIRED = "lease_expired"
     CANCELLED = "cancelled"
+    LEGACY_UNKNOWN = "legacy_unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,8 @@ class WorkerSettings:
     def __post_init__(self) -> None:
         if not self.worker_id.strip():
             raise ValueError("worker_id 不能为空")
+        if len(self.worker_id) > 128:
+            raise ValueError("worker_id 不能超过 128 个字符")
         if not math.isfinite(self.poll_interval_seconds) or self.poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds 必须大于 0")
         if not math.isfinite(self.task_timeout_seconds) or self.task_timeout_seconds <= 0:

@@ -201,6 +201,8 @@ def _task_at(clock: MutableClock) -> Task:
 def test_worker_settings_require_valid_identity_and_lease() -> None:
     with pytest.raises(ValueError, match="worker_id"):
         WorkerSettings(worker_id="")
+    with pytest.raises(ValueError, match="128"):
+        WorkerSettings(worker_id="w" * 129)
     with pytest.raises(ValueError, match="lease_duration_seconds"):
         WorkerSettings(worker_id="worker", lease_duration_seconds=1, task_timeout_seconds=1)
     with pytest.raises(ValueError, match="task_timeout_seconds"):

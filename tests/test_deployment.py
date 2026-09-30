@@ -18,14 +18,15 @@ def test_dockerfile_runs_as_non_root_and_has_a_healthcheck() -> None:
     assert "/health/live" in dockerfile
     assert "STOPSIGNAL SIGTERM" in dockerfile
     assert "uv sync --frozen --no-dev" in dockerfile
+    assert "worker_main.py" in dockerfile
     assert "AGENT_RUNTIME_API_KEY=" not in dockerfile
 
 
-def test_compose_has_persistent_database_migration_and_embedded_worker() -> None:
+def test_compose_has_persistent_database_migration_and_independent_worker() -> None:
     compose = yaml.safe_load((PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8"))
     services = compose["services"]
 
-    assert set(services) == {"postgres", "migrate", "api"}
+    assert set(services) == {"postgres", "migrate", "api", "worker"}
     assert services["postgres"]["volumes"] == ["postgres-data:/var/lib/postgresql/data"]
     assert services["postgres"]["healthcheck"]["test"][0] == "CMD-SHELL"
     assert services["migrate"]["command"] == ["alembic", "upgrade", "head"]
@@ -33,12 +34,23 @@ def test_compose_has_persistent_database_migration_and_embedded_worker() -> None
     assert services["api"]["depends_on"]["migrate"]["condition"] == (
         "service_completed_successfully"
     )
-    assert services["api"]["environment"]["AGENT_RUNTIME_EXECUTION_MODE"] == ("embedded")
+    assert services["api"]["environment"]["AGENT_RUNTIME_EXECUTION_MODE"] == ("api_only")
     assert services["api"]["read_only"] is True
     assert services["api"]["user"] == "10001:10001"
     assert services["api"]["init"] is True
     assert services["api"]["stop_grace_period"] == "15s"
     assert "/health/ready" in services["api"]["healthcheck"]["test"][-1]
+    assert services["worker"]["command"] == ["python", "worker_main.py"]
+    assert services["worker"]["depends_on"]["migrate"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert "/health/ready" in services["worker"]["healthcheck"]["test"][-1]
+    assert services["worker"]["environment"]["AGENT_RUNTIME_WORKER_ID"] == (
+        "${AGENT_RUNTIME_WORKER_ID:-}"
+    )
+    assert services["worker"]["read_only"] is True
+    assert services["worker"]["user"] == "10001:10001"
+    assert services["worker"]["stop_grace_period"] == "40s"
     assert "postgres-data" in compose["volumes"]
 
 
@@ -88,6 +100,8 @@ def test_ci_runs_quality_and_real_postgres_in_separate_jobs() -> None:
     postgres_commands = [step["run"] for step in postgres_job["steps"] if "run" in step]
     assert "uv run alembic upgrade head" in postgres_commands
     assert "uv run pytest -m postgres -q" in postgres_commands
+    assert "uv run python -m scripts.postgres_recovery_demo" in postgres_commands
+    assert "uv run python -m scripts.process_acceptance_demo" in postgres_commands
     assert postgres_commands.index("uv run alembic upgrade head") < postgres_commands.index(
         "uv run pytest -m postgres -q"
     )
@@ -105,13 +119,15 @@ def test_stage_one_docs_contain_required_diagrams_and_recovery_boundaries() -> N
     assert "stateDiagram-v2" in architecture
     assert "erDiagram" in architecture
     assert "不要用 `docker compose down -v`" in runbook
-    assert "重启 API 会丢失队列引用" in runbook
+    assert "任务队列状态在 PostgreSQL 中" in runbook
     assert "公开任务 GET / list" in architecture
     assert "公开 health/live" in architecture
     assert "MetricsRegistry" in architecture
     assert "Client --> Auth" not in architecture
     assert "Commands --> Runtime" not in architecture
     assert "Public -->" not in architecture
+    assert "FOR UPDATE SKIP LOCKED" in architecture
+    assert "独立 Worker" in architecture
     for scenario in (
         "正常创建并完成",
         "重复幂等键",
@@ -122,4 +138,6 @@ def test_stage_one_docs_contain_required_diagrams_and_recovery_boundaries() -> N
         "SSE 和日志解释",
     ):
         assert scenario in acceptance
-    assert "真正跨进程 PostgreSQL 恢复仍等待第四周 SQL" in acceptance
+    assert "scripts.postgres_recovery_demo" in acceptance
+    assert "scripts.process_acceptance_demo" in acceptance
+    assert "lease_expired, succeeded" in acceptance

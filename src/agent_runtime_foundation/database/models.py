@@ -32,6 +32,10 @@ NAMING_CONVENTION = {
 
 TASK_STATUS_VALUES = "'queued', 'running', 'succeeded', 'cancel_requested', 'cancelled', 'failed'"
 TASK_TYPE_VALUES = "'sum_numbers', 'word_count'"
+ATTEMPT_OUTCOME_VALUES = (
+    "'running', 'succeeded', 'retry_scheduled', 'retries_exhausted', "
+    "'permanent_failure', 'lease_expired', 'cancelled', 'legacy_unknown'"
+)
 
 
 class Base(DeclarativeBase):
@@ -54,6 +58,7 @@ class TaskRecord(Base):
             name="status_allowed",
         ),
         CheckConstraint("version >= 0", name="version_non_negative"),
+        CheckConstraint("attempts_in_cycle >= 0", name="attempts_in_cycle_non_negative"),
         UniqueConstraint("idempotency_key", name="uq_tasks_idempotency_key"),
         Index("ix_tasks_status_created_at_id", "status", "created_at", "id"),
         Index("ix_tasks_created_at_id", "created_at", "id"),
@@ -69,6 +74,13 @@ class TaskRecord(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts_in_cycle: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class TaskAttemptRecord(Base):
@@ -77,10 +89,27 @@ class TaskAttemptRecord(Base):
     __tablename__ = "task_attempts"
     __table_args__ = (
         CheckConstraint("attempt_number >= 1", name="attempt_number_positive"),
+        CheckConstraint("attempt_in_cycle >= 1", name="attempt_in_cycle_positive"),
+        CheckConstraint("char_length(worker_id) >= 1", name="worker_id_non_empty"),
+        CheckConstraint(
+            "lease_expires_at >= started_at",
+            name="lease_not_before_start",
+        ),
+        CheckConstraint(
+            f"outcome IN ({ATTEMPT_OUTCOME_VALUES})",
+            name="outcome_allowed",
+        ),
         UniqueConstraint(
             "task_id",
             "attempt_number",
             name="uq_task_attempts_task_id_attempt_number",
+        ),
+        Index("ix_task_attempts_outcome_lease_expires_at", "outcome", "lease_expires_at"),
+        Index(
+            "uq_task_attempts_active_task",
+            "task_id",
+            unique=True,
+            postgresql_where=text("finished_at IS NULL"),
         ),
     )
 
@@ -91,9 +120,15 @@ class TaskAttemptRecord(Base):
         nullable=False,
     )
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_in_cycle: Mapped[int] = mapped_column(Integer, nullable=False)
+    worker_id: Mapped[str] = mapped_column(String(128), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class TaskEventRecord(Base):

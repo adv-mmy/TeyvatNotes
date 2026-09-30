@@ -75,3 +75,7 @@ jobs:
         run: uv run alembic upgrade head
       - name: PostgreSQL Repository 集成测试
         run: uv run pytest -m postgres -q
+      - name: PostgreSQL 租约恢复演示
+        run: uv run python -m scripts.postgres_recovery_demo
+      - name: 本机独立进程强杀恢复与 SSE 验收
+        run: uv run python -m scripts.process_acceptance_demo
