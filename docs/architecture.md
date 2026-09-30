@@ -184,5 +184,5 @@ sequenceDiagram
 - 当前没有租约续期；配置要求租约时长大于单任务超时，长任务需先设计 heartbeat/续租；
 - API 的 `/metrics` 只读取 API 进程；Worker 在私有 `127.0.0.1:9101/metrics` 提供其执行指标，两者均为单进程内存快照、不持久且不聚合；
 - Worker 的 `/health/ready` 检查执行循环与数据库表；API 就绪不代表整个队列有 Worker 处理。执行循环意外结束时监控服务器也退出，供进程重启策略接管；
-- `process_acceptance_demo` 已提供本机真实强杀与真实租约等待路径；Docker 镜像、容器重启持久化和 Linux SIGTERM 时序仍须单独验收；
+- `process_acceptance_demo` 提供本机真实强杀与真实租约等待路径；Docker 镜像、命名卷重启持久化和 Linux SIGTERM 已另行验收，见 `docker-acceptance.md`，不得混淆两种证据；
 - 并发基线用于记录变化趋势，不是生产容量结论。

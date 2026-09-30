@@ -67,7 +67,7 @@ uv run python -m scripts.process_acceptance_demo
 
 本地没有 PostgreSQL 凭据时，真实库测试会明确跳过；CI 中设置 `TEST_DATABASE_URL` 后必须实际运行，不能以 skip 代替通过。
 
-部署测试只读取可提交的 `.env.example`，不能读取私有 `.env`。干净源码目录无需本机凭据即可运行 quality Job 对应的检查。Docker 的 build/up、容器重启后命名卷保留和 SIGTERM 优雅退出留待真实 Docker 环境；本机通过结果不能代替这些验收。
+部署测试只读取可提交的 `.env.example`，不能读取私有 `.env`。干净源码目录无需本机凭据即可运行 quality Job 对应的检查。2026-09-30 已在 Docker Desktop Linux 引擎完成实际 build/up、命名卷重启保留和 SIGTERM 验收；活动 SSE 停机缺陷已修复并复测。结果、复核命令和未覆盖边界见 [Docker 验收记录](docker-acceptance.md)。远端 GitHub Actions 尚未触发，本地结果不能替代远端运行证据。
 
 ## 4. 并发基线如何解读
 

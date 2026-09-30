@@ -1,5 +1,6 @@
 """第七周 Dockerfile 与 Compose 静态验收。"""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,23 @@ def test_dockerfile_runs_as_non_root_and_has_a_healthcheck() -> None:
     assert "uv sync --frozen --no-dev" in dockerfile
     assert "worker_main.py" in dockerfile
     assert "AGENT_RUNTIME_API_KEY=" not in dockerfile
+
+
+def test_docker_api_shutdown_is_bounded_before_container_sigkill() -> None:
+    dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    compose = yaml.safe_load((PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    command = json.loads(
+        next(
+            line.removeprefix("CMD ") for line in dockerfile.splitlines() if line.startswith("CMD ")
+        )
+    )
+
+    assert command[:2] == ["uvicorn", "api_main:app"]
+    timeout_flag = "--timeout-graceful-shutdown"
+    assert timeout_flag in command
+    http_timeout = int(command[command.index(timeout_flag) + 1])
+    container_timeout = int(compose["services"]["api"]["stop_grace_period"].removesuffix("s"))
+    assert 0 < http_timeout < container_timeout
 
 
 def test_compose_has_persistent_database_migration_and_independent_worker() -> None:

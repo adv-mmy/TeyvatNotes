@@ -344,6 +344,8 @@ docker compose up --build -d
 
 Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 `alembic upgrade head` → `api` 与 `worker` 分别启动。API 使用 `api_only`，Worker 运行 `worker_main.py`；两者只通过 PostgreSQL 共享任务状态。PostgreSQL 数据保存在命名卷 `postgres-data` 中，普通 `docker compose down` 后再次启动仍会恢复。应用镜像和 Compose 都固定使用 UID/GID `10001`，文件系统只读，仅挂载临时 `/tmp`。API 的停机宽限期为 15 秒，Worker 为 40 秒。
 
+镜像默认入口为 `uvicorn api_main:app`，强制使用 API-only 模式。HTTP/SSE 停机等待上限为 5 秒，随后取消仍未结束的连接并进入应用清理，避免非终态 SSE 一直占用 Compose 的 15 秒宽限期。2026-09-30 的实际 Docker 验收与保留资源见 [`docs/docker-acceptance.md`](docs/docker-acceptance.md)。
+
 ## 第八周 CI、故障演练与阶段验收
 
 ### 自动化 CI
@@ -379,7 +381,7 @@ uv run python -m scripts.process_acceptance_demo
 
 该脚本启动本机 API 与 Worker 子进程，确认进入执行后调用操作系统的进程强杀，使用 PostgreSQL 真实时钟等待租约过期，再由正式 `worker_main.run_worker()` 完成恢复。它同时检查 SSE 实时事件/精确续传、API 到 Worker 日志关联，以及 Worker 指标与健康端点。
 
-每轮在 `TEST_DATABASE_URL` 指向的专用测试库中创建独立 `process_demo_<UUID>` schema，显式用 ORM 元数据建立演示表，不消费 public 队列。测试用户需要 CREATE schema 权限；schema 会保留供复核，名称出现在报告中。此脚本验证进程链路，Alembic 升降级另外由 PostgreSQL 集成测试验证。Windows 的进程强杀不代表 Linux 的 SIGTERM 优雅退出；镜像、Compose、持久卷和容器信号仍待安装 Docker 后验收。
+每轮在 `TEST_DATABASE_URL` 指向的专用测试库中创建独立 `process_demo_<UUID>` schema，显式用 ORM 元数据建立演示表，不消费 public 队列。测试用户需要 CREATE schema 权限；schema 会保留供复核，名称出现在报告中。此脚本验证进程链路，Alembic 升降级另外由 PostgreSQL 集成测试验证。Windows 的进程强杀不代表 Linux 的 SIGTERM 优雅退出；镜像、Compose、命名卷重启和容器信号已另行完成实际验收，见 Docker 验收记录。
 
 完整步骤和期望结果见 [`docs/stage-one-acceptance.md`](docs/stage-one-acceptance.md)。架构、状态机和表关系见 [`docs/architecture.md`](docs/architecture.md)，故障处理见 [`docs/recovery-runbook.md`](docs/recovery-runbook.md)。
 

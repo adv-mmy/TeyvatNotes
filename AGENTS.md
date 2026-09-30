@@ -138,6 +138,7 @@ running → failed → queued
 - 创建与重试属于高成本接口，共享线程安全的进程内滑动窗口；限流只适用于单进程，不得暗示跨容器一致性。
 - 任务类型和 payload 必须继续由枚举、判别联合与 `extra="forbid"` 白名单约束；阶段一禁止用户选择 Python 函数、模块、系统命令或任意执行器。
 - 应用容器以非 root 用户运行，文件系统只读，通过 `/health/ready` 检查就绪，并让 SIGTERM 进入 FastAPI lifespan 完成优雅退出。
+- 镜像默认使用 `uvicorn api_main:app`，强制 API-only。HTTP/SSE graceful shutdown 上限为 5 秒，必须短于 API 容器 15 秒宽限期；改动时覆盖非终态 SSE，不能只用空闲停机证明收敛。实际 Docker 验收记录位于 `docs/docker-acceptance.md`。
 - PostgreSQL 使用命名卷；迁移由一次性 Compose 服务显式执行。Compose 的 API 使用 `api_only`，独立 Worker 使用 `FOR UPDATE SKIP LOCKED`、部分唯一索引和租约字段协调并发。
 
 ### CI、演示与故障恢复
