@@ -4,9 +4,7 @@
 
 ## 当前阶段
 
-第 8 周：GitHub Actions CI、真实 PostgreSQL 集成测试、七场景验收演示、并发基线、架构图和故障恢复手册。
-
-第四周的 SQL、事务、索引、SQLAlchemy 与 Alembic 内容保留在独立章节。当前未在本机运行 PostgreSQL；本周不新增表、迁移或 Worker 原子领取 SQL。Compose 暂时让 API 与内嵌 Worker 同进程运行，待 PostgreSQL Worker SQL 完成后再拆成两个进程。
+第 8 周基线完成后，补齐此前暂缓的第四周 PostgreSQL Worker SQL：原子领取、租约持久化、跨连接池恢复和独立 Worker 进程。
 
 当前实现包含：
 
@@ -27,15 +25,17 @@
 - `tasks`、`task_attempts`、`task_events` 三张 PostgreSQL 表；
 - SQLAlchemy 2.x `AsyncEngine` / `AsyncSession` 和可配置连接池；
 - PostgreSQL Repository，在同一事务中保存状态、结果、attempt 和 event；
-- Alembic 首个迁移，可从空数据库重建表、约束和索引；
+- 两个 Alembic 迁移，可从空数据库重建三表、约束、列表索引和租约索引；
 - `Idempotency-Key` 创建幂等性与数据库唯一约束；
 - 面向常用列表查询的联合索引及 JSON `EXPLAIN` 命令。
 - `TaskCommandHandler` 抽象，使 API 可选择内嵌执行或只持久化命令；
-- `WorkerRepository` 端口和可运行的内存原子领取/租约实现；
+- `WorkerRepository` 端口，以及语义一致的内存/PostgreSQL 原子领取与租约实现；
 - 保存每次 attempt 的 Worker、时间、结果、错误和下次重试时间；
 - 最大尝试次数、指数退避、有上限抖动和可注入时钟/随机源；
 - 可重试、永久错误和未预期错误分类；
 - 过期租约恢复、旧 Worker 防过期写入和无活动 attempt 取消收敛。
+- `FOR UPDATE SKIP LOCKED` 防止多个 PostgreSQL Worker 重复领取；每个任务最多一个未结束 attempt；
+- `worker_main.py` 独立进程入口，API 与 Worker 通过 PostgreSQL 协作；
 - `task_created`、`status_changed` 和 `task_progress` 事件，以递增 ID 提供 SSE 断点续传；
 - 通过 `request_id`、`task_id`、`attempt_id` 和 `worker_id` 串联 API 与 Worker 日志；
 - 单行 JSON 结构化日志，不记录请求体、查询参数、异常原文或原始 URL；
@@ -79,7 +79,7 @@ uv run fastapi dev main.py
 uv run fastapi dev api_main.py
 ```
 
-`api_main.py` 使用 `api_only` 模式，只保存创建、取消和手动重试命令，不启动 `TaskRuntime`。未设置 PostgreSQL Worker 适配器时，不要把它当作已完成的双进程部署：新任务会保持 `queued`。
+`api_main.py` 使用 `api_only` 模式，只保存创建、取消和手动重试命令，不启动 `TaskRuntime`。设置同一个 `DATABASE_URL` 后，另一个终端运行 `uv run python worker_main.py`，独立 Worker 会领取并推进任务。
 
 当前允许的任务类型：
 
@@ -248,6 +248,7 @@ TaskWorker（独立进程主循环的 Python 部分）
 - 第 `n` 次失败的基础等待为 `base_delay * 2 ** (n - 1)`，再受 `max_delay` 与 `jitter_ratio` 限制。
 - 时钟和随机源可注入，测试不依赖真实 `sleep` 或不稳定随机数。
 - 每次领取产生新 `attempt_id`，并保存 `running`、`retry_scheduled`、`retries_exhausted`、`permanent_failure`、`succeeded`、`lease_expired` 或 `cancelled` 结果。
+- 从 0001 升级时无法可靠推断旧记录的精确结局，已结束 attempt 会诚实标记为 `legacy_unknown`，原有 `error` 仍保留，不根据任务最终状态伪造历史成功。
 
 ### 租约与至少一次执行
 
@@ -257,9 +258,11 @@ Worker 执行协程被强制取消时不会伪造持久化完成，也不会增�
 
 这是“至少一次”而不是“恰好一次”。通常无法只靠任务队列承诺恰好一次，因为执行业务副作用和记录成功不能对任意外部系统构成同一原子事务。执行器仍应使用业务幂等键、去重记录或可安全重放的操作。
 
-### 当前边界
+### PostgreSQL Worker 实现
 
-本轮已完成 `TaskWorker`、`WorkerRepository` 端口和内存验收实现，但还不是可跨进程共享的生产队列。待本机安装 PostgreSQL 后，将按第四周 SQL 范畴补充和验收 PostgreSQL 原子领取、租约持久化与跨进程恢复；这些不计入本次第五周实现。
+`PostgresWorkerRepository.claim_next()` 在一个事务中用 `SELECT ... FOR UPDATE SKIP LOCKED` 选择到期的 `queued` 任务、推进为 `running`、递增本轮 attempt 数并写入租约。租约创建和过期比较统一使用 PostgreSQL 当前时间，避免不同 Worker 主机时钟偏差。`complete_claim()` 和 `fail_claim()` 会再次锁定任务与 attempt，只接受数据库中仍有效且属于当前 `worker_id` 的租约；旧 Worker 在租约过期后提交会得到 `LeaseOwnershipError`。
+
+`recover_expired()` 把过期 attempt 记录为 `lease_expired`，在本轮预算内重新排队，否则保留 `failed`；没有活动 attempt 的 `cancel_requested` 会收敛到 `cancelled`。自动重试保留 `attempt_in_cycle`，用户手动重试会重置本轮预算，但全局 `attempt_number` 继续递增。
 
 ## 第六周 SSE 与可观测性
 
@@ -285,6 +288,14 @@ Worker 执行协程被强制取消时不会伪造持久化完成，也不会增�
 
 这里的 Metric 是数值聚合，Log 是离散事件记录，Trace 则是一次请求跨组件的因果链。本项目当前通过关联 ID 提供轻量追踪，尚未接入分布式 Trace 后端。`/metrics` 也是单进程、内存中的瞬时快照，重启会清零，API-only 与独立 Worker 之间不会自动聚合。
 
+独立 Worker 另外提供本进程的 `/metrics`、`/health/live`、`/health/ready`，默认只监听 `127.0.0.1:9101`。Worker 与监控端点共享同一个 `MetricsRegistry`；ready 会在 1 秒内探测数据库表，并确认执行循环仍在运行且未停止。API 的 ready 只说明 API 与存储就绪，不能代替 Worker 的检查。
+
+本机 Worker 的指标可用 `curl.exe http://127.0.0.1:9101/metrics` 查看。Compose 不发布监控端口，在容器内读取：
+
+```powershell
+docker compose exec worker python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:9101/metrics', timeout=2).read().decode())"
+```
+
 ## 第七周安全、配置与 Docker Compose
 
 ### 配置与密钥
@@ -300,6 +311,15 @@ Worker 执行协程被强制取消时不会伪造持久化完成，也不会增�
 | `AGENT_RUNTIME_MAX_CONCURRENCY` | `2` | 执行器并发上限 |
 | `AGENT_RUNTIME_TASK_TIMEOUT_SECONDS` | `30` | 单任务超时 |
 | `AGENT_RUNTIME_SHUTDOWN_TIMEOUT_SECONDS` | `5` | Runtime 停机宽限期 |
+| `AGENT_RUNTIME_WORKER_ID` | 主机名与 PID | 独立 Worker 身份；Compose 留空时由每个容器自行生成 |
+| `AGENT_RUNTIME_WORKER_MONITOR_HOST` | `127.0.0.1` | Worker 监控监听 IP；默认仅本机访问 |
+| `AGENT_RUNTIME_WORKER_MONITOR_PORT` | `9101` | 本机独立 Worker 监控端口；Compose 固定容器内 9101 |
+| `AGENT_RUNTIME_WORKER_POLL_INTERVAL_SECONDS` | `0.2` | 无任务时的轮询间隔 |
+| `AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS` | `45` | 租约时长，必须大于任务超时 |
+| `AGENT_RUNTIME_MAX_ATTEMPTS` | `3` | 单轮自动尝试上限 |
+| `AGENT_RUNTIME_RETRY_BASE_DELAY_SECONDS` | `1` | 指数退避基础秒数 |
+| `AGENT_RUNTIME_RETRY_MAX_DELAY_SECONDS` | `30` | 退避上限秒数 |
+| `AGENT_RUNTIME_RETRY_JITTER_RATIO` | `0.2` | 抖动比例 |
 | `AGENT_RUNTIME_RATE_LIMIT_REQUESTS` | `30` | 一个滑动窗口允许的创建/重试总数 |
 | `AGENT_RUNTIME_RATE_LIMIT_WINDOW_SECONDS` | `60` | 滑动窗口秒数 |
 
@@ -322,9 +342,9 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up --build -d
 ```
 
-Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 `alembic upgrade head` → API readiness 通过。PostgreSQL 数据保存在命名卷 `postgres-data` 中，普通 `docker compose down` 后再次启动仍会恢复。应用镜像和 Compose 都固定使用 UID/GID `10001`，应用文件系统只读，仅挂载临时 `/tmp`，并用 `SIGTERM`、FastAPI lifespan 和 15 秒容器宽限期完成优雅退出。
+Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 `alembic upgrade head` → `api` 与 `worker` 分别启动。API 使用 `api_only`，Worker 运行 `worker_main.py`；两者只通过 PostgreSQL 共享任务状态。PostgreSQL 数据保存在命名卷 `postgres-data` 中，普通 `docker compose down` 后再次启动仍会恢复。应用镜像和 Compose 都固定使用 UID/GID `10001`，文件系统只读，仅挂载临时 `/tmp`。API 的停机宽限期为 15 秒，Worker 为 40 秒。
 
-当前 `api` 容器运行 `main.py`，其中同时包含 API 与内嵌 Worker。这是为了遵守“PostgreSQL Worker 原子领取 SQL 待数据库环境就绪后再实现”的现有边界。它能完成单容器创建、执行与持久化演示，但强制终止后自动领取遗留 `queued/running` 任务仍未完成；不得把它描述为已经实现独立 Worker 的生产部署。
+镜像默认入口为 `uvicorn api_main:app`，强制使用 API-only 模式。HTTP/SSE 停机等待上限为 5 秒，随后取消仍未结束的连接并进入应用清理，避免非终态 SSE 一直占用 Compose 的 15 秒宽限期。2026-09-30 的实际 Docker 验收与保留资源见 [`docs/docker-acceptance.md`](docs/docker-acceptance.md)。
 
 ## 第八周 CI、故障演练与阶段验收
 
@@ -333,7 +353,7 @@ Compose 的启动顺序为：PostgreSQL 健康检查通过 → `migrate` 执行 
 `.github/workflows/ci.yml` 在 push、pull request 和手动触发时运行两个 Job：
 
 - `quality`：按 `uv.lock` 安装依赖，执行 Ruff、格式检查、mypy、非 PostgreSQL 测试和并发基线；
-- `postgres`：启动带健康检查的 PostgreSQL 17，执行 Alembic 迁移，再运行所有 `postgres` 标记的真实 Repository 集成测试。
+- `postgres`：启动带健康检查的 PostgreSQL 17，执行 Alembic 迁移，运行所有 `postgres` 标记的真实集成测试，再执行跨 Engine 与真实独立进程的租约恢复演示。
 
 CI 中的测试数据库凭据仅属于隔离服务容器，不是部署密钥。测试失败不能用 `continue-on-error` 或 `|| true` 绕过；真实数据库测试也不能以 skip 代替通过。
 
@@ -345,7 +365,23 @@ CI 中的测试数据库凭据仅属于隔离服务容器，不是部署密钥�
 uv run python -m scripts.stage_one_demo
 ```
 
-演示使用运行时随机生成的 API Key，不把凭据写入代码或日志。Worker 中断恢复使用现有内存租约模型和可控时钟，报告中的 `lease_expired -> succeeded` 证明 Python 策略；它不代表 PostgreSQL 跨进程 Worker SQL 已经完成。
+演示使用运行时随机生成的 API Key，不把凭据写入代码或日志。默认七场景脚本仍以快速、确定性的内存实现验证接口；设置可丢弃的 `TEST_DATABASE_URL` 并完成迁移后，可运行真实 PostgreSQL 恢复演示：
+
+```powershell
+uv run python -m scripts.postgres_recovery_demo
+```
+
+该脚本中断首个 Worker、释放其数据库 Engine，再由新的 Engine、Repository 和替代 Worker 将 `lease_expired` 任务恢复为 `succeeded`。
+
+无需 Docker 的真实进程验收：
+
+```powershell
+uv run python -m scripts.process_acceptance_demo
+```
+
+该脚本启动本机 API 与 Worker 子进程，确认进入执行后调用操作系统的进程强杀，使用 PostgreSQL 真实时钟等待租约过期，再由正式 `worker_main.run_worker()` 完成恢复。它同时检查 SSE 实时事件/精确续传、API 到 Worker 日志关联，以及 Worker 指标与健康端点。
+
+每轮在 `TEST_DATABASE_URL` 指向的专用测试库中创建独立 `process_demo_<UUID>` schema，显式用 ORM 元数据建立演示表，不消费 public 队列。测试用户需要 CREATE schema 权限；schema 会保留供复核，名称出现在报告中。此脚本验证进程链路，Alembic 升降级另外由 PostgreSQL 集成测试验证。Windows 的进程强杀不代表 Linux 的 SIGTERM 优雅退出；镜像、Compose、命名卷重启和容器信号已另行完成实际验收，见 Docker 验收记录。
 
 完整步骤和期望结果见 [`docs/stage-one-acceptance.md`](docs/stage-one-acceptance.md)。架构、状态机和表关系见 [`docs/architecture.md`](docs/architecture.md)，故障处理见 [`docs/recovery-runbook.md`](docs/recovery-runbook.md)。
 
@@ -353,6 +389,8 @@ uv run python -m scripts.stage_one_demo
 
 ```powershell
 uv run python -m scripts.concurrency_baseline --tasks 200 --concurrency 20
+# 设置可丢弃 TEST_DATABASE_URL 后：
+uv run python -m scripts.postgres_recovery_demo
 ```
 
 脚本在真实 `await` 调度点记录并发峰值，验证 Semaphore 上限和所有任务正确收敛，再输出吞吐观测值。CI 不设置固定吞吐门槛，避免共享 Runner 性能抖动制造假失败；比较版本时应在同一环境多轮运行。当前结果只代表进程内内存实现，不代表 PostgreSQL 或生产容量。
@@ -489,7 +527,9 @@ src/agent_runtime_foundation/
 
 migrations/
 ├─ env.py
-└─ versions/20260810_0001_create_task_tables.py
+└─ versions/
+   ├─ 20260810_0001_create_task_tables.py
+   └─ 20260825_0002_add_worker_leases.py
 
 tests/
 ├─ test_api.py
@@ -506,6 +546,8 @@ tests/
 
 scripts/
 ├─ concurrency_baseline.py
+├─ postgres_recovery_demo.py
+├─ process_acceptance_demo.py
 └─ stage_one_demo.py
 
 docs/
@@ -518,4 +560,5 @@ docs/
 Dockerfile
 compose.yaml
 .env.example
+worker_main.py
 ```

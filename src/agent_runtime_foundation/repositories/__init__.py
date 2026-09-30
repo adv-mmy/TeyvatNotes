@@ -2,6 +2,14 @@
 
 from agent_runtime_foundation.repositories.base import TaskRepository
 from agent_runtime_foundation.repositories.memory import InMemoryTaskRepository
-from agent_runtime_foundation.repositories.postgres import PostgresTaskRepository
+from agent_runtime_foundation.repositories.postgres import (
+    PostgresTaskRepository,
+    PostgresWorkerRepository,
+)
 
-__all__ = ["InMemoryTaskRepository", "PostgresTaskRepository", "TaskRepository"]
+__all__ = [
+    "InMemoryTaskRepository",
+    "PostgresTaskRepository",
+    "PostgresWorkerRepository",
+    "TaskRepository",
+]

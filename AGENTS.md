@@ -15,11 +15,11 @@
 
 - 本项目是阶段一“Python 后端底座”的长期主项目，目标是先用确定性任务学习 Agent Runtime 同样需要的状态、并发、失败恢复、持久化和可观测性。
 - 阶段一禁止自行接入 LLM、Agent 框架、RAG 或任意函数/系统命令执行。只有用户明确要求进入相应阶段时才能引入。
-- 当前基线为 `0.8.0 / 第 8 周`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、第四周 PostgreSQL 脚手架、第五周 Worker 策略、第六周可观测性、第七周安全部署，以及 CI、七场景演示、并发基线、架构图和恢复手册。
+- 当前基线为 `0.8.1 / 第 8 周 + 第四周 PostgreSQL 补全`：Python 3.12、FastAPI、Pydantic v2、进程内 `asyncio` Runtime、PostgreSQL 持久化与独立 Worker、可观测性、安全部署、CI、七场景演示、并发基线、架构图和恢复手册。
 - 当前只允许两种确定性任务：
   - `sum_numbers`：`numbers` 含 1～100 个严格整数，每项范围为 `-1_000_000～1_000_000`；
   - `word_count`：`text` 为 1～10,000 字符的非空白字符串。
-- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，`TaskWorker` 已可在内存仓储上验收；PostgreSQL 原子领取、租约持久化和真正跨进程恢复待本机安装 PostgreSQL 后实现。Compose 当前运行 API 与内嵌 Worker，不得描述成已完成独立 Worker；CI 会用真实 PostgreSQL 服务运行已有 Repository 集成测试，但不因此提前补 Worker SQL。
+- 未设置 `DATABASE_URL` 时默认使用 `InMemoryTaskRepository`；设置后使用 `PostgresTaskRepository`。`api_only` 只持久化命令，独立 `worker_main.py` 通过 `PostgresWorkerRepository` 原子领取、持久化租约并恢复过期任务。Compose 运行 API 与 Worker 两个进程；教学用 `main.py` 仍保留 embedded 模式。
 - 当前默认运行时配置为 `worker_count=4`、`max_concurrency=2`、`task_timeout_seconds=30`、`shutdown_timeout_seconds=5`。
 
 ## 三、架构和依赖方向
@@ -128,6 +128,7 @@ running → failed → queued
 - 日志只记录白名单结构化字段；不记录 payload、查询参数、请求体、异常原文、原始未匹配 URL、密钥或凭据。
 - liveness 只表示进程存活；readiness 必须有界检查存储，PostgreSQL 模式需验证 `tasks/task_attempts/task_events` 可访问，内嵌 Runtime 还必须处于 accepting。依赖失联或表未迁移时返回稳定 `503/not_ready`，不泄漏内部异常。
 - `MetricsRegistry` 只是单进程瞬时快照；必须明确它不持久、不跨进程聚合，不得把它描述成生产级 Metrics/Trace 后端。
+- 独立 Worker 的监控应用与 TaskWorker 共享同一 Registry，默认只监听回环地址 9101。Worker readiness 必须同时确认循环正在运行和数据库表可用；API readiness 不能替代 Worker 检查。不得在该私有监控应用增加业务任务接口。
 
 ### 安全、配置与容器
 
@@ -137,7 +138,8 @@ running → failed → queued
 - 创建与重试属于高成本接口，共享线程安全的进程内滑动窗口；限流只适用于单进程，不得暗示跨容器一致性。
 - 任务类型和 payload 必须继续由枚举、判别联合与 `extra="forbid"` 白名单约束；阶段一禁止用户选择 Python 函数、模块、系统命令或任意执行器。
 - 应用容器以非 root 用户运行，文件系统只读，通过 `/health/ready` 检查就绪，并让 SIGTERM 进入 FastAPI lifespan 完成优雅退出。
-- PostgreSQL 使用命名卷；迁移由一次性 Compose 服务显式执行。当前 Compose 的 Worker 是 API 进程内 Runtime，独立 PostgreSQL Worker 仍待第四周 SQL 补完。
+- 镜像默认使用 `uvicorn api_main:app`，强制 API-only。HTTP/SSE graceful shutdown 上限为 5 秒，必须短于 API 容器 15 秒宽限期；改动时覆盖非终态 SSE，不能只用空闲停机证明收敛。实际 Docker 验收记录位于 `docs/docker-acceptance.md`。
+- PostgreSQL 使用命名卷；迁移由一次性 Compose 服务显式执行。Compose 的 API 使用 `api_only`，独立 Worker 使用 `FOR UPDATE SKIP LOCKED`、部分唯一索引和租约字段协调并发。
 
 ### CI、演示与故障恢复
 
@@ -145,7 +147,8 @@ running → failed → queued
 - CI Action 与 uv 使用明确版本，权限保持 `contents: read`；测试数据库只能使用隔离的非生产凭据。
 - 并发基线必须先验证全部任务正确收敛，再报告耗时和吞吐；共享 Runner 上不设脆弱的固定性能阈值，不把内存结果描述成生产容量。
 - 阶段一演示必须覆盖正常、幂等、取消、超时重试、Worker 中断、租约恢复、SSE/日志关联七个场景，并返回机器可检查的报告。
-- Worker 中断恢复演示当前只验证内存租约策略；文档和输出必须明确它不等于 PostgreSQL 跨进程恢复。
+- 默认七场景演示验证内存租约策略；`scripts/postgres_recovery_demo.py` 和 `postgres` 集成测试验证跨 Engine 的 PostgreSQL 租约恢复，两者的边界必须分别说明。
+- `scripts/process_acceptance_demo.py` 用隔离随机 schema 验证本机真实 API/Worker 进程强杀、数据库真实租约、SSE/日志/Worker 指标；schema 留存，不消费原队列。Linux 容器信号、镜像和命名卷须另行验收，不得把本机进程演示称为 Docker 验收。
 - 故障手册默认保留数据和证据；不得把删除卷、删表、改写状态或泄漏密钥当作常规恢复步骤。
 
 ## 五、当前 HTTP 契约
@@ -188,6 +191,7 @@ running → failed → queued
 - `docs/architecture.md`、`recovery-runbook.md`、`stage-one-acceptance.md`：架构与操作说明必须区分实际能力和待办边界；恢复步骤不得默认执行破坏性命令。
 - `src/agent_runtime_foundation/api/sse.py`：修改游标、心跳或关闭语义时，覆盖断线重连的无重复、无缺口与无遗留生成器。
 - `src/agent_runtime_foundation/api/`：修改公开契约时，同步更新 Schema、错误映射、OpenAPI 声明、API 测试和 README 示例。
+- `worker_main.py` 与 `api/worker_monitoring.py`：循环意外结束必须结束监控服务器；停止时等待当前合作式执行完成，确保连接池释放。`tests/test_worker_monitoring.py` 验证共享指标、readiness 失败、空闲/执行中停止与循环故障。
 - `tests/test_task.py`、`test_repository.py`、`test_api.py`、`test_runtime.py` 分别守护领域、存储、HTTP 和并发运行时边界；`test_worker.py` 守护领取、重试、租约和恢复；`test_observability.py` 守护 SSE、关联日志、健康检查和指标；`test_security.py` 与 `test_deployment.py` 守护安全、容器、CI 和文档契约；`test_stage_one_acceptance.py` 守护最终演示与并发基线；`test_database.py` 守护元数据与离线迁移。
 - `uv.lock` 是自动生成的依赖锁文件，只说明用途和关键元数据，不手工编辑，也不做逐行讲解。
 
@@ -216,8 +220,9 @@ uv run mypy
 - 第 4 周：PostgreSQL、SQL、SQLAlchemy 2.x 异步接口、Alembic、事务、原子领取、行锁、租约字段、唯一约束和索引；目标表为 `tasks`、`task_attempts`、`task_events`。
 - 第 5 周：API 与 Worker 的 Python 边界、最大重试、指数退避/抖动、错误分类、租约恢复语义与至少一次执行；支撑这些能力的具体 SQL 仍归第四周。
 - 第 6 周：`GET /v1/tasks/{task_id}/events`、SSE 断线续传、结构化日志、关联 ID、`/health/live` 和 `/health/ready`。
-- 第 7 周：集中配置、Bearer API Key、进程内限流、Dockerfile、API 与内嵌 Worker Compose、持久卷、健康检查和非 root 容器。独立 Worker Compose 需等待第四周 PostgreSQL 原子领取 SQL。
-- 第 8 周：GitHub Actions CI、真实 PostgreSQL 服务与迁移验收、七场景演示、无脆弱阈值的并发基线、架构/状态机/表关系图和故障恢复手册。PostgreSQL Worker SQL 仍归第四周待办。
+- 第 7 周：集中配置、Bearer API Key、进程内限流、Dockerfile、API/Worker Compose、持久卷、健康检查和非 root 容器。
+- 第 8 周：GitHub Actions CI、真实 PostgreSQL 服务与迁移验收、七场景演示、无脆弱阈值的并发基线、架构/状态机/表关系图和故障恢复手册。
+- 第四周补全：`tasks.available_at/attempts_in_cycle/request_id`、attempt 租约审计字段、`FOR UPDATE SKIP LOCKED` 原子领取、有效租约写入校验、过期恢复和独立 Worker 进程。
 - 后续阶段的核心验收始终是：长时间运行、可能失败、重试、取消和中断的任务，在并发及服务重启后仍然可解释、可恢复、可测试。
 - 未收到对应阶段的明确任务前，保持当前实现简单；不得提前引入 Redis、Celery、Kafka、Kubernetes、DDD、CQRS、Event Sourcing、复杂 OAuth 或完整可观测性平台。
 

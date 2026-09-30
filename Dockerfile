@@ -20,7 +20,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY migrations ./migrations
-COPY alembic.ini main.py api_main.py ./
+COPY alembic.ini main.py api_main.py worker_main.py ./
 
 RUN uv sync --frozen --no-dev \
     && chown -R 10001:10001 /app
@@ -33,4 +33,5 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2).read()"]
 
-CMD ["fastapi", "run", "main.py", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+# HTTP/SSE 最多等待 5 秒，随后取消连接并进入 lifespan；短于 Compose 的 15 秒宽限期。
+CMD ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--timeout-graceful-shutdown", "5"]

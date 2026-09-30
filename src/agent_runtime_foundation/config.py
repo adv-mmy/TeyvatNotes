@@ -5,13 +5,16 @@ from __future__ import annotations
 import math
 import os
 import re
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import Literal, cast
 
 from pydantic import SecretStr
 
 from agent_runtime_foundation.runtime import RuntimeSettings
+from agent_runtime_foundation.worker import RetryPolicy, WorkerSettings
 
 type ExecutionMode = Literal["embedded", "api_only"]
 
@@ -106,6 +109,77 @@ class AppSettings:
                     values,
                     "AGENT_RUNTIME_RATE_LIMIT_WINDOW_SECONDS",
                     60.0,
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerProcessSettings:
+    """独立 PostgreSQL Worker 进程的数据库与执行策略配置。"""
+
+    database_url: SecretStr = field(repr=False)
+    worker: WorkerSettings
+    monitor_host: str = "127.0.0.1"
+    monitor_port: int = 9101
+
+    def __post_init__(self) -> None:
+        try:
+            ip_address(self.monitor_host)
+        except ValueError as exc:
+            raise ConfigurationError("AGENT_RUNTIME_WORKER_MONITOR_HOST 必须是 IP 地址") from exc
+        if not 1 <= self.monitor_port <= 65535:
+            raise ConfigurationError("AGENT_RUNTIME_WORKER_MONITOR_PORT 必须在 1～65535 之间")
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> WorkerProcessSettings:
+        """读取 Worker 环境变量，并拒绝缺少数据库连接的启动。"""
+
+        values = os.environ if environ is None else environ
+        database_url = values.get("DATABASE_URL")
+        if database_url is None or not database_url.strip():
+            raise ConfigurationError("独立 Worker 缺少必需环境变量 DATABASE_URL")
+        worker_id = values.get("AGENT_RUNTIME_WORKER_ID")
+        if worker_id is None or not worker_id.strip():
+            worker_id = f"{socket.gethostname()}-{os.getpid()}"
+        return cls(
+            database_url=SecretStr(database_url),
+            monitor_host=values.get("AGENT_RUNTIME_WORKER_MONITOR_HOST", "127.0.0.1"),
+            monitor_port=_read_int(values, "AGENT_RUNTIME_WORKER_MONITOR_PORT", 9101),
+            worker=WorkerSettings(
+                worker_id=worker_id,
+                poll_interval_seconds=_read_float(
+                    values,
+                    "AGENT_RUNTIME_WORKER_POLL_INTERVAL_SECONDS",
+                    0.2,
+                ),
+                lease_duration_seconds=_read_float(
+                    values,
+                    "AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS",
+                    45.0,
+                ),
+                task_timeout_seconds=_read_float(
+                    values,
+                    "AGENT_RUNTIME_TASK_TIMEOUT_SECONDS",
+                    30.0,
+                ),
+                retry_policy=RetryPolicy(
+                    max_attempts=_read_int(values, "AGENT_RUNTIME_MAX_ATTEMPTS", 3),
+                    base_delay_seconds=_read_float(
+                        values,
+                        "AGENT_RUNTIME_RETRY_BASE_DELAY_SECONDS",
+                        1.0,
+                    ),
+                    max_delay_seconds=_read_float(
+                        values,
+                        "AGENT_RUNTIME_RETRY_MAX_DELAY_SECONDS",
+                        30.0,
+                    ),
+                    jitter_ratio=_read_float(
+                        values,
+                        "AGENT_RUNTIME_RETRY_JITTER_RATIO",
+                        0.2,
+                    ),
                 ),
             ),
         )

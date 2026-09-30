@@ -17,7 +17,7 @@ uv run pytest -q
 docker compose up --build -d
 ```
 
-Compose 实际启动 API、内嵌 Worker、迁移服务与 PostgreSQL。没有完成独立 PostgreSQL Worker，不得把这一步描述为跨进程恢复验收。
+Compose 实际启动 API、独立 Worker、迁移服务与 PostgreSQL。API 使用 `api_only`，任务执行只由共享数据库上的 Worker 推进。
 
 ## 2. 七个最终演示场景
 
@@ -33,16 +33,41 @@ Compose 实际启动 API、内嵌 Worker、迁移服务与 PostgreSQL。没有�
 | 重启 Worker 恢复 | 新 Worker 在租约到期后运行 | `crash_recovery_worker_ids` 从 `worker-crashed` 变为 `worker-replacement`，第二条 attempt 为 `succeeded` |
 | SSE 和日志解释 | 读取终态事件流并捕获、逐行解析安全 JSON 日志 | 递增 `sse_event_ids`、事件类型、`normal_request_id`、SSE/日志关联均为 true、密钥未出现 |
 
-强制结束与恢复场景使用进程内 `WorkerRepository`：先真正启动一个阻塞 Worker，确认执行开始后取消该 asyncio Task，再以显式时钟推进租约并启动替代 Worker。它验证 Worker Python 策略、取消传播和 attempt 审计；真正跨进程 PostgreSQL 恢复仍等待第四周 SQL。
+默认七场景脚本使用进程内 Repository，以便任何机器都能快速复现。真实 PostgreSQL 场景使用以下命令：
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+asyncpg://<测试用户>:<密码>@127.0.0.1:5432/<可丢弃测试库>"
+$env:DATABASE_URL = $env:TEST_DATABASE_URL
+uv run alembic upgrade head
+uv run python -m scripts.postgres_recovery_demo
+```
+
+该脚本确认首个 Worker 已进入执行后取消它并释放数据库 Engine；任务和 attempt 保持 `running`。推进到租约到期后，新建 Engine、Repository 和替代 Worker，得到 `lease_expired, succeeded` 两条 attempt，并从事件中看到两个 `worker_id`。
+
+### 无需 Docker 的真实进程验收
+
+配置专用 `TEST_DATABASE_URL` 后执行：
+
+```powershell
+uv run python -m scripts.process_acceptance_demo
+```
+
+它创建随机隔离 schema 并显式用 ORM 元数据建立演示表；需要测试用户的 CREATE schema 权限。父进程启动真实 API 与 Worker，等待指定任务已经进入执行后强杀 Worker，使用数据库真实时间恢复。另一个 Worker 运行正式入口的执行循环与监控应用。
+
+报告要求：`recovered_status=succeeded`、`recovered_total=60`、两条 attempt 为 `lease_expired, succeeded`、`sse_resume_exact=true`、`api_worker_log_correlation=true`、`worker_health_ready=true`、`worker_succeeded=2`、`secrets_absent_from_logs=true`。每轮只操作自身 schema，报告中的 `retained_schema` 保留用于复核，不自动删表或消费原队列。
+
+该演示证明本机操作系统进程强杀、真实租约、独立 API/Worker、SSE 与日志关联；它不是 Docker 或 Linux SIGTERM 验收。默认七场景和原 PostgreSQL 脚本仍用于快速语义与跨 Engine 验证。
 
 ## 3. CI 验收
 
 `.github/workflows/ci.yml` 有两个独立 Job：
 
 - `quality`：锁文件安装、Ruff、格式、mypy、非 PostgreSQL 测试和并发基线；
-- `postgres`：启动真实 PostgreSQL 17 服务、执行 Alembic 迁移，再运行 `postgres` 标记的 Repository 集成测试。
+- `postgres`：启动真实 PostgreSQL 17 服务、执行 Alembic 迁移，运行 `postgres` 标记的 Repository/Worker 集成测试、跨 Engine 恢复与独立进程强杀恢复/SSE 演示。
 
-本地没有 PostgreSQL 时，8 项真实库测试会明确跳过；CI 中设置 `TEST_DATABASE_URL` 后必须实际运行，不能以 skip 代替通过。
+本地没有 PostgreSQL 凭据时，真实库测试会明确跳过；CI 中设置 `TEST_DATABASE_URL` 后必须实际运行，不能以 skip 代替通过。
+
+部署测试只读取可提交的 `.env.example`，不能读取私有 `.env`。干净源码目录无需本机凭据即可运行 quality Job 对应的检查。2026-09-30 已在 Docker Desktop Linux 引擎完成实际 build/up、命名卷重启保留和 SIGTERM 验收；活动 SSE 停机缺陷已修复并复测。结果、复核命令和未覆盖边界见 [Docker 验收记录](docker-acceptance.md)。远端 GitHub Actions 尚未触发，本地结果不能替代远端运行证据。
 
 ## 4. 并发基线如何解读
 

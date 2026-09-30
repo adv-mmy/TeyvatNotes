@@ -23,6 +23,7 @@ from agent_runtime_foundation.config import (
     AppSettings,
     ConfigurationError,
     RateLimitSettings,
+    WorkerProcessSettings,
 )
 from agent_runtime_foundation.repositories import InMemoryTaskRepository
 
@@ -65,6 +66,38 @@ def test_settings_require_api_key_and_mask_all_secrets() -> None:
     assert "database-secret" not in rendered
     assert "api_key" not in rendered
     assert "database_url" not in rendered
+
+
+def test_worker_process_settings_require_database_and_mask_password() -> None:
+    with pytest.raises(ConfigurationError, match="DATABASE_URL"):
+        WorkerProcessSettings.from_env({})
+
+    database_url = "postgresql+asyncpg://worker:worker-secret@db/runtime"
+    settings = WorkerProcessSettings.from_env(
+        {
+            "DATABASE_URL": database_url,
+            "AGENT_RUNTIME_WORKER_ID": "worker-a",
+            "AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS": "60",
+            "AGENT_RUNTIME_TASK_TIMEOUT_SECONDS": "30",
+            "AGENT_RUNTIME_MAX_ATTEMPTS": "4",
+        }
+    )
+
+    assert settings.worker.worker_id == "worker-a"
+    assert settings.worker.retry_policy.max_attempts == 4
+    assert "worker-secret" not in repr(settings)
+    assert "database_url" not in repr(settings)
+
+
+def test_worker_process_settings_validate_lease_against_timeout() -> None:
+    with pytest.raises(ValueError, match="lease_duration_seconds"):
+        WorkerProcessSettings.from_env(
+            {
+                "DATABASE_URL": "postgresql://worker:secret@db/runtime",
+                "AGENT_RUNTIME_WORKER_LEASE_DURATION_SECONDS": "10",
+                "AGENT_RUNTIME_TASK_TIMEOUT_SECONDS": "10",
+            }
+        )
 
 
 @pytest.mark.parametrize(

@@ -139,7 +139,7 @@ def create_app(
 
     application = FastAPI(
         title="Agent Runtime Foundation",
-        version="0.8.0",
+        version="0.8.1",
         lifespan=lifespan,
     )
     application.state.task_repository = task_repository

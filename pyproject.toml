@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-runtime-foundation"
-version = "0.8.0"
+version = "0.8.1"
 description = "用于学习可靠 Agent Runtime 基础能力的 Python 项目"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -36,7 +36,7 @@ markers = [
 
 [tool.ruff]
 include = ["*.py", "src/**/*.py", "tests/**/*.py", "migrations/**/*.py"]
-exclude = ["pytest-cache-files-*"]
+extend-exclude = ["pytest-cache-files-*"]
 line-length = 100
 target-version = "py312"
 
@@ -44,7 +44,7 @@ target-version = "py312"
 select = ["B", "E", "F", "I", "SIM", "UP"]
 
 [tool.mypy]
-files = ["main.py", "api_main.py", "src", "scripts"]
+files = ["main.py", "api_main.py", "worker_main.py", "src", "scripts"]
 mypy_path = "src"
 python_version = "3.12"
 strict = true

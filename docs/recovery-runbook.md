@@ -1,12 +1,12 @@
 # 故障恢复手册
 
-适用版本：`0.8.0`。本手册优先保护数据和可解释性；任何删除卷、删表或覆盖数据的操作都不属于常规恢复步骤。
+适用版本：`0.8.1`。本手册优先保护数据和可解释性；任何删除卷、删表或覆盖数据的操作都不属于常规恢复步骤。
 
 ## 1. 先收集证据
 
 ```powershell
 docker compose ps
-docker compose logs --since 15m postgres migrate api
+docker compose logs --since 15m postgres migrate api worker
 curl.exe -i http://127.0.0.1:8000/health/live
 curl.exe -i http://127.0.0.1:8000/health/ready
 ```
@@ -22,7 +22,8 @@ curl.exe -i http://127.0.0.1:8000/health/ready
 | `migrate` 退出非 0 | `DATABASE_URL`、迁移日志、版本表 | 修正配置后单独重跑迁移 |
 | 创建返回 401 | Bearer 头与部署密钥是否一致 | 轮换/修正客户端配置，不打印密钥 |
 | 创建返回 429 | `Retry-After` | 等待窗口恢复；不要用多容器绕过限流 |
-| 任务长期 queued/running | 当前是否为内嵌 Runtime、API 是否重启 | 保留记录；按“任务未收敛”处理 |
+| 任务长期 queued/running | Worker 是否运行、`available_at`、活动 attempt 与租约到期时间 | 保留记录；按“任务未收敛”处理 |
+| API ready 正常但任务不推进 | Worker 的独立 readiness、指标与循环日志 | API ready 仅表示 API+存储就绪；先核实 Worker 是否健康 |
 | PostgreSQL 卷异常 | 磁盘、权限、备份 | 停止写入并从已验证备份恢复 |
 
 ## 3. PostgreSQL 不可用
@@ -33,10 +34,10 @@ curl.exe -i http://127.0.0.1:8000/health/ready
 4. 确认 `.env` 中用户名、数据库名和密码与已初始化卷一致；
 5. 数据库恢复健康后执行 `docker compose run --rm migrate`；
 6. 在 API 仍存活时先观察 readiness，并盘点 `queued/running/cancel_requested` 任务；
-7. readiness 恢复后直接恢复流量，不做无意义重启；只有 API 已失效且已经记录非终态任务、明确接受当前无法自动扫描恢复的边界后，才执行 `docker compose restart api`；
+7. readiness 恢复后直接恢复流量，不做无意义重启；API 已失效时可在记录非终态任务后执行 `docker compose restart api`；
 8. readiness 返回 200 后逐项核对故障窗口内任务，再恢复写流量。
 
-当前内嵌 Runtime 的队列在进程内。重启 API 会丢失队列引用，PostgreSQL 中已有的 `queued/running` 任务不会被自动扫描；因此“重启试试”不是无条件安全的数据库恢复动作。
+Compose 的 API 使用 `api_only`，任务队列状态在 PostgreSQL 中。重启 API 不会删除 `queued` 任务；独立 Worker 会继续领取，过期的 `running` attempt 会按租约恢复。若使用 `main.py` 的教学用 embedded 模式，队列仍在进程内，不具备这一保证。
 
 不要用 `docker compose down -v` 处理认证或迁移问题；它会删除命名卷，且不属于可恢复的常规操作。
 
@@ -48,24 +49,33 @@ curl.exe -i http://127.0.0.1:8000/health/ready
 4. 修复配置或代码后重新运行 `docker compose run --rm migrate`；
 5. 使用 `/health/ready` 验证 `tasks`、`task_attempts`、`task_events` 均可访问。
 
-当前只有初始迁移。以后出现破坏性迁移时，应先用临时数据库恢复备份并演练升级/回退，再操作真实数据。
+当前有建表迁移和 Worker 租约字段迁移。以后出现破坏性迁移时，应先用临时数据库恢复备份并演练升级/回退，再操作真实数据。
 
 ## 5. 任务未收敛
 
 先通过 `GET /v1/tasks/{task_id}` 与 SSE 事件确认最后状态和关联 ID。
 
-- `queued`：确认内嵌 Runtime 正在接受任务；进程重启会丢失内存队列，当前不会自动扫描 PostgreSQL queued 任务；
-- `running`：确认 API 是否在执行期间被强制结束。当前 Compose 还没有 PostgreSQL 租约恢复实现，不要直接把状态改成 succeeded；
-- `cancel_requested`：等待执行清理；若进程已消失，保留证据并等待 PostgreSQL Worker SQL 补齐后的恢复工具；
+- `queued`：确认 Worker 正在运行，并核对 `available_at` 是否仍处于退避等待；
+- `running`：核对唯一未结束 attempt 的 `worker_id` 和 `lease_expires_at`；不要直接把状态改成 succeeded；
+- `cancel_requested`：活动 Worker 会在提交时收敛为 cancelled；Worker 已消失时，替代 Worker 的租约恢复会收敛；
 - `failed`：读取公开错误与 attempt/event；只有业务上允许时才调用手动重试。
 
-内存 Worker 的租约恢复可通过以下命令演练：
+快速内存演练：
 
 ```powershell
 uv run python -m scripts.stage_one_demo --no-logs
 ```
 
-报告中的 `lease_expired -> succeeded` 表示旧 Worker 领取后未提交，新 Worker 在租约到期后恢复并成功执行。它证明 Python 策略，不证明 PostgreSQL 跨进程 SQL 已完成。
+真实测试库演练：
+
+```powershell
+uv run python -m scripts.postgres_recovery_demo
+uv run python -m scripts.process_acceptance_demo
+```
+
+第二个脚本在专用测试库的随机 schema 中运行真实子进程强杀与恢复，不消费原队列；报告保留 schema 名称供核查。它不验证 Linux 容器 SIGTERM。Worker 私有监控默认在 9101；Compose 中用 `docker compose exec worker` 在容器内读取 `/health/ready` 与 `/metrics`。
+
+也可在测试环境执行 `docker compose kill worker`，等待超过租约时长后运行 `docker compose up -d worker`。替代 Worker 应把旧 attempt 记录为 `lease_expired` 并重新领取。该操作会中断当前执行，只能在已授权的故障演练环境运行。
 
 ## 6. 安全轮换 API Key
 

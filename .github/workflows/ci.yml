@@ -34,6 +34,8 @@ jobs:
         run: uv run ruff format --check .
       - name: mypy 严格类型检查
         run: uv run mypy
+      - name: mypy Windows 兼容检查
+        run: uv run mypy --platform win32
       - name: 单元与契约测试
         run: uv run pytest -m "not postgres" -q
       - name: 并发基线
@@ -75,3 +77,7 @@ jobs:
         run: uv run alembic upgrade head
       - name: PostgreSQL Repository 集成测试
         run: uv run pytest -m postgres -q
+      - name: PostgreSQL 租约恢复演示
+        run: uv run python -m scripts.postgres_recovery_demo
+      - name: 本机独立进程强杀恢复与 SSE 验收
+        run: uv run python -m scripts.process_acceptance_demo
