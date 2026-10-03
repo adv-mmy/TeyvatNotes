@@ -42,7 +42,15 @@ def test_create_database_validates_pool_settings() -> None:
 
 
 def test_metadata_contains_required_tables_constraints_and_indexes() -> None:
-    assert set(Base.metadata.tables) == {"tasks", "task_attempts", "task_events"}
+    assert set(Base.metadata.tables) == {
+        "tasks",
+        "task_attempts",
+        "task_events",
+        "guide_sources",
+        "guide_documents",
+        "guide_chunks",
+        "guide_ingestion_steps",
+    }
 
     tasks = Base.metadata.tables["tasks"]
     assert {constraint.name for constraint in tasks.constraints} >= {
@@ -86,3 +94,7 @@ def test_alembic_head_generates_three_tables_from_empty_schema() -> None:
     assert "lease_expires_at" in migration_sql
     assert "uq_task_attempts_active_task" in migration_sql
     assert "ix_task_attempts_task_id_attempt_number" not in migration_sql
+    for table in ("guide_sources", "guide_documents", "guide_chunks", "guide_ingestion_steps"):
+        assert f"CREATE TABLE {table}" in migration_sql
+    assert "ck_guide_documents_published_metadata_valid" in migration_sql
+    assert "uq_guide_documents_version" in migration_sql

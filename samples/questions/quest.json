@@ -1,0 +1,6 @@
+{
+  "question": "示例任务甲第二步有哪些原文证据？（纯虚构演示）",
+  "guide_kind": "quest", "game_version": "DEMO-ONLY", "entity": "示例任务甲",
+  "keywords": ["第二步"], "conditions": {"前置任务": "已完成示例前置"},
+  "location": "虚构地点", "progress": "第一步已完成"
+}

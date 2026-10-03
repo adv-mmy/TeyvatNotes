@@ -1,0 +1,16 @@
+{
+  "platform": "miyoushe", "native_id": "1000000001",
+  "url": "https://www.miyoushe.com/ys/article/1000000001",
+  "title": "纯虚构：示例任务甲的顺序证据", "author": "离线教学样本（虚构）",
+  "guide_kind": "quest", "game_version": "DEMO-ONLY",
+  "complete": true, "is_fixture": true, "entities": ["示例任务甲"],
+  "conditions": {"前置任务": "已完成示例前置"},
+  "article_blocks": [
+    {"kind": "heading", "text": "前置条件"},
+    {"kind": "paragraph", "text": "本样本完全虚构。开始之前需要已完成示例前置；所有名称均非真实原神任务。"},
+    {"kind": "heading", "text": "步骤"},
+    {"kind": "paragraph", "text": "第一步：在虚构地点检查示例按钮。这只是顺序回读测试。"},
+    {"kind": "paragraph", "text": "第二步：在第一步后检查示例机关。此段用于关键词命中。"},
+    {"kind": "paragraph", "text": "完成标志：看到示例提示。此内容只用于演示，不得用作真实攻略。"}
+  ]
+}

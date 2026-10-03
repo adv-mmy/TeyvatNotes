@@ -1,0 +1,6 @@
+{
+  "question": "示例角色甲的装备资料在哪里？（纯虚构演示）",
+  "guide_kind": "character", "game_version": "DEMO-ONLY", "entity": "示例角色甲",
+  "keywords": ["装备"], "conditions": {"装备": "示例木剑"}, "goal": "装备",
+  "owned_equipment": ["示例木剑"], "owned_characters": ["示例角色甲"]
+}

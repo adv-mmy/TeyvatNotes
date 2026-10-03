@@ -1,0 +1,20 @@
+{
+  "platform": "bilibili",
+  "native_id": "BV1DEMO00001",
+  "url": "https://www.bilibili.com/video/BV1DEMO00001?p=1",
+  "title": "虚构角色培养示例，不是真实原神攻略",
+  "author": "离线教学样本（虚构）",
+  "guide_kind": "character",
+  "game_version": null,
+  "complete": true,
+  "is_fixture": true,
+  "entities": ["示例角色"],
+  "conditions": {"装备": "仅用于测试的数据"},
+  "part_id": 1,
+  "requires_visual": false,
+  "segments": [
+    {"start": 0, "end": 8, "section": "前置条件", "text": "这是测试文字，不代表实际角色机制。推荐前先确认玩家已有装备。"},
+    {"start": 8, "end": 18, "section": "装备", "text": "这段用于演示如何保留装备建议成立的条件及原视频时间范围。"},
+    {"start": 18, "end": 30, "section": "操作", "text": "这段用于演示操作步骤的引用位置，不包含真实游戏攻略。"}
+  ]
+}

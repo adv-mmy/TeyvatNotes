@@ -66,6 +66,12 @@ async def run_async_migrations() -> None:
 def run_migrations_online() -> None:
     """使用 asyncpg Engine 执行在线迁移。"""
 
+    provided_connection = config.attributes.get("connection")
+    if provided_connection is not None:
+        if not isinstance(provided_connection, Connection):
+            raise TypeError("connection 必须是 SQLAlchemy Connection")
+        do_run_migrations(provided_connection)
+        return
     asyncio.run(run_async_migrations())
 
 

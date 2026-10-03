@@ -6,6 +6,8 @@
 
 第 8 周基线完成后，补齐此前暂缓的第四周 PostgreSQL Worker SQL：原子领取、租约持久化、跨连接池恢复和独立 Worker 进程。
 
+第二阶段已增加独立的离线资料导入、关键词证据准备和单轮带引用问答 CLI。当前模型由用户明确改为 OpenASI Responses / `gpt-5.6-sol`，一次真实基础生成返回 HTTP 200 且通过响应校验；旧 Terra 在平台分组无可用通道的失败记录保留。基础生成成功不等于真实攻略质量验收，详细状态见模型说明。不抓取真实网站，不提供完整 RAG。现有任务 API 和两种任务类型保持不变。
+
 当前实现包含：
 
 - `TaskStatus`：任务状态枚举；
@@ -25,7 +27,7 @@
 - `tasks`、`task_attempts`、`task_events` 三张 PostgreSQL 表；
 - SQLAlchemy 2.x `AsyncEngine` / `AsyncSession` 和可配置连接池；
 - PostgreSQL Repository，在同一事务中保存状态、结果、attempt 和 event；
-- 两个 Alembic 迁移，可从空数据库重建三表、约束、列表索引和租约索引；
+- 前两个 Alembic 迁移重建三张任务表；第三个迁移新增四张资料表，保留原任务数据；
 - `Idempotency-Key` 创建幂等性与数据库唯一约束；
 - 面向常用列表查询的联合索引及 JSON `EXPLAIN` 命令。
 - `TaskCommandHandler` 抽象，使 API 可选择内嵌执行或只持久化命令；
@@ -49,6 +51,61 @@
 - Mermaid 架构图、状态机图、表关系图，以及不删除数据的故障恢复手册。
 
 领域层仍不依赖 FastAPI、数据库或 LLM SDK。
+
+## 第二阶段第 1 周：离线资料入库
+
+在项目目录运行，不需要模型 API 或数据库：
+
+```powershell
+Set-Location D:\code\agent_runtime_foundation
+uv run python -m scripts.guide_import_demo
+uv run python -m agent_runtime_foundation.knowledge.cli import-snapshot samples/guides/bilibili_character.json --memory
+```
+
+演示验证两种资料的重复导入、三个已完成检查点复用及发布阻断。`--memory` 只保存当前进程数据，退出后不能用另一次 `show` 查询。样本是明确标记的虚构教学资料，URL 为示意身份，不代表真实视频、文章或游戏机制。
+
+持久化时，先在环境中设置已有 PostgreSQL 的 `DATABASE_URL`，再显式迁移：
+
+```powershell
+uv run alembic upgrade head
+uv run python -m agent_runtime_foundation.knowledge.cli import-snapshot samples/guides/miyoushe_quest.json
+# 用上一条命令返回的 document_id 替换下方占位符。
+uv run python -m agent_runtime_foundation.knowledge.cli show <document_id>
+```
+
+CLI 不自动改表，不静默回退内存，也不把 `TEST_DATABASE_URL` 当作业务存储配置。真实资料默认导入为 `draft`；只有人工确认元数据/完整性后，再用 `--publish` 显式请求发布。版本未知、虚构样本、前瞻内容、正文缺失或关键画面未解析都会阻断发布。发布检查只验证结构和已声明条件，不替代事实审核。
+
+规则与输入格式见 [资料入库规范](docs/guide-ingestion.md)；后续问答规格见 [回答验收标准](docs/guide-answer-acceptance.md)。模型协议仅预留在应用层，本周没有 SDK、密钥读取、Token 统计或计费调用。
+
+## 第二阶段后续：关键词检索与问答证据准备（无模型）
+
+```powershell
+uv run python -m scripts.guide_retrieval_demo
+uv run python -m agent_runtime_foundation.knowledge.query_cli prepare-question samples/questions/quest.json --demo
+```
+
+现在可按精确版本、实体和已确认条件检索已发布资料，按库内证据 ID 获取有界前序/相邻文本及引用位置。问答准备返回 `needs_clarification`、`insufficient_evidence` 或 `evidence_ready`；最后一种只代表证据就绪，不是模型攻略答案。角色回读不保证完整父段落，任务回读也不代表所有步骤完备。
+
+`--demo` 仅加载临时内存中的纯虚构草稿，不接触数据库或模型凭据；正常模式只读已配置 `DATABASE_URL` 的非虚构已发布资料，不包含任意草稿。这些准备命令不生成答案；模型问答另见下节。暂不实现语义检索、工具调用循环、会话或攻略 HTTP/Worker。完整契约及数据库命令见 [检索与证据准备说明](docs/knowledge-retrieval.md)。
+
+## OpenASI 模型与带引用问答
+
+无网络、无费用的模拟演示：
+
+```powershell
+uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions/character.json --demo
+uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions/quest.json --demo
+```
+
+在项目根目录 `.env` 配置轮换后的 `OPENASI_API_KEY`，Base URL 为 `https://api.openasi.bitmiracle.cn/v1`，模型为 `gpt-5.6-sol`。不要提交密钥或把它贴到聊天里。配置后可主动执行一次真实 API 连通验证（可能计费）：
+
+```powershell
+uv run --env-file .env python -m agent_runtime_foundation.models.probe
+# 业务 DATABASE_URL 已迁移、真实资料已审核发布后，使用自己的问题 JSON。
+uv run --env-file .env python -m agent_runtime_foundation.knowledge.answer_cli <问题JSON路径>
+```
+
+正式模式先取足够证据才读取凭据、单轮生成，严格检查引用 ID 和显式装备/角色限制；程序生成引用链接，记录已报告 Token 和耗时。示例模式只是虚构原文摘录，不是 GPT 回答；引用存在性不等于事实/语义支持已验证，第三方价格未知时费用为 `null`。完整配置、输入、错误与限制见 [模型与回答说明](docs/model-answering.md)。
 
 ## HTTP API
 

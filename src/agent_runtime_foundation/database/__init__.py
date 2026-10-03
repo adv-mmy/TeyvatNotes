@@ -1,5 +1,11 @@
 """数据库模型和异步连接管理。"""
 
+from agent_runtime_foundation.database.knowledge import (
+    GuideChunkRecord,
+    GuideDocumentRecord,
+    GuideSourceRecord,
+    GuideStepRecord,
+)
 from agent_runtime_foundation.database.models import (
     Base,
     TaskAttemptRecord,
@@ -15,6 +21,10 @@ from agent_runtime_foundation.database.session import (
 __all__ = [
     "Base",
     "Database",
+    "GuideChunkRecord",
+    "GuideDocumentRecord",
+    "GuideSourceRecord",
+    "GuideStepRecord",
     "TaskAttemptRecord",
     "TaskEventRecord",
     "TaskRecord",

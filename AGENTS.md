@@ -236,4 +236,36 @@ uv run mypy
 - 维护学习文档时，不得因此修改本项目 README、源码、配置或测试；只有用户另行明确要求时才可修改这些文件。
 - 未经用户明确要求，不要为学习文档或 Code Review 的变更执行 Git 提交或推送。
 
+## 十、第二阶段第一周边界
+
+- 用户已确认以原神攻略 Agent 为第二阶段项目，并明确将模型 API 延后。本周只实现服务商无关的模型协议、离线资料导入与知识持久化，不接模型 SDK、不读取模型凭据、不调用付费 API。
+- 第一周入口为 `python -m agent_runtime_foundation.knowledge.cli`，输入是人工准备的 UTF-8 JSON 快照；当前不获取真实网页/字幕/图片，不执行 ASR、OCR、视觉理解或 RAG 检索。
+- `sum_numbers/word_count`、任务状态机、TaskExecutor 和现有 HTTP 契约保持不变；知识 CLI 的步骤检查点不能被描述为 TaskWorker 已有的步骤恢复或租约副作用隔离。
+- 快照、解析器版本和分块配置进入文档版本身份；旧版本及证据不可覆盖。自定义解析器必须显式指定版本，算法变化必须升级版本。
+- 默认导入草稿；示例资料、未知版本、不完整内容、前瞻内容及关键视觉证据缺失不能发布。发布检查只验证结构和声明，不替代事实审核。
+- `samples/guides/` 是长期、明确虚构的教学样本，不是一次性文件，不代表真实游戏机制或已验证来源。
+- `tests/test_guide_postgres.py` 只创建随机隔离 schema，不删除现有任务表或测试证据；读取实际测试结果，不能把测试存在或离线 SQL 生成当成真实 PostgreSQL 通过。
+- 开发与后续衔接以 `docs/guide-ingestion.md` 和 `docs/guide-answer-acceptance.md` 为规格；按周代码审查仍由子智能体完成，学习导读只放教学目录。
+
+## 十一、第二阶段后续检索边界
+
+- `knowledge/query_cli.py` 提供关键词检索、按库内证据 ID 回读和问答准备，默认使用显式 `DATABASE_URL`；不接模型、不读模型凭据、不获取真实网站，不扩展 Task API、Worker 或 SSE。
+- 正常范围只读非虚构 `published`；`--demo` 只在临时内存读取虚构 `draft`，两种范围不得混合，也不能在正常查询中增加任意草稿开关。
+- 精确匹配版本/实体/类型；资料全部条件必须由玩家条件明确满足。同来源、版本和类型先选最新可见版本再做关键词/条件过滤，显式历史证据 ID 可继续按范围回读。
+- 关键词是 lower 去重后的字面子串，分数不是模型置信度；SQL 参数化 strpos，不能将 `%/_` 或用户字符串拼接成 SQL。单次关键词最多 12 个、命中最多 10 个、每次上下文最多 20 个块。
+- 回读是有界已存文本上下文，不能描述为完整父段落或全部任务步骤；截断必须显式标记并使问答准备降级。
+- 问答准备结果为 needs_clarification、insufficient_evidence 或 evidence_ready，没有 answer 字段，model_called 始终为 false；不得将它当作建议文档中模型问答阶段已完成。
+- 本阶段真实库新增测试仍创建并保留随机 schema；全套旧测试若需要重建表，只能在本任务专用可丢弃数据库执行，不能使用原配置库或业务库。
+- 公开行为依据 `docs/knowledge-retrieval.md`；Python 学习文档由子智能体在教学目录更新，源码/配置修改仍需完整质量门禁。
+
+## 十二、OpenASI 与单轮问答边界
+
+- 用户已指定 OpenASI `https://api.openasi.bitmiracle.cn/v1/responses`，当前明确改用 `gpt-5.6-sol`（原 Terra 的平台分组无可用通道）。模型适配器在 `models/openasi.py`；不得自动回退 Terra、其他服务商、模型、主机或协议。第十、十一节关于无模型的限制仍适用于原入库/准备入口，不代表新独立回答入口。
+- 本机凭据从已忽略的 `.env` 经 `uv run --env-file .env` 或部署环境注入，只使用 `OPENASI_API_KEY`。聊天中出现的密钥必须撤销/轮换，不能写入源码、示例、文档、日志或测试，也不执行真实付费验证直到用户确认新密钥配置。
+- `knowledge/answer_cli.py` 正常模式只读业务 PostgreSQL 的正式资料，先检索/追问再延迟读取凭据；单次问答只生成一次，不自动重试、供应商回退或修复输出。`--demo` 是虚构内存资料+无网络模拟摘录，model_called=false，不能当作真实模型质量证明。
+- 提示上下文不静默丢前置条件；严格 JSON、证据 ID 存在性和显式 required_* 持有子集由程序检查，引用链接从库内来源/位置派生。上述结构检查不是语义支持验证或游戏事实审核，不能宣称自然语言中遗漏的装备需求也已被程序识别。
+- 默认提示词 JSON 模式；text.format 仅在显式 OPENASI_STRUCTURED_OUTPUTS=true 时发送，第三方兼容未经真实验证。未知用量/费用用 null，不能套用 OpenAI 官方价格；失败和取消可能已收费。
+- HTTP 响应最多256 KiB，单调用默认60秒、问答用例检索+生成最多90秒，不代表CLI整个进程硬时限。CancelledError 合作传播，清理客户端，不承诺服务商停止计费。错误仅稳定代码；无重定向、无代理环境读取、无密钥回显。
+- Task API、Worker、租约、SSE及确定性任务保持不变。工具调用循环、会话、流式回答、实际资料审核和固定答案评测仍为后续内容。公开行为依据 docs/model-answering.md；按周 Code Review 仍由子智能体更新教学目录。
+
 </INSTRUCTIONS>
