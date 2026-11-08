@@ -8,23 +8,23 @@ from uuid import uuid4
 
 import pytest
 
-from agent_runtime_foundation.application.guide_answering import AnswerResult, GuideAnswerService
-from agent_runtime_foundation.application.model_ports import (
+from teyvatnotes.application.guide_answering import AnswerResult, GuideAnswerService
+from teyvatnotes.application.model_ports import (
     ModelClient,
     ModelError,
     ModelRequest,
     ModelResponse,
     ModelUsage,
 )
-from agent_runtime_foundation.application.question_preparation import (
+from teyvatnotes.application.question_preparation import (
     QuestionPreparationService,
     QuestionRequest,
 )
-from agent_runtime_foundation.domain.guides import GuideImportError
-from agent_runtime_foundation.knowledge.answer_cli import OfflineDemoClient, main
-from agent_runtime_foundation.knowledge.answers import JsonAnswerDecoder, answer_to_json
-from agent_runtime_foundation.knowledge.demo import create_demo_repository
-from agent_runtime_foundation.knowledge.questions import load_question, parse_question
+from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.knowledge.answer_cli import OfflineDemoClient, main
+from teyvatnotes.knowledge.answers import JsonAnswerDecoder, answer_to_json
+from teyvatnotes.knowledge.demo import create_demo_repository
+from teyvatnotes.knowledge.questions import load_question, parse_question
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -200,9 +200,7 @@ def test_demo_cli_is_explicitly_simulated_and_never_reads_credentials(
     def forbidden() -> ModelClient:
         raise AssertionError("演示不得读取服务商配置")
 
-    monkeypatch.setattr(
-        "agent_runtime_foundation.knowledge.answer_cli.configured_client", forbidden
-    )
+    monkeypatch.setattr("teyvatnotes.knowledge.answer_cli.configured_client", forbidden)
     assert main([str(ROOT / f"samples/questions/{sample}.json"), "--demo"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == status and result["model_called"] is False
@@ -277,9 +275,7 @@ def test_use_case_total_timeout_includes_retrieval(monkeypatch: pytest.MonkeyPat
         reader = await create_demo_repository()
         preparation = QuestionPreparationService(reader, demo_only=True)
         monkeypatch.setattr(preparation, "prepare", WaitingPreparation().prepare)
-        monkeypatch.setattr(
-            "agent_runtime_foundation.application.guide_answering.ANSWER_TIMEOUT_SECONDS", 0.01
-        )
+        monkeypatch.setattr("teyvatnotes.application.guide_answering.ANSWER_TIMEOUT_SECONDS", 0.01)
         client = FakeClient()
         result = await GuideAnswerService(preparation, lambda: client, JsonAnswerDecoder()).answer(
             load_question(ROOT / "samples/questions/quest.json")

@@ -15,13 +15,13 @@ from conftest import AUTH_HEADERS
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import agent_runtime_foundation.api as api_package
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.application import TaskService
-from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus
-from agent_runtime_foundation.observability import JsonLogFormatter, MetricsRegistry
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.worker import (
+import teyvatnotes.api as api_package
+from teyvatnotes.api import create_app
+from teyvatnotes.application import TaskService
+from teyvatnotes.domain import JsonValue, Task, TaskStatus
+from teyvatnotes.observability import JsonLogFormatter, MetricsRegistry
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.worker import (
     AttemptOutcome,
     LeaseOwnershipError,
     PermanentTaskError,
@@ -505,7 +505,7 @@ def test_forced_worker_cancellation_is_abandoned_not_completed() -> None:
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonLogFormatter())
-    worker_logger = logging.getLogger("agent_runtime_foundation.worker.service")
+    worker_logger = logging.getLogger("teyvatnotes.worker.service")
     original = (
         list(worker_logger.handlers),
         worker_logger.level,

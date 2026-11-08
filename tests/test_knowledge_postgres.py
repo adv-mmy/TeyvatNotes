@@ -7,13 +7,13 @@ from sqlalchemy import func, select
 from test_guide_postgres import connect, isolated_database
 from test_knowledge_retrieval import scope, searchable_snapshot
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.database.knowledge import GuideStepRecord
-from agent_runtime_foundation.domain.guides import GuideImportError
-from agent_runtime_foundation.domain.knowledge import KeywordQuery
-from agent_runtime_foundation.knowledge.snapshots import parse_snapshot
-from agent_runtime_foundation.repositories.knowledge_memory import InMemoryKnowledgeRepository
-from agent_runtime_foundation.repositories.knowledge_postgres import PostgresKnowledgeRepository
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.database.knowledge import GuideStepRecord
+from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.knowledge import KeywordQuery
+from teyvatnotes.knowledge.snapshots import parse_snapshot
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
+from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
 pytestmark = pytest.mark.postgres
 

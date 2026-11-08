@@ -7,15 +7,17 @@ from uuid import uuid4
 import pytest
 from test_guide_ingestion import article_snapshot
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.domain.guides import GuideImportError, GuideKind
-from agent_runtime_foundation.domain.knowledge import (
+from teyvatnotes.application.guide_answering import evidence_payload
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.domain.guides import GuideImportError, GuideKind
+from teyvatnotes.domain.knowledge import (
     EvidenceScope,
     KeywordQuery,
     require_context_limit,
 )
-from agent_runtime_foundation.knowledge.snapshots import parse_snapshot
-from agent_runtime_foundation.repositories.knowledge_memory import InMemoryKnowledgeRepository
+from teyvatnotes.knowledge.evidence_json import hit_to_json
+from teyvatnotes.knowledge.snapshots import parse_snapshot
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
 
 
 def scope(**changes: object) -> EvidenceScope:
@@ -80,6 +82,36 @@ def test_all_source_conditions_must_be_confirmed_and_results_are_isolated() -> N
         second = await repository.search_knowledge(query)
         assert second[0].document.snapshot["conditions"] == {"前置任务": "已完成"}
         assert second[0].chunk.locators[0]["paragraph_index"] > 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("nature", ["released", "preview"])
+def test_both_content_natures_are_searchable_and_readable_with_same_scope(nature: str) -> None:
+    async def scenario() -> None:
+        repository = InMemoryKnowledgeRepository()
+        report = await GuideIngestionService(repository).import_snapshot(
+            parse_snapshot(searchable_snapshot(content_nature=nature)), publish=True
+        )
+        hit = (await repository.search_knowledge(KeywordQuery(scope(), ("第二步",))))[0]
+        assert hit.document.id == report.document_id
+        assert hit.document.snapshot["content_nature"] == nature
+        assert (await repository.read_evidence(hit.chunk.id, scope())).hit.chunk == hit.chunk
+        assert hit_to_json(hit)["content_nature"] == nature
+        payload = evidence_payload((await repository.read_evidence(hit.chunk.id, scope()),))
+        assert payload and all(
+            isinstance(item, dict) and item["content_nature"] == nature for item in payload
+        )
+        assert (
+            await repository.search_knowledge(KeywordQuery(scope(demo_only=True), ("第二步",)))
+            == ()
+        )
+        assert (
+            await repository.search_knowledge(
+                KeywordQuery(scope(game_version="other"), ("第二步",))
+            )
+            == ()
+        )
 
     asyncio.run(scenario())
 

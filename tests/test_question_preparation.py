@@ -7,24 +7,24 @@ from uuid import UUID
 import pytest
 from test_knowledge_retrieval import searchable_snapshot
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.application.question_preparation import (
+from scripts.guide_retrieval_demo import run_guide_retrieval_demo
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.application.question_preparation import (
     QuestionPreparationService,
     QuestionRequest,
 )
-from agent_runtime_foundation.domain.guides import GuideImportError, GuideKind
-from agent_runtime_foundation.domain.knowledge import (
+from teyvatnotes.domain.guides import GuideImportError, GuideKind
+from teyvatnotes.domain.knowledge import (
     EvidenceHit,
     EvidenceScope,
     EvidenceWindow,
     KeywordQuery,
 )
-from agent_runtime_foundation.knowledge.demo import create_demo_repository
-from agent_runtime_foundation.knowledge.evidence_json import hit_to_json, preparation_to_json
-from agent_runtime_foundation.knowledge.questions import parse_question
-from agent_runtime_foundation.knowledge.snapshots import parse_snapshot
-from agent_runtime_foundation.repositories.knowledge_memory import InMemoryKnowledgeRepository
-from scripts.guide_retrieval_demo import run_guide_retrieval_demo
+from teyvatnotes.knowledge.demo import create_demo_repository
+from teyvatnotes.knowledge.evidence_json import hit_to_json, preparation_to_json
+from teyvatnotes.knowledge.questions import parse_question
+from teyvatnotes.knowledge.snapshots import parse_snapshot
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
 
 
 def quest_request(**changes: object) -> QuestionRequest:

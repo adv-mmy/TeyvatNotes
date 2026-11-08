@@ -9,13 +9,13 @@ import pytest
 from test_guide_answering import FakeClient
 from test_guide_postgres import isolated_database
 
-from agent_runtime_foundation.application.guide_answering import GuideAnswerService
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.application.question_preparation import QuestionPreparationService
-from agent_runtime_foundation.knowledge.answers import JsonAnswerDecoder, answer_to_json
-from agent_runtime_foundation.knowledge.questions import load_question
-from agent_runtime_foundation.knowledge.snapshots import parse_snapshot
-from agent_runtime_foundation.repositories.knowledge_postgres import PostgresKnowledgeRepository
+from teyvatnotes.application.guide_answering import GuideAnswerService
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.application.question_preparation import QuestionPreparationService
+from teyvatnotes.knowledge.answers import JsonAnswerDecoder, answer_to_json
+from teyvatnotes.knowledge.questions import load_question
+from teyvatnotes.knowledge.snapshots import parse_snapshot
+from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
 pytestmark = pytest.mark.postgres
 ROOT = Path(__file__).resolve().parents[1]

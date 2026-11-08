@@ -9,8 +9,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from agent_runtime_foundation.database import Base
-from agent_runtime_foundation.database.session import normalize_database_url
+from teyvatnotes.database import Base
+from teyvatnotes.database.session import normalize_database_url
 
 config = context.config
 if config.config_file_name is not None:

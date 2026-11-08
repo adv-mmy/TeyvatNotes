@@ -1,5 +1,6 @@
 .idea/
 .env
+.teyvat-env-*
 .venv/
 __pycache__/
 *.py[cod]

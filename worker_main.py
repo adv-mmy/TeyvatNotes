@@ -9,13 +9,13 @@ from contextlib import asynccontextmanager, suppress
 import uvicorn
 from fastapi import FastAPI
 
-from agent_runtime_foundation.api.worker_monitoring import create_worker_monitoring_app
-from agent_runtime_foundation.config import WorkerProcessSettings
-from agent_runtime_foundation.database import Database, create_database
-from agent_runtime_foundation.observability import MetricsRegistry, configure_logging
-from agent_runtime_foundation.repositories import PostgresTaskRepository, PostgresWorkerRepository
-from agent_runtime_foundation.runtime import DeterministicTaskExecutor
-from agent_runtime_foundation.worker import TaskWorker
+from teyvatnotes.api.worker_monitoring import create_worker_monitoring_app
+from teyvatnotes.config import WorkerProcessSettings
+from teyvatnotes.database import Database, create_database
+from teyvatnotes.observability import MetricsRegistry, configure_logging
+from teyvatnotes.repositories import PostgresTaskRepository, PostgresWorkerRepository
+from teyvatnotes.runtime import DeterministicTaskExecutor
+from teyvatnotes.worker import TaskWorker
 
 
 async def run_worker(

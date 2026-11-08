@@ -3,12 +3,12 @@
 import asyncio
 from pathlib import Path
 
-from agent_runtime_foundation.application.question_preparation import QuestionPreparationService
-from agent_runtime_foundation.domain.task import JsonValue
-from agent_runtime_foundation.knowledge.demo import create_demo_repository
-from agent_runtime_foundation.knowledge.evidence_json import preparation_to_json
-from agent_runtime_foundation.knowledge.output import emit_json
-from agent_runtime_foundation.knowledge.questions import load_question
+from teyvatnotes.application.question_preparation import QuestionPreparationService
+from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.knowledge.demo import create_demo_repository
+from teyvatnotes.knowledge.evidence_json import preparation_to_json
+from teyvatnotes.knowledge.output import emit_json
+from teyvatnotes.knowledge.questions import load_question
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

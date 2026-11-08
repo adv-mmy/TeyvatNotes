@@ -3,13 +3,13 @@
 import asyncio
 from pathlib import Path
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.domain.guides import GuideImportError
-from agent_runtime_foundation.domain.task import JsonValue
-from agent_runtime_foundation.knowledge.cli import report_to_json
-from agent_runtime_foundation.knowledge.output import emit_json
-from agent_runtime_foundation.knowledge.snapshots import load_snapshot
-from agent_runtime_foundation.repositories.knowledge_memory import InMemoryKnowledgeRepository
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.knowledge.cli import report_to_json
+from teyvatnotes.knowledge.output import emit_json
+from teyvatnotes.knowledge.snapshots import load_snapshot
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

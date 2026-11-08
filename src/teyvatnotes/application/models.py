@@ -1,0 +1,41 @@
+"""应用层输入与输出模型。"""
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+
+from teyvatnotes.domain import JsonValue, Task, TaskType
+
+
+class TaskAction(StrEnum):
+    """对任务发起的应用命令。"""
+
+    CANCEL = "cancel"
+    RETRY = "retry"
+
+
+@dataclass(frozen=True, slots=True)
+class CreateTaskCommand:
+    """创建任务用例的输入。"""
+
+    task_type: TaskType
+    payload: Mapping[str, JsonValue]
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCreation:
+    """Repository 创建结果；幂等重放时 created 为 False。"""
+
+    task: Task
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPage:
+    """分页任务结果。"""
+
+    items: tuple[Task, ...]
+    total: int
+    offset: int
+    limit: int

@@ -8,20 +8,21 @@ from uuid import UUID
 
 import pytest
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.domain.guides import (
+from scripts.guide_import_demo import run_guide_import_demo
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.domain.guides import (
     DocumentStatus,
     EvidenceBlock,
+    GuideChunk,
     GuideImportError,
     GuideSnapshot,
     IngestionCheckpoint,
     StepName,
     StepStatus,
 )
-from agent_runtime_foundation.knowledge.parsing import OfflineSnapshotParser
-from agent_runtime_foundation.knowledge.snapshots import load_snapshot, parse_snapshot
-from agent_runtime_foundation.repositories.knowledge_memory import InMemoryKnowledgeRepository
-from scripts.guide_import_demo import run_guide_import_demo
+from teyvatnotes.knowledge.parsing import OfflineSnapshotParser
+from teyvatnotes.knowledge.snapshots import load_snapshot, parse_snapshot
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
 
 
 def article_snapshot(**changes: object) -> dict[str, object]:
@@ -72,6 +73,21 @@ def test_import_reuses_checkpoints_and_keeps_source_order() -> None:
         ({"game_version": None}, "version_unknown"),
         ({"is_fixture": True}, "fixture_source"),
         ({"complete": False}, "source_incomplete"),
+        ({"content_nature": "preview", "complete": False}, "source_incomplete"),
+        (
+            {
+                "content_nature": "preview",
+                "article_blocks": [
+                    {
+                        "kind": "image",
+                        "text": "待核对",
+                        "image_url": "https://example.invalid/a.png",
+                        "requires_visual": True,
+                    }
+                ],
+            },
+            "visual_evidence_missing",
+        ),
     ],
 )
 def test_incomplete_or_synthetic_sources_cannot_publish(
@@ -84,6 +100,55 @@ def test_incomplete_or_synthetic_sources_cannot_publish(
         assert issue in report.blocking_issues
         with pytest.raises(GuideImportError, match="publication_blocked"):
             await service.import_snapshot(source, publish=True)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("nature", ["released", "preview"])
+def test_content_nature_is_metadata_not_a_publication_gate(nature: str) -> None:
+    async def scenario() -> None:
+        repository = InMemoryKnowledgeRepository()
+        report = await GuideIngestionService(repository).import_snapshot(
+            parse_snapshot(article_snapshot(content_nature=nature)), publish=True
+        )
+        assert report.status is DocumentStatus.PUBLISHED
+        assert report.blocking_issues == ()
+        assert "preview_content" not in report.warnings
+        assert (await repository.get_document(report.document_id)).snapshot[
+            "content_nature"
+        ] == nature
+
+    asyncio.run(scenario())
+
+
+def test_new_policy_does_not_reuse_legacy_preview_validation() -> None:
+    class LegacyRepository(InMemoryKnowledgeRepository):
+        async def commit_checkpoint(
+            self, checkpoint: IngestionCheckpoint, *, chunks: tuple[GuideChunk, ...] = ()
+        ) -> IngestionCheckpoint:
+            document = await self.get_document(checkpoint.document_id)
+            if (
+                document.processing_version.startswith("offline-v1:")
+                and checkpoint.name is StepName.VALIDATE
+            ):
+                checkpoint = replace(
+                    checkpoint, output={"blocking_issues": ["preview_content"], "warnings": []}
+                )
+            return await super().commit_checkpoint(checkpoint, chunks=chunks)
+
+    async def scenario() -> None:
+        repository = LegacyRepository()
+        snapshot = parse_snapshot(article_snapshot(content_nature="preview"))
+        legacy = await GuideIngestionService(
+            repository, parser_version="offline-v1"
+        ).import_snapshot(snapshot)
+        current = await GuideIngestionService(repository).import_snapshot(snapshot, publish=True)
+        assert legacy.blocking_issues == ("preview_content",)
+        assert current.document_id != legacy.document_id
+        assert current.status is DocumentStatus.PUBLISHED and current.reused_steps == ()
+        old = await repository.get_checkpoint(legacy.document_id, StepName.VALIDATE)
+        assert old is not None and old.output["blocking_issues"] == ["preview_content"]
+        assert await repository.list_chunks(legacy.document_id)
 
     asyncio.run(scenario())
 

@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime_foundation.domain.guides import GuideImportError
-from agent_runtime_foundation.knowledge.output import emit_json
-from agent_runtime_foundation.knowledge.query_cli import main, parse_conditions
-from agent_runtime_foundation.knowledge.questions import MAX_QUESTION_BYTES, load_question
+from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.knowledge.output import emit_json
+from teyvatnotes.knowledge.query_cli import main, parse_conditions
+from teyvatnotes.knowledge.questions import MAX_QUESTION_BYTES, load_question
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SEARCH = [

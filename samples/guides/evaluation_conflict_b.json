@@ -1,0 +1,11 @@
+{
+  "platform": "bilibili", "native_id": "BV1DEMO00005",
+  "url": "https://www.bilibili.com/video/BV1DEMO00005",
+  "title": "纯虚构：冲突资料乙", "author": "离线教学虚构作者乙",
+  "guide_kind": "character", "game_version": "DEMO-ONLY",
+  "complete": true, "is_fixture": true, "entities": ["示例冲突角色"],
+  "conditions": {"装备": "示例木剑"}, "part_id": 1, "requires_visual": false,
+  "segments": [
+    {"start": 0, "end": 10, "section": "冲突机制", "text": "本资料完全虚构。在相同示例条件下，示例开关必须关闭。这与冲突资料甲相反，不得当作真实游戏机制。"}
+  ]
+}

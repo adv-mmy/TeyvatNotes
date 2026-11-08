@@ -4,7 +4,7 @@ from itertools import product
 
 import pytest
 
-from agent_runtime_foundation.domain import (
+from teyvatnotes.domain import (
     InvalidTaskTransition,
     Task,
     TaskResult,

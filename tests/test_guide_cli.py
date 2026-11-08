@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime_foundation.domain.guides import GuideImportError
-from agent_runtime_foundation.knowledge.cli import main
-from agent_runtime_foundation.knowledge.snapshots import MAX_SNAPSHOT_BYTES, load_snapshot
+from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.knowledge.cli import main
+from teyvatnotes.knowledge.snapshots import MAX_SNAPSHOT_BYTES, load_snapshot
 
 SAMPLE = Path(__file__).resolve().parents[1] / "samples/guides/bilibili_character.json"
 

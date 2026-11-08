@@ -11,14 +11,14 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_runtime_foundation.database import create_database
-from agent_runtime_foundation.domain import Task, TaskStatus
-from agent_runtime_foundation.repositories import (
+from teyvatnotes.database import create_database
+from teyvatnotes.domain import Task, TaskStatus
+from teyvatnotes.repositories import (
     PostgresTaskRepository,
     PostgresWorkerRepository,
 )
-from agent_runtime_foundation.runtime import DeterministicTaskExecutor
-from agent_runtime_foundation.worker import RetryPolicy, TaskWorker, WorkerSettings
+from teyvatnotes.runtime import DeterministicTaskExecutor
+from teyvatnotes.worker import RetryPolicy, TaskWorker, WorkerSettings
 
 
 @dataclass(slots=True)

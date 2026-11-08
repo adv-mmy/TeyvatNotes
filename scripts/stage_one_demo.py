@@ -19,16 +19,16 @@ from typing import cast
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.config import AppSettings, RateLimitSettings
-from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus, TaskType
-from agent_runtime_foundation.observability import JsonLogFormatter, MetricsRegistry
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.runtime import (
+from teyvatnotes.api import create_app
+from teyvatnotes.config import AppSettings, RateLimitSettings
+from teyvatnotes.domain import JsonValue, Task, TaskStatus, TaskType
+from teyvatnotes.observability import JsonLogFormatter, MetricsRegistry
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.runtime import (
     DeterministicTaskExecutor,
     RuntimeSettings,
 )
-from agent_runtime_foundation.worker import (
+from teyvatnotes.worker import (
     RetryPolicy,
     TaskWorker,
     WorkerSettings,
@@ -370,7 +370,7 @@ async def _run_worker_scenarios() -> tuple[
 def _capture_safe_project_logs() -> Iterator[StringIO]:
     """临时安装与生产相同的安全 Formatter，并在演示后恢复日志配置。"""
 
-    project_logger = logging.getLogger("agent_runtime_foundation")
+    project_logger = logging.getLogger("teyvatnotes")
     original_handlers = list(project_logger.handlers)
     original_level = project_logger.level
     original_disabled = project_logger.disabled
@@ -379,9 +379,9 @@ def _capture_safe_project_logs() -> Iterator[StringIO]:
     child_loggers = tuple(
         logging.getLogger(name)
         for name in (
-            "agent_runtime_foundation.api.app",
-            "agent_runtime_foundation.runtime.manager",
-            "agent_runtime_foundation.worker.service",
+            "teyvatnotes.api.app",
+            "teyvatnotes.runtime.manager",
+            "teyvatnotes.worker.service",
         )
     )
     original_children = {

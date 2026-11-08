@@ -11,21 +11,21 @@ from conftest import AUTH_HEADERS, TEST_API_KEY
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.api.security import (
+from teyvatnotes.api import create_app
+from teyvatnotes.api.security import (
     ApiKeyAuthenticator,
     AuthenticatedPrincipal,
     AuthenticationError,
     RateLimitExceededError,
     SlidingWindowRateLimiter,
 )
-from agent_runtime_foundation.config import (
+from teyvatnotes.config import (
     AppSettings,
     ConfigurationError,
     RateLimitSettings,
     WorkerProcessSettings,
 )
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
+from teyvatnotes.repositories import InMemoryTaskRepository
 
 
 def _settings(

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agent-runtime-foundation"
+name = "TeyvatNotes"
 version = "0.8.1"
 description = "用于学习可靠 Agent Runtime 基础能力的 Python 项目"
 readme = "README.md"
@@ -17,6 +17,14 @@ dependencies = [
 ]
 
 [dependency-groups]
+desktop = [
+    "PySide6-Essentials>=6.10,<7",
+    "python-dotenv>=1.2,<2",
+]
+desktop-build = [
+    {include-group = "desktop"},
+    "PyInstaller>=6.19,<7; sys_platform == 'win32'",
+]
 dev = [
     "httpx2",
     "mypy",
@@ -25,7 +33,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_runtime_foundation"]
+packages = ["src/teyvatnotes"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
@@ -49,3 +57,15 @@ files = ["main.py", "api_main.py", "worker_main.py", "src", "scripts"]
 mypy_path = "src"
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["PySide6", "PySide6.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "teyvatnotes.desktop.ui",
+    "teyvatnotes.desktop.widgets",
+    "teyvatnotes.desktop.worker",
+]
+disallow_subclassing_any = false

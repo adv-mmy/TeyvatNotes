@@ -1,25 +1,26 @@
-# OpenASI 接入与单轮带引用问答
+# 通用 Responses 接入与单轮带引用问答
 
-日期：2026-10-03。对应学习建议 13.11 第 2 项的实现：直接 HTTP 模型接入、关键词证据准备、结构化答案及程序校验。不是工具调用循环、完整 RAG 或已验证的原神攻略产品。
+更新：2026-10-04。对应学习建议 13.11 第 2 项的实现：直接 HTTP 模型接入、关键词证据准备、结构化答案及程序校验。不是工具调用循环、完整 RAG 或已验证的原神攻略产品。
 
 ## 1. 本机配置
 
-配置文件为项目根目录 `D:\code\agent_runtime_foundation\.env`，不是 `.env.example`。保留已有数据库设置，追加：
+配置文件为项目根目录 `D:1code1TeyvatNotes\.env`，不是 `.env.example`。保留已有数据库设置，追加：
 
 ```dotenv
-OPENASI_API_KEY=填入撤销聊天中旧密钥后取得的新密钥
-OPENASI_BASE_URL=https://api.openasi.bitmiracle.cn/v1
-OPENASI_MODEL=gpt-5.6-sol
-OPENASI_TIMEOUT_SECONDS=60
-OPENASI_STRUCTURED_OUTPUTS=false
+LLM_API_STYLE=responses
+LLM_API_KEY=填入服务商提供的密钥
+LLM_BASE_URL=https://llm.example.com/v1
+LLM_MODEL=服务商提供的模型ID
+LLM_TIMEOUT_SECONDS=60
+LLM_STRUCTURED_OUTPUTS=false
 ```
 
-`.env` 已被 Git 忽略；`.env.example` 只能保留占位符。程序不回显密钥，不回退到 `OPENAI_API_KEY` 或其他供应商。Python 模块本身不自动加载 dotenv，以下命令用 `uv run --env-file .env` 显式加载；服务端部署则注入环境变量。已经出现在聊天里的密钥应撤销并轮换，不能继续使用。
+`.env` 已被 Git 忽略；`.env.example` 只能保留占位符。程序不回显密钥。只读取 `LLM_*`，没有 `OPENASI_*` 或 `OPENAI_API_KEY` 别名、厂商/模型默认值或自动回退。上面的域名只是占位示例，必须替换。地址可为 API 基址或完整 `/responses` URL（可有自定义路径、HTTPS 端口）。当前只实现 Responses 协议；Chat Completions、Anthropic 等不同协议需要另写适配器，不能只改配置名。Python 模块本身不自动加载 dotenv，以下命令用 `uv run --env-file .env` 显式加载；服务端部署则注入环境变量。已经出现在聊天里的密钥应撤销并轮换，不能继续使用。
 
 在项目目录，配置好新密钥后可主动执行一次真实请求（可能计费）：
 
 ```powershell
-uv run --env-file .env python -m agent_runtime_foundation.models.probe
+uv run --env-file .env python -m teyvatnotes.models.probe
 ```
 
 该命令只发送“你好”，最多允许 128 个输出 Token，不上传资料或本机文件；成功时输出服务端模型名称、用量和耗时，不回显密钥或原始响应。它不验证知识库、引用质量或所有可选 API 参数。
@@ -31,9 +32,9 @@ uv run --env-file .env python -m agent_runtime_foundation.models.probe
 无密钥、无数据库、无费用的演示：
 
 ```powershell
-uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions/character.json --demo
-uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions/quest.json --demo
-uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions/clarification.json --demo
+uv run python -m teyvatnotes.knowledge.answer_cli samples/questions/character.json --demo
+uv run python -m teyvatnotes.knowledge.answer_cli samples/questions/quest.json --demo
+uv run python -m teyvatnotes.knowledge.answer_cli samples/questions/clarification.json --demo
 ```
 
 `--demo` 只从临时内存中的纯虚构草稿摘录，模拟模型不访问网络、数据库或模型凭据。输出 `provider=offline_demo`、`demo_only=true`、`model_called=false`；`generation_attempts` 表示模拟生成尝试，不是付费请求数。虚构 URL 是样本身份，不代表可访问的真实来源。这不是 GPT 的回答或真实游戏质量验收。
@@ -41,7 +42,7 @@ uv run python -m agent_runtime_foundation.knowledge.answer_cli samples/questions
 正式使用自己准备的问题文件：
 
 ```powershell
-uv run --env-file .env python -m agent_runtime_foundation.knowledge.answer_cli <问题JSON路径>
+uv run --env-file .env python -m teyvatnotes.knowledge.answer_cli <问题JSON路径>
 ```
 
 输入沿用 `knowledge/query_cli.py` 的问题格式。角色回答额外检查 `owned_equipment`；配队目标为“配队”时还需 `owned_characters`。例如 `"owned_equipment": ["已拥有的装备名"]`，`null`/省略表示未知，`[]` 表示明确没有。不要把资料的适用条件当作完整玩家库存；两个字段需分别确认。实体、版本、关键词仍是显式输入，不自动理解别名或分词。
@@ -59,17 +60,19 @@ uv run --env-file .env python -m agent_runtime_foundation.knowledge.answer_cli <
 
 关键结论放在 `claims`，逐项标注 `fact/recommendation/inference` 和 `summary/prerequisite/step/completion/alternative`，并附引用。`used_player_conditions` 仅来自输入，`questions/gaps/conflicts` 分别展示追问、缺口和矛盾；不保存会话。`generation_attempts` 记录生成端口尝试；`model_called` 在正式模式表示已进入真实生成适配器，不表示供应商已处理或计费成功。
 
-记录成功返回的 `input_tokens/output_tokens`、服务端模型名、用例 `elapsed_ms`。未知用量为 `null`，不是零；已生成但被引用校验拒绝时仍保留已报告用量。HTTP 失败、超时/取消时可能已收费但无法获知用量。没有 OpenASI 的已核验价格与币种，所以 `cost=null`；不能拿 OpenAI 官方价格计算第三方账单。
+记录成功返回的 `input_tokens/output_tokens`、服务端模型名、用例 `elapsed_ms`。未知用量为 `null`，不是零；已生成但被引用校验拒绝时仍保留已报告用量。HTTP 失败、超时/取消时可能已收费但无法获知用量。没有配置平台的已核验价格与币种，所以 `cost=null`；不能拿 OpenAI 官方价格计算第三方账单。
 
 ## 4. HTTP、安全与兼容性
 
-客户端只允许用户指定的 HTTPS 主机和 `/v1` 或完整 `/v1/responses` 路径，当前固定为用户改选的 `gpt-5.6-sol`。拒绝带用户名、查询、fragment、不同主机的配置；不跟随重定向、不读取代理环境、不自动重试，TLS 证书校验保持开启。每次调用创建并关闭 HTTP Client。默认值、发送的模型和服务端返回模型身份检查都使用同一个 MODEL 常量，不自动回退旧 Terra。
+客户端使用显式配置的 HTTPS 主机、端口和 API 路径，不限制服务商域名或模型 ID。API 基址自动追加 `/responses`，完整端点不重复追加。拒绝带用户信息、空主机、非法端口、查询参数、fragment、空白字符及已知不同协议的完整端点；不跟随重定向、不读取代理环境、不自动重试，TLS 证书校验保持开启。每次调用创建并关闭 HTTP Client。发送模型和服务端返回模型必须与本次 `LLM_MODEL` 精确一致；没有全局模型常量或别名自动放行。
 
 HTTP 超时默认 60 秒、配置范围 1～120 秒，同时有覆盖连接及读取的总超时；问答用例另有覆盖检索与生成的 90 秒总时限。后者不覆盖 CLI 的文件加载、依赖创建及最终连接池释放，不能称整个进程的硬终止时限。响应正文最多 256 KiB，解析后文本最多 32,000 字符，输出上限 4,096 Token。
 
 协议处理依据 [OpenAI 文本生成规范](https://developers.openai.com/api/docs/guides/text)：原始 HTTP 响应从 `output` 中遍历 assistant message 的 `output_text`，不假定首项就是正文，也不依赖 SDK 的快捷属性。拒绝非完成状态、拒答、缺失正文及与所选模型不同的服务端模型标识。未获供应商确认的模型别名不会静默放行。
 
-默认以提示词要求 JSON 并在本地严格校验。`OPENASI_STRUCTURED_OUTPUTS=true` 才发送 [Responses 的 text.format JSON Schema 格式](https://developers.openai.com/api/docs/guides/structured-outputs)，不使用 Chat Completions 的 `response_format`；不兼容时直接报错，不再发第二次付费请求。`store=false` 是请求参数，不是第三方无保存/无训练的保证。
+默认以提示词要求 JSON 并在本地严格校验。`LLM_STRUCTURED_OUTPUTS=true` 才发送 [Responses 的 text.format JSON Schema 格式](https://developers.openai.com/api/docs/guides/structured-outputs)，不使用 Chat Completions 的 `response_format`；不兼容时直接报错，不再发第二次付费请求。`store=false` 是请求参数，不是第三方无保存/无训练的保证。
+
+私有会话的显式 `--extract-model` 也复用这个普通生成客户端和配置，使用独立的闭合提取 Schema；工具循环的原生函数调用适配器不受此开关影响。模型辅助提取需另计一次调用，不改变本文件中单轮回答入口的一次生成契约；联合预算与取消/竞争统计见[会话说明](conversations.md#显式模型辅助提取)。提取的第三方 strict 兼容尚未真实验证，不自动重试或降级。
 
 错误只输出稳定代码，不输出密钥、底层异常或服务端错误正文：
 
@@ -86,11 +89,13 @@ HTTP 超时默认 60 秒、配置范围 1～120 秒，同时有覆盖连接及�
 
 ## 5. 当前验收边界
 
-初始开发验收使用 MockTransport 和可控模拟客户端，没有真实模型调用；不能用离线测试确认 OpenASI 的身份、模型实际能力、参数兼容、隐私保留、价格或真实答案质量。旧 Terra 失败探测见第6节；用户改选 Sol 后的一次基础生成成功见第7节。后者不是实际攻略问答或完整答案质量验收。
+初始开发验收使用 MockTransport 和可控模拟客户端，没有真实模型调用；不能用离线测试确认任何第三方平台的身份、模型实际能力、参数兼容、隐私保留、价格或真实答案质量。旧 Terra 失败探测见第6节；用户改选 Sol 后的一次基础生成成功见第7节。后者不是实际攻略问答或完整答案质量验收。
 
 引用存在性不等于证据支持结论；显式资源列表子集检查无法识别模型在自然语言中隐瞒的资源需求或错误分类。分节顺序不等于游戏步骤在语义上正确。`claims.text/questions/gaps` 是模型生成文本，可能包含不受信任的链接；可信引用仅指程序生成的 `citations`。输出始终带事实/语义支持尚未验证警告。
 
-仍待实现：真实版本/角色/任务的审核样本、模型选择工具的循环、语义检索、会话、50 条固定评测、跨 attempt 的费用预算、回答持久化与流式事件。Task API、Worker、SSE 和两种确定性任务没有修改；未经读取所有权/隐私设计不能把玩家回答接到现有公开读接口。
+后续新增的独立工具循环入口见 [最小只读工具循环](tool-agent.md)，条件与答案持久化见 [私有会话](conversations.md)；本文件中的单轮入口仍保持一次生成，不保存会话。仍待实现：真实版本/角色/任务的审核样本、正式语义检索、50 条固定评测、跨 attempt 的费用预算与流式事件。Task API、Worker、SSE 和两种确定性任务没有修改；私有会话并未提供公开用户鉴权，不能把玩家回答接到现有公开读接口。
+
+通用配置改造使用多域名、多模型 MockTransport 验证，无本轮真实生成。下面第6～7节是改造前的历史 OpenASI/Terra/Sol 记录，其中旧变量名和常量约束不代表当前实现。当前源码为 `models/responses.py` 与 `models/responses_tools.py`；响应模型与本次配置值精确核对，不默许别名替换。正式输出的 `provider=responses_compatible` 是适配器类别，不是已验证的服务商身份；离线演示仍为 `offline_demo`。
 
 ## 6. 旧 Terra 真实接口探测记录（2026-10-03，保留历史）
 

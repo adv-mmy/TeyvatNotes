@@ -6,8 +6,8 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
+from teyvatnotes.api import create_app
+from teyvatnotes.repositories import InMemoryTaskRepository
 
 TEST_API_KEY = "test-only-api-key-32-characters-long"
 AUTH_HEADERS = {"Authorization": f"Bearer {TEST_API_KEY}"}

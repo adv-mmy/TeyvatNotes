@@ -1,0 +1,11 @@
+{
+  "question": "薇斯纳应该怎么配队？",
+  "guide_kind": "character",
+  "game_version": "7.1",
+  "entity": "薇斯纳",
+  "keywords": ["配队"],
+  "conditions": {},
+  "goal": "配队",
+  "owned_equipment": ["蝶变", "白湖冬羽", "苍耀", "新枝", "熔猎异端之刃", "引火之源"],
+  "owned_characters": ["薇斯纳", "沃雅妮莎", "珐露珊", "砂糖", "奥黛塔", "冰主", "七七", "迪奥娜", "尼可", "伊安珊", "八重神子"]
+}

@@ -17,24 +17,24 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_guide_ingestion import CountingParser, article_snapshot
 
-from agent_runtime_foundation.application.guide_ingestion import GuideIngestionService
-from agent_runtime_foundation.database import Base, Database, normalize_database_url
-from agent_runtime_foundation.database.knowledge import (
+from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.database import Base, Database, normalize_database_url
+from teyvatnotes.database.knowledge import (
     GuideChunkRecord,
     GuideDocumentRecord,
     GuideStepRecord,
 )
-from agent_runtime_foundation.domain import Task, TaskType
-from agent_runtime_foundation.domain.guides import (
+from teyvatnotes.domain import Task, TaskType
+from teyvatnotes.domain.guides import (
     DocumentStatus,
     GuideChunk,
     GuideImportError,
     IngestionCheckpoint,
     StepName,
 )
-from agent_runtime_foundation.knowledge.snapshots import parse_snapshot
-from agent_runtime_foundation.repositories import PostgresTaskRepository
-from agent_runtime_foundation.repositories.knowledge_postgres import PostgresKnowledgeRepository
+from teyvatnotes.knowledge.snapshots import parse_snapshot
+from teyvatnotes.repositories import PostgresTaskRepository
+from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
 pytestmark = pytest.mark.postgres
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -184,6 +184,29 @@ def test_chunk_transaction_rolls_back_and_another_engine_resumes_parse() -> None
                 assert report.chunk_count == 3
             finally:
                 await restarted.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("nature", ["released", "preview"])
+def test_postgres_publishes_and_retrieves_both_content_natures(nature: str) -> None:
+    from teyvatnotes.domain.guides import GuideKind
+    from teyvatnotes.domain.knowledge import EvidenceScope, KeywordQuery
+
+    async def scenario() -> None:
+        async with isolated_database() as (database, _):
+            repository = PostgresKnowledgeRepository(database.session_factory)
+            report = await GuideIngestionService(repository).import_snapshot(
+                parse_snapshot(article_snapshot(entities=["示例任务"], content_nature=nature)),
+                publish=True,
+            )
+            scope = EvidenceScope("test-version", GuideKind.QUEST, "示例任务")
+            hits = await repository.search_knowledge(KeywordQuery(scope, ("第二步",)))
+            assert len(hits) == 1 and hits[0].document.id == report.document_id
+            assert hits[0].document.snapshot["content_nature"] == nature
+            assert (await repository.read_evidence(hits[0].chunk.id, scope)).hit.chunk == hits[
+                0
+            ].chunk
 
     asyncio.run(scenario())
 

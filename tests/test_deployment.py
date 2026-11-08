@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_runtime_foundation.config import AppSettings, ConfigurationError
+from teyvatnotes.config import AppSettings, ConfigurationError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

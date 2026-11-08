@@ -1,0 +1,2671 @@
+{
+  "revision": "2026-10-04.2",
+  "terms": [
+    {
+      "category": "character",
+      "name": "薇斯纳",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509803/detail?bbs_presentation_style=no_header；原确认：用户明确指定的测试角色名。"
+    },
+    {
+      "category": "character",
+      "name": "沃雅妮莎",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509804/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "伊涅芙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505631/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "菲林斯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505971/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "奥黛塔",
+      "aliases": [
+        "奥萝塔"
+      ],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509103/detail?bbs_presentation_style=no_header；原确认：2026-10-04 用户确认：先前图片人工转录为奥萝塔有误，正确名称为奥黛塔。"
+    },
+    {
+      "category": "character",
+      "name": "阿蕾奇诺",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501157/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·冰",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509226/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/509225/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "阿罗夏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509104/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "哥伦比娅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507505/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "雷电将军",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2404/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "桑多涅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508841/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "茜特菈莉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503612/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "八重神子",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3564/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "莱欧斯利",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500286/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "梦见月瑞希",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504440/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "赛诺",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4780/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "七七",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1056/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "洛恩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508598/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "玛薇卡",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503613/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "班尼特",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/105/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "香菱",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/112/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "米卡",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6285/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "迪奥娜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1221/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "尼可",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508596/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "杜林",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507241/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "布伦妮",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508597/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "雷泽",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/56/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "菲谢尔",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/382/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "菈乌玛",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505973/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "奈芙尔",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506676/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "艾梅莉埃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501441/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "克洛琳德",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501213/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "希格雯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501214/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "娜维娅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500419/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "林尼",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6937/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "雅珂达",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507287/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "行秋",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/241/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "绮良良",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6594/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "莉奈娅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508198/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "恰斯卡",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502928/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "诺艾尔",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/111/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "爱诺",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505972/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "叶洛亚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507504/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "丝柯克",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505417/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "爱可菲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504976/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "塔利雅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505418/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "坎蒂丝",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4781/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "夏洛蒂",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500292/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "法尔伽",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507995/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "优菈",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2040/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "莫娜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1057/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "阿贝多",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1360/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "可莉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/55/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "迪卢克",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/75/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "琴",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/59/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "砂糖",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1055/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "兹白",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507503/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "那维莱特",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500207/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "五郎",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3275/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "伊法",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504977/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "赛索斯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501212/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "奇偶·男性",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506960/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "奇偶·女性",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506961/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "芙宁娜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500291/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "纳西妲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5111/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "妮露",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5020/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "艾尔海森",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5865/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "流浪者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5494/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "提纳里",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4334/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "迪希雅",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6180/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "玛拉妮",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501625/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "欧洛伦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502927/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "伊安珊",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504621/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "瑶瑶",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5866/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "申鹤",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3386/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "基尼奇",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501624/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "神里绫华",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2123/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "神里绫人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3875/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "珐露珊",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5493/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "千织",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500987/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "荒泷一斗",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3276/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "宵宫",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2124/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "琳妮特",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6938/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "九条裟罗",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2402/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "托马",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2606/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "莱依拉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5297/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "希诺宁",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502306/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "温迪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/57/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "烟绯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1795/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "闲云",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500673/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "北斗",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/79/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "瓦雷莎",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504570/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "夏沃蕾",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500605/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "嘉明",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500672/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "蓝砚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503614/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "白术",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6489/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "刻晴",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1058/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "甘雨",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1433/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "魈",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1498/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "达达利亚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1220/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "钟离",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1290/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "胡桃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1627/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "卡齐娜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501626/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "枫原万叶",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2142/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "夜兰",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4081/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "珊瑚宫心海",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2403/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "菲米尼",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7257/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "罗莎莉亚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1744/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "卡维",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6490/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "多莉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4736/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "柯莱",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4333/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "鹿野院平藏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4197/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "云堇",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3387/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "凝光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/78/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "久岐忍",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4148/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "早柚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2125/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "重云",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/644/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "丽莎",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/92/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "辛焱",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1291/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "凯亚",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/76/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "芭芭拉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/61/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "安柏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/54/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "埃洛伊",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2415/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·火",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4073/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/4074/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·水",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505505/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/505500/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·草",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505498/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/505502/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·雷",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505496/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/505503/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·岩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505497/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/505501/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "character",
+      "name": "旅行者·风",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505504/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/505499/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "银釭",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509970/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "蝶变",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509881/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "漩流颂歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509880/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "凝雪沉心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509878/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "柔风游弦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509877/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "新枝",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509879/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白湖冬羽",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509224/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "星锋剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509223/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "金律铸影",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509215/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "悬黎千钧",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509214/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "群王局戏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509217/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "寒息",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509213/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "熔猎异端之刃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509216/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "引火之源",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509221/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "救赎之斩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509219/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "霜雪誓约",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509218/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "寸心余响",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509222/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "戍望谣歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509220/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "超越之匙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508913/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "灾悔",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508805/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "尘光七谕",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508634/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "霜结的誓金枝",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508253/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "狼的武功歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508005/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "朏魄含光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507943/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "帷间夜曲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507623/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑蚀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507354/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黎明破晓之史",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507353/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "虹蛇的雨弦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507352/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "真语秘匣",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506913/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "圣祭者的辉杖",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506912/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "霜辰",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506911/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "血染荒城",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506694/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天光的纺琴",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506378/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "纺夜天镜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506390/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "千夜浮梦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5110/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "裁叶萃光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5887/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "圣显之钥",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5018/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "苇海信标",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6179/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "猎人之径",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4330/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "图莱杜拉的回忆",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5378/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "赤沙之杖",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4794/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "织月者的曙色",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506381/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "罗网勾针",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506377/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "万能钥匙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506376/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "乌髓孑灯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506375/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "掘金之锹",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506374/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "谧音吹哨",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506379/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "支离轮光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505676/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "拾慧铸熔",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505675/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "苍耀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505478/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "香韵奏者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505323/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "冷寂迸音",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/505322/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "溢彩心念",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504739/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "寝正月初晴",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504503/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "且住亭御咄",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504502/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "焚曜千阳",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503949/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "祭星者之望",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503948/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "万世流涌大典",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7304/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "贯虹之槊",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1289/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "厄水之祸",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503608/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "星鹫赤羽",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503390/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "缀花之翎",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503391/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "乘浪的回旋",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503389/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "护摩之杖",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1612/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "硕果钩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/503098/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "岩峰巡歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502898/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "有乐御簾切",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500996/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "镇山之钉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502897/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "弥坚骨",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502896/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "山王长牙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502471/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "薙草之稻光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2602/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "冲浪时光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501962/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "苍古自由之誓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2129/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "苍纹角杯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502133/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "静水流涌之辉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7509/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "撼地者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501967/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "虹的行迹",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501966/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "木棉之环",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501965/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "碎链",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501964/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "息燧之笛",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501963/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "柔灯挽歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501725/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "若水",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4082/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "裁断",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500420/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白雨心弦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501495/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西风长枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1079/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西风秘典",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/185/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "祭礼弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/177/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "匣里龙吟",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/141/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "千岩古剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1611/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "筑云",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501449/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "赦罪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501384/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "赤月之形",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501137/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "沙中伟贤的对答",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501016/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "鹤鸣余音",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500674/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "「究极霸王超级魔剑」",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500507/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "水仙十字之剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7525/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "金流监督",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7408/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "勘探钻机",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7407/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "测距规",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7406/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "无垠蔚蓝之歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7381/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "船坞长剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7314/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "便携动力锯",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7313/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "灰河渡手",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7046/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "纯水流华",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7045/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "公义的酬报",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7044/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "浪影阔剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7043/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "海渊终曲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7042/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "静谧之曲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/7041/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "狼牙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6970/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "遗祀玉珑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6969/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "烈阳之嗣",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6968/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "聊聊棒",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6967/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "峡湾长歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6966/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "最初的大魔术",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6936/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "鹮穿之喙",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6664/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "碧落之珑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6488/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "饰铁之花",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6234/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "东花坊时雨",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5675/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西福斯的月光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5019/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "流浪的晚星",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5017/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "风信之锋",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4855/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "玛海菈的水色",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4792/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "王下近侍",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4446/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "森林王器",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4445/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "盈满之实",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4444/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "贯月矢",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4443/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "原木刀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4440/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "竭泽",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4437/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "笼钓瓶一心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4201/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "落霞",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4090/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "波乱月白经津",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3871/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "证誓之明瞳",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3611/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "神乐之真意",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3563/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "息灾",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3398/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "赤角石溃杵",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3274/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "辰砂之纺锤",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3170/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "松籁响起之时",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2039/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "终末嗟叹之诗",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1682/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "断浪长鳍",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3077/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "曚云之月",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3076/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "冬极白星",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2905/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "恶王丸",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2904/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "不灭月华",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2807/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "掠食者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2639/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "「渔获」",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2604/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "衔珠海皇",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2603/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "飞雷之弦振",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2555/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "雾切之回光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2289/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "桂木斩长正",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2302/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白辰之环",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2288/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "喜多院十文字",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2310/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天目影打刀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2307/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "破魔之弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2287/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "降临之剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1298/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天空之刃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/215/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "狼的末路",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/218/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "阿莫斯之弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/219/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天空之卷",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/227/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天空之傲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/291/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "风鹰剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/293/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "和璞鸢",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/296/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "四风原典",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/297/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天空之翼",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/323/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "天空之脊",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1077/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "尘世之锁",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1222/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "无工之剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1288/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "斫峰之刃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1356/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "磐岩结绿",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1497/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "试作古华",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/144/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "匣里灭辰",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/171/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑岩刺枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/172/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西风大剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/174/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "铁蜂刺",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/175/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "绝弦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/176/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "宗室长弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/178/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "雨裁",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/180/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "弓藏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/181/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "流浪乐章",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/192/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑岩绯玉",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/193/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "宗室秘法录",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/194/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西风猎弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/195/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "祭礼残章",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/197/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "万国诸海图谱",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/198/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "宗室长剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/199/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "宗室大剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/206/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "笛剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/207/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "西风剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/208/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "钟剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/214/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "匣里日月",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/217/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "试作斩岩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/226/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "祭礼剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/239/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "试作澹月",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/240/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑岩长剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/289/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白影剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/290/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "试作金珀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/319/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "流月针",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/321/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "钢轮弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/391/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "试作星镰",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/393/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "祭礼大剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/418/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "昭心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/690/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑岩战弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/694/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑岩斩刀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/704/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/942/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "决斗之枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/972/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "苍翠猎弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/994/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "螭骨剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/995/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "宗室猎枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1287/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "腐殖之剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1361/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "雪葬的星银",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1362/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "龙脊长枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1363/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "忍冬之果",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1377/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "千岩长枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1610/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "暗巷闪光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1683/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "暗巷猎手",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1684/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "暗巷的酒与诗",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1685/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "风花之颂",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1705/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "幽夜华尔兹",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2127/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "嘟嘟可故事集",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2141/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "飞天御剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/128/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "铁影阔剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/129/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "沐浴龙血的剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/130/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "以理服人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/131/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黑缨枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/134/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "讨龙英杰谭",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/137/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "弹弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/138/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "鸦羽弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/139/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "冷刃",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/161/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "魔导绪论",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/162/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "黎明神剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/164/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "暗铁剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/165/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "神射手之誓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/167/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "飞天大御剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/220/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白缨枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/683/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "甲级宝珏",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/684/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "异世界行记",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/685/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "信使",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/686/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "反曲弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/687/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "吃虎鱼刀",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/698/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "旅行剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/708/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "翡玉法球",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/709/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "钺矛",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/724/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "白铁大剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1076/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "银剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/126/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "口袋魔导书",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/142/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "历练的猎弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/143/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "佣兵重剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/158/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "铁尖枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/160/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "新手长枪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/118/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "训练大剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/123/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "学徒笔记",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/124/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "猎弓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/125/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "weapon",
+      "name": "无锋剑",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/127/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "血红之证",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509294/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "炉火融炼之心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509293/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "影中沉凝的幻灭",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508652/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "天之美赐",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/508651/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "晨星与月的晓歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507648/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "风起之日",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/507653/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "穹境示现之夜",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506178/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "纺月的夜歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/506172/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "长夜之誓",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504792/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "深廊终曲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/504793/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "黑曜秘典",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502058/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "烬城勇者绘卷",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/502057/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "未竟的遐思",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501140/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "谐律异想断章",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/501139/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "回声之林夜话",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500422/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "昔时之歌",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500421/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "逐影猎人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500037/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "黄金剧团",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/500036/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "花海甘露之光",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6351/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "水仙之梦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/6350/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "乐园遗落之花",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5404/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "沙上楼阁史话",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/5403/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "深林的记忆",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4341/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "饰金之梦",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/4335/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "辰砂往生录",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3867/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "来歆余响",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3866/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "华馆梦醒形骸记",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3158/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "海染砗磲",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/3157/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "绝缘之旗印",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2322/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "追忆之注连",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/2321/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "千岩牢固",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1984/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "苍白之火",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1983/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "平息鸣雷的尊者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1639/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "炽烈的炎之魔女",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1563/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "流浪大地的乐团",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1638/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "染血的骑士道",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1637/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "被怜爱的少女",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1636/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "角斗士的终幕礼",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1633/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "渡过烈火的贤人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1602/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "悠古的磐岩",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1600/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "如雷的盛怒",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1632/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "沉沦之心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1628/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "逆飞的流星",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1601/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "昔日宗室之仪",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1631/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "翠绿之影",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1630/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "冰风迷途的勇士",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1629/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "勇士之心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1607/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "教官",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1606/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "流放者",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1605/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "祭冰之人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1649/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "祭雷之人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1646/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "祭火之人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1647/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "祭水之人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1648/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "战狂",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1604/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "武人",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1603/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "学士",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1599/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "赌徒",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1598/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "奇迹",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1597/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "行者之心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1596/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "守护之心",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1595/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "幸运儿",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1645/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "冒险家",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1644/detail?bbs_presentation_style=no_header"
+    },
+    {
+      "category": "artifact",
+      "name": "游医",
+      "aliases": [],
+      "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/1643/detail?bbs_presentation_style=no_header"
+    }
+  ]
+}
