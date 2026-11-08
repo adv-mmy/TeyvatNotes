@@ -21,28 +21,28 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.database import (
+from scripts.postgres_recovery_demo import run_postgres_recovery_demo
+from teyvatnotes.api import create_app
+from teyvatnotes.database import (
     TaskAttemptRecord,
     TaskEventRecord,
     TaskRecord,
     create_database,
 )
-from agent_runtime_foundation.domain import JsonValue, Task, TaskResult, TaskStatus, TaskType
-from agent_runtime_foundation.observability import bind_correlation_context
-from agent_runtime_foundation.repositories import (
+from teyvatnotes.domain import JsonValue, Task, TaskResult, TaskStatus, TaskType
+from teyvatnotes.observability import bind_correlation_context
+from teyvatnotes.repositories import (
     PostgresTaskRepository,
     PostgresWorkerRepository,
 )
-from agent_runtime_foundation.runtime import DeterministicTaskExecutor
-from agent_runtime_foundation.worker import (
+from teyvatnotes.runtime import DeterministicTaskExecutor
+from teyvatnotes.worker import (
     AttemptOutcome,
     LeaseOwnershipError,
     RetryPolicy,
     TaskWorker,
     WorkerSettings,
 )
-from scripts.postgres_recovery_demo import run_postgres_recovery_demo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.postgres

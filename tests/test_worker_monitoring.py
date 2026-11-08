@@ -7,14 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import worker_main
-from agent_runtime_foundation.api.worker_monitoring import create_worker_monitoring_app
-from agent_runtime_foundation.config import ConfigurationError, WorkerProcessSettings
-from agent_runtime_foundation.database import create_database
-from agent_runtime_foundation.domain import Task
-from agent_runtime_foundation.observability import MetricsRegistry
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.runtime import DeterministicTaskExecutor
-from agent_runtime_foundation.worker import TaskWorker, WorkerSettings
+from teyvatnotes.api.worker_monitoring import create_worker_monitoring_app
+from teyvatnotes.config import ConfigurationError, WorkerProcessSettings
+from teyvatnotes.database import create_database
+from teyvatnotes.domain import Task
+from teyvatnotes.observability import MetricsRegistry
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.runtime import DeterministicTaskExecutor
+from teyvatnotes.worker import TaskWorker, WorkerSettings
 
 
 class Probe:

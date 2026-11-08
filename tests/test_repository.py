@@ -6,14 +6,14 @@ from uuid import uuid4
 
 import pytest
 
-from agent_runtime_foundation.domain import (
+from teyvatnotes.domain import (
     InvalidTaskTransition,
     Task,
     TaskResult,
     TaskStatus,
     TaskType,
 )
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
+from teyvatnotes.repositories import InMemoryTaskRepository
 
 
 def test_add_and_get_task() -> None:

@@ -1,0 +1,21 @@
+{
+  "platform": "miyoushe",
+  "native_id": "1000000000",
+  "url": "https://www.miyoushe.com/ys/article/1000000000",
+  "title": "虚构任务解谜示例，不是真实原神攻略",
+  "author": "离线教学样本（虚构）",
+  "guide_kind": "quest",
+  "game_version": null,
+  "complete": true,
+  "is_fixture": true,
+  "entities": ["示例任务"],
+  "conditions": {"进度": "只用于演示前置条件"},
+  "article_blocks": [
+    {"kind": "heading", "text": "前置条件"},
+    {"kind": "paragraph", "text": "示例前置条件必须先满足；这不是实际游戏中的任务要求。"},
+    {"kind": "heading", "text": "有序步骤"},
+    {"kind": "paragraph", "text": "第一步：此处仅演示文字步骤与原文段落关联。"},
+    {"kind": "image", "text": "第二步依赖图片，尚未进行视觉解析。", "image_url": "https://example.invalid/quest-step-2.png", "requires_visual": true},
+    {"kind": "paragraph", "text": "完成标志：示例内容尚有关键图片缺口，因此不能发布。"}
+  ]
+}

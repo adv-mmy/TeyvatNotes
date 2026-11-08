@@ -23,14 +23,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.config import WorkerProcessSettings
-from agent_runtime_foundation.database import Base, Database, normalize_database_url
-from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus
-from agent_runtime_foundation.observability import configure_logging
-from agent_runtime_foundation.repositories import PostgresTaskRepository, PostgresWorkerRepository
-from agent_runtime_foundation.runtime import DeterministicTaskExecutor
-from agent_runtime_foundation.worker import TaskWorker, WorkerSettings
+from teyvatnotes.api import create_app
+from teyvatnotes.config import WorkerProcessSettings
+from teyvatnotes.database import Base, Database, normalize_database_url
+from teyvatnotes.domain import JsonValue, Task, TaskStatus
+from teyvatnotes.observability import configure_logging
+from teyvatnotes.repositories import PostgresTaskRepository, PostgresWorkerRepository
+from teyvatnotes.runtime import DeterministicTaskExecutor
+from teyvatnotes.worker import TaskWorker, WorkerSettings
 from worker_main import run_worker
 
 

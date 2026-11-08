@@ -12,9 +12,9 @@ import pytest
 from conftest import AUTH_HEADERS
 from fastapi.testclient import TestClient
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.domain import Task, TaskStatus, TaskType
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
+from teyvatnotes.api import create_app
+from teyvatnotes.domain import Task, TaskStatus, TaskType
+from teyvatnotes.repositories import InMemoryTaskRepository
 
 PATHS_FROM_QUEUED = {
     TaskStatus.QUEUED: (),
@@ -462,7 +462,7 @@ def test_docs_are_available(client: TestClient) -> None:
     response = client.get("/docs")
 
     assert response.status_code == 200
-    assert "Agent Runtime Foundation" in response.text
+    assert "TeyvatNotes" in response.text
 
 
 def test_unknown_route_and_method_use_unified_error_format(client: TestClient) -> None:

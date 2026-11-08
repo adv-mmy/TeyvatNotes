@@ -1,0 +1,13 @@
+{
+  "platform": "bilibili", "native_id": "BV1DEMO00003",
+  "url": "https://www.bilibili.com/video/BV1DEMO00003?p=1",
+  "title": "纯虚构：示例角色甲更换装备后的会话证据", "author": "离线教学样本（虚构）",
+  "guide_kind": "character", "game_version": "DEMO-ONLY",
+  "complete": true, "is_fixture": true, "entities": ["示例角色甲"],
+  "conditions": {"装备": "示例木弓"}, "part_id": 1, "requires_visual": false,
+  "segments": [
+    {"start": 0, "end": 10, "section": "适用条件", "text": "本样本完全虚构，仅适用于玩家已确认持有示例木弓的教学条件。"},
+    {"start": 10, "end": 20, "section": "装备", "text": "装备替换教学：使用示例木弓范围的资料，不沿用示例木剑范围的旧答案。"},
+    {"start": 20, "end": 30, "section": "操作", "text": "这里只验证新一轮检索和引用隔离，不包含真实游戏机制或培养结论。"}
+  ]
+}

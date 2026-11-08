@@ -8,10 +8,10 @@ import json
 from dataclasses import asdict, dataclass
 from time import perf_counter
 
-from agent_runtime_foundation.application import CreateTaskCommand
-from agent_runtime_foundation.domain import JsonValue, Task, TaskStatus, TaskType
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.runtime import (
+from teyvatnotes.application import CreateTaskCommand
+from teyvatnotes.domain import JsonValue, Task, TaskStatus, TaskType
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.runtime import (
     DeterministicTaskExecutor,
     RuntimeSettings,
     TaskRuntime,

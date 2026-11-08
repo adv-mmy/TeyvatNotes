@@ -8,11 +8,11 @@ import httpx
 import pytest
 from conftest import AUTH_HEADERS
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.application import CreateTaskCommand
-from agent_runtime_foundation.domain import JsonValue, Task, TaskResult, TaskStatus, TaskType
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.runtime import (
+from teyvatnotes.api import create_app
+from teyvatnotes.application import CreateTaskCommand
+from teyvatnotes.domain import JsonValue, Task, TaskResult, TaskStatus, TaskType
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.runtime import (
     RuntimeNotAcceptingError,
     RuntimeSettings,
     TaskExecutionError,

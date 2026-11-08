@@ -13,32 +13,32 @@ import pytest
 from conftest import AUTH_HEADERS
 from fastapi.testclient import TestClient
 
-from agent_runtime_foundation.api import create_app
-from agent_runtime_foundation.api.routes.health import _repository_ready
-from agent_runtime_foundation.api.sse import stream_task_events
-from agent_runtime_foundation.application import (
+from teyvatnotes.api import create_app
+from teyvatnotes.api.routes.health import _repository_ready
+from teyvatnotes.api.sse import stream_task_events
+from teyvatnotes.application import (
     CreateTaskCommand,
     TaskEvent,
     TaskEventService,
     TaskService,
 )
-from agent_runtime_foundation.domain import (
+from teyvatnotes.domain import (
     JsonValue,
     Task,
     TaskResult,
     TaskStatus,
     TaskType,
 )
-from agent_runtime_foundation.observability import (
+from teyvatnotes.observability import (
     JsonLogFormatter,
     MetricsRegistry,
     bind_correlation_context,
     configure_logging,
     current_correlation_context,
 )
-from agent_runtime_foundation.repositories import InMemoryTaskRepository
-from agent_runtime_foundation.runtime import RuntimeSettings, TaskExecutionError, TaskRuntime
-from agent_runtime_foundation.worker import TaskWorker, WorkerSettings
+from teyvatnotes.repositories import InMemoryTaskRepository
+from teyvatnotes.runtime import RuntimeSettings, TaskExecutionError, TaskRuntime
+from teyvatnotes.worker import TaskWorker, WorkerSettings
 
 
 def _sse_data(body: str) -> list[dict[str, object]]:
@@ -100,7 +100,7 @@ def test_api_request_can_be_traced_to_worker_log() -> None:
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonLogFormatter())
-    runtime_logger = logging.getLogger("agent_runtime_foundation.runtime.manager")
+    runtime_logger = logging.getLogger("teyvatnotes.runtime.manager")
     original_handlers = list(runtime_logger.handlers)
     original_propagate = runtime_logger.propagate
     original_disabled = runtime_logger.disabled
@@ -136,7 +136,7 @@ def test_http_log_uses_route_template_and_omits_sensitive_path_and_query() -> No
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonLogFormatter())
-    app_logger = logging.getLogger("agent_runtime_foundation.api.app")
+    app_logger = logging.getLogger("teyvatnotes.api.app")
     original_handlers = list(app_logger.handlers)
     original_propagate = app_logger.propagate
     original_disabled = app_logger.disabled
@@ -167,7 +167,7 @@ def test_client_request_id_is_not_copied_to_logs_or_events() -> None:
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonLogFormatter())
-    app_logger = logging.getLogger("agent_runtime_foundation.api.app")
+    app_logger = logging.getLogger("teyvatnotes.api.app")
     original_handlers = list(app_logger.handlers)
     original_propagate = app_logger.propagate
     app_logger.handlers = [handler]
@@ -193,7 +193,7 @@ def test_client_request_id_is_not_copied_to_logs_or_events() -> None:
 
 def test_uvicorn_log_channels_cannot_emit_request_target_or_exception_text() -> None:
     stream = io.StringIO()
-    project_logger = logging.getLogger("agent_runtime_foundation")
+    project_logger = logging.getLogger("teyvatnotes")
     error_logger = logging.getLogger("uvicorn.error")
     access_logger = logging.getLogger("uvicorn.access")
     loggers = (project_logger, error_logger, access_logger)
@@ -489,7 +489,7 @@ def test_internal_error_log_uses_the_response_request_id_without_secret() -> Non
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonLogFormatter())
-    error_logger = logging.getLogger("agent_runtime_foundation.api.error_handlers")
+    error_logger = logging.getLogger("teyvatnotes.api.error_handlers")
     original_handlers = list(error_logger.handlers)
     original_level = error_logger.level
     original_propagate = error_logger.propagate

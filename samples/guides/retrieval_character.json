@@ -1,0 +1,13 @@
+{
+  "platform": "bilibili", "native_id": "BV1DEMO00002",
+  "url": "https://www.bilibili.com/video/BV1DEMO00002?p=2",
+  "title": "纯虚构：示例角色甲的装备证据", "author": "离线教学样本（虚构）",
+  "guide_kind": "character", "game_version": "DEMO-ONLY",
+  "complete": true, "is_fixture": true, "entities": ["示例角色甲"],
+  "conditions": {"装备": "示例木剑"}, "part_id": 2, "requires_visual": false,
+  "segments": [
+    {"start": 0, "end": 10, "section": "适用条件", "text": "本样本完全虚构，只有用于程序演示的示例木剑条件，不代表真实原神角色。"},
+    {"start": 10, "end": 20, "section": "装备", "text": "装备教学：在此展示示例木剑的虚构说明，并保留分P和时间位置。"},
+    {"start": 20, "end": 30, "section": "操作", "text": "操作教学：此处仅用于验证引用回读，不包含真实机制或培养建议。"}
+  ]
+}
