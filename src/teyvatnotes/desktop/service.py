@@ -6,10 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
-from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
-
 from teyvatnotes.application.conversations import (
     ConversationError,
     ConversationService,
@@ -18,26 +14,21 @@ from teyvatnotes.application.conversations import (
     GuideConversation,
     QuestionPatch,
 )
+from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.question_preparation import QuestionRequest
 from teyvatnotes.application.question_understanding import QuestionUnderstandingService
 from teyvatnotes.application.tool_model_ports import ToolModelClient
-from teyvatnotes.database import Database, create_database
-from teyvatnotes.database.conversations import GuideConversationRecord
-from teyvatnotes.database.knowledge import GuideDocumentRecord
-from teyvatnotes.database.session import normalize_database_url
 from teyvatnotes.desktop.config import DesktopError, load_config
+from teyvatnotes.desktop.library import load_library
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideKind
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.conversation_cli import GuideConversationAnswerer
 from teyvatnotes.knowledge.terminology import load_catalog
 from teyvatnotes.models.responses import ResponsesSettings
 from teyvatnotes.models.responses_tools import ResponsesToolClient
 from teyvatnotes.repositories.conversation_memory import InMemoryConversationRepository
-from teyvatnotes.repositories.conversation_postgres import (
-    PostgresConversationRepository,
-)
-from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
+from teyvatnotes.repositories.conversation_sqlite import SqliteConversationRepository
 
 DEMO_QUESTION = "风铃旅人应该怎么配队？"
 DEMO_ENTITY = "风铃旅人"
@@ -120,73 +111,47 @@ class DemoAnswerer:
 
 
 class Workbench:
-    """由单个后台事件循环拥有连接池与会话操作。"""
+    """由单个后台事件循环切换本地存储与显式虚构演示。"""
 
     def __init__(
         self,
         tool_client_factory: Callable[[ResponsesSettings], ToolModelClient] = ResponsesToolClient,
     ) -> None:
         self._demo = ConversationService(InMemoryConversationRepository(), uuid4(), DemoAnswerer())
-        self._database: Database | None = None
-        self._owner: UUID | None = None
-        self._path: Path | None = None
+        self._local: tuple[SqliteConversationRepository, UUID, KnowledgeReader] | None = None
+        self._directory: Path | None = None
         self._tool_client = tool_client_factory
 
     @property
     def real(self) -> bool:
-        return self._database is not None
+        return self._local is not None
 
-    async def connect(self, path: Path) -> Page:
-        """显式连接选定库，失败时保留原工作区。"""
-        config = await asyncio.to_thread(load_config, path)
-        try:
-            url = normalize_database_url(config.values["DATABASE_URL"])
-            owner = UUID(config.values["GUIDE_SESSION_OWNER_ID"])
-            if make_url(url).drivername != "postgresql+asyncpg":
-                raise ValueError
-        except (ArgumentError, KeyError, ValueError):
-            raise DesktopError("database_config_required") from None
-        database: Database | None = None
-        try:
-            database = create_database(url)
-            async with asyncio.timeout(8):
-                async with database.session_factory() as session:
-                    await session.execute(select(GuideConversationRecord.id).limit(0))
-                    await session.execute(select(GuideDocumentRecord.id).limit(0))
-                items = await PostgresConversationRepository(database.session_factory).list_recent(
-                    owner, offset=0, limit=PAGE_SIZE + 1
-                )
-        except asyncio.CancelledError:
-            if database is not None:
-                await database.dispose()
-            raise
-        except Exception:
-            if database is not None:
-                await database.dispose()
-            raise DesktopError("database_unavailable") from None
-        await self.close()
-        self._database, self._owner, self._path = database, owner, path
+    async def connect(self, directory: Path) -> Page:
+        """打开自带资料和本地会话；不需要任何部署或模型配置。"""
+        library = await load_library()
+        repository = SqliteConversationRepository(directory / "conversations.sqlite3")
+        owner = await repository.initialize()
+        items = await repository.list_recent(owner, offset=0, limit=PAGE_SIZE + 1)
+        self._local = repository, owner, library
+        self._directory = directory
         return Page(items[:PAGE_SIZE], 0, len(items) > PAGE_SIZE)
 
     async def close(self) -> None:
-        database, self._database = self._database, None
-        self._owner, self._path = None, None
-        if database is not None:
-            await database.dispose()
+        self._local = None
+        self._directory = None
 
     def _service(self, model_values: dict[str, str] | None = None) -> ConversationService:
-        if self._database is None:
+        if self._local is None:
             return self._demo
-        assert self._owner is not None
-        sessions = self._database.session_factory
+        repository, owner, library = self._local
 
         def client() -> ToolModelClient:
             return self._tool_client(ResponsesSettings.from_env(model_values or {}))
 
         return ConversationService(
-            PostgresConversationRepository(sessions),
-            self._owner,
-            GuideConversationAnswerer(PostgresKnowledgeRepository(sessions), client),
+            repository,
+            owner,
+            GuideConversationAnswerer(library, client),
             understanding_factory=lambda: QuestionUnderstandingService(load_catalog()),
         )
 
@@ -204,13 +169,18 @@ class Workbench:
         return SubmitResult(result, notice="已标记本轮中断，可以在核对历史后继续。")
 
     async def submit(
-        self, conversation: GuideConversation | None, question: str | QuestionPatch
+        self,
+        conversation: GuideConversation | None,
+        question: str | QuestionPatch,
+        *,
+        config_path: Path | None = None,
     ) -> SubmitResult:
         if not self.real and question == DEMO_FAILURE:
             raise DesktopError("demo_failure")
-        model_values = (
-            (await asyncio.to_thread(load_config, self._path)).values if self._path else None
-        )
+        model_values = None
+        if self._directory is not None:
+            path = config_path if config_path is not None else self._directory / ".env"
+            model_values = (await asyncio.to_thread(load_config, path)).values
         service = self._service(model_values)
         if conversation is None:
             assert isinstance(question, str)

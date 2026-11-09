@@ -14,8 +14,8 @@ from uuid import UUID, uuid4
 from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.model_ports import ModelError
 from teyvatnotes.application.question_preparation import QuestionRequest
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
-from teyvatnotes.domain.task import JsonValue
 
 if TYPE_CHECKING:
     from teyvatnotes.application.question_understanding import (

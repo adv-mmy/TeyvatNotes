@@ -20,9 +20,9 @@ from teyvatnotes.application.tool_model_ports import (
     ToolTurnResponse,
 )
 from teyvatnotes.database import Database, create_database
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
 from teyvatnotes.domain.knowledge import EvidenceScope
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.answers import (
     JsonAnswerDecoder,
     answer_to_json,

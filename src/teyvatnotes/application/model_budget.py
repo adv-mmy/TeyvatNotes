@@ -6,7 +6,7 @@ from time import perf_counter
 from typing import Literal
 
 from teyvatnotes.application.model_ports import ModelError, ModelUsage
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 
 Stage = Literal["understanding", "answer"]
 

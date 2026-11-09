@@ -1,0 +1,27 @@
+[
+  {
+    "platform": "miyoushe",
+    "native_id": "78297730",
+    "url": "https://www.miyoushe.com/ys/article/78297730",
+    "title": "薇斯纳 7.1 配队：入门资料摘要",
+    "author": "阿斯盖特（原攻略）",
+    "guide_kind": "character",
+    "game_version": "7.1",
+    "complete": true,
+    "is_fixture": false,
+    "entities": ["薇斯纳"],
+    "content_nature": "preview",
+    "evidence_category": "recommendation",
+    "recognized_terms": [
+      {"category": "character", "name": "薇斯纳"},
+      {"category": "character", "name": "奥黛塔"},
+      {"category": "character", "name": "砂糖"},
+      {"category": "character", "name": "七七"}
+    ],
+    "article_blocks": [
+      {"kind": "heading", "text": "配队：不含沃雅妮莎的示例"},
+      {"kind": "paragraph", "text": "据原攻略配队图整理，薇斯纳、奥黛塔、砂糖、七七是其中一组不含沃雅妮莎的冰风配队选择。薇斯纳承担场上输出，奥黛塔提供后台支援，砂糖提供增益，七七负责治疗。仅在玩家拥有对应角色时推荐此组合。"},
+      {"kind": "paragraph", "text": "这条入门摘要只支持 7.1 资料所示的配队选择，不包含伤害对比、装备要求或操作顺序，不能据此判断最强阵容。"}
+    ]
+  }
+]

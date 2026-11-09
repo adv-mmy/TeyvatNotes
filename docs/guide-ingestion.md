@@ -1,6 +1,19 @@
 # 攻略资料入库规范：第二阶段第 1 周
 
-日期：2026-10-03。当前入口是本地 JSON 快照 CLI，不是网站抓取器，也未接入现有后台任务执行器。真实 B 站/米游社页面、字幕访问、分 P 对齐与图文完整性仍需提供样本后验证。
+当前入口读取本地 JSON 快照。真实 B 站和米游社页面、字幕访问、分 P 对齐与图文完整性需要用实际样本验证。
+
+## PostgreSQL 配置
+
+使用现有 PostgreSQL 时，在本地 `.env` 配置 `DATABASE_URL`，核对目标库并备份后运行 `uv run --env-file .env alembic upgrade head`。已有攻略库沿原修订链升级。历史任务表由前两条迁移保留，攻略 ORM 与 Alembic 自动生成迁移仅管理攻略相关表。
+
+也可以用 Compose 启动本机数据库。将 `.env.example` 中的 `POSTGRES_*` 设置填入 `.env`，设置自己的 `POSTGRES_PASSWORD`，然后运行以下命令。
+
+```powershell
+docker compose up -d postgres
+docker compose run --rm --build migrate
+```
+
+本机 CLI 的 `DATABASE_URL` 使用 `postgresql+asyncpg://<用户名>:<URL编码的密码>@127.0.0.1:55432/<数据库名>`。如果设置了 `POSTGRES_PORT`，使用对应端口。Compose 继续使用原项目名与 `postgres-data` 命名卷，已有数据可沿用。旧版部署如仍有任务容器运行，可用旧版 Compose 配置正常停止对应容器。
 
 ## 1. 输入与可信边界
 
@@ -37,7 +50,7 @@ B 站输入包含 `segments`，每项有 `start/end/text/section`。时间必须
 | `guide_chunks` | 有序文本、章节、原文位置及字符偏移 |
 | `guide_ingestion_steps` | 每阶段输入哈希、结果、完成/失败状态及稳定错误代码 |
 
-第三个 Alembic 迁移只增加知识表，不更改原任务表或任务类型。CLI 要求显式迁移；不在启动时自动建表。
+第三个 Alembic 迁移负责创建这四张表。运行正式 CLI 前需要显式执行迁移。
 
 ## 4. 切块与检查点
 
@@ -52,7 +65,7 @@ B 站输入包含 `segments`，每项有 `start/end/text/section`。时间必须
 - 内存仓储使用 RLock 和 deepcopy。frozen dataclass 不冻结内部字典，不能代替复制隔离。
 - 取消继续传播 CancelledError，不错误地写成普通失败。
 
-当前导入由 CLI 运行，恢复方式是再次导入同一份快照。它**不代表已有 TaskWorker 获得步骤恢复、租约续期或副作用隔离能力**；接入后台任务时需另行扩展执行上下文与有效租约写入校验。
+导入中断后，再次通过 CLI 导入同一份快照即可从检查点恢复。
 
 ## 5. 发布规则
 
@@ -76,4 +89,4 @@ B 站输入包含 `segments`，每项有 `start/end/text/section`。时间必须
 
 测试退出只释放连接池，不删除 schema；不要自动执行 downgrade、DROP SCHEMA 或删除业务表来恢复失败测试。实际验证结果以当次交付记录为准，测试存在不等于已通过。
 
-后续需补：真实来源样本访问验证、获取适配器、必要 ASR/OCR/视觉处理、后台任务接入、检索索引和带引用回答。模型 API 本周明确延后。
+真实来源获取与 ASR、OCR 等解析仍需独立验证。检索与带引用问答见 [关键词检索](knowledge-retrieval.md) 和 [模型与回答说明](model-answering.md)。

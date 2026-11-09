@@ -6,8 +6,8 @@ from typing import Literal
 
 from teyvatnotes.application.conversations import question_to_data
 from teyvatnotes.application.question_preparation import QuestionRequest
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideKind
-from teyvatnotes.domain.task import JsonValue
 
 Status = Literal["ready", "needs_clarification", "unsupported", "error"]
 CORPUS_ID = "understanding-regression-v1"

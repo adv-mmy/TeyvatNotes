@@ -13,6 +13,7 @@ from teyvatnotes.application.tool_model_ports import (
     ToolDefinition,
     ToolExecution,
 )
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
 from teyvatnotes.domain.knowledge import (
     EvidenceScope,
@@ -20,7 +21,6 @@ from teyvatnotes.domain.knowledge import (
     KeywordQuery,
     document_in_scope,
 )
-from teyvatnotes.domain.task import JsonValue
 
 MAX_ARGUMENT_CHARACTERS = 4000
 MAX_OUTPUT_CHARACTERS = 20_000

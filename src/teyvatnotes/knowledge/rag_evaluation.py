@@ -7,6 +7,7 @@ from uuid import UUID
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.rag_ports import RagRepository
 from teyvatnotes.application.rag_service import RagSearchService, read_context
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
 from teyvatnotes.domain.knowledge import (
     EvidenceScope,
@@ -14,7 +15,6 @@ from teyvatnotes.domain.knowledge import (
     document_in_scope,
 )
 from teyvatnotes.domain.rag import RagQuery, RetrievalMode
-from teyvatnotes.domain.task import JsonValue
 
 
 @dataclass(frozen=True, slots=True)

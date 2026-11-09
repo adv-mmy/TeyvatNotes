@@ -7,12 +7,7 @@ from teyvatnotes.database.knowledge import (
     GuideSourceRecord,
     GuideStepRecord,
 )
-from teyvatnotes.database.models import (
-    Base,
-    TaskAttemptRecord,
-    TaskEventRecord,
-    TaskRecord,
-)
+from teyvatnotes.database.models import Base
 from teyvatnotes.database.rag import GuideChunkVectorRecord
 from teyvatnotes.database.session import (
     Database,
@@ -29,9 +24,6 @@ __all__ = [
     "GuideDocumentRecord",
     "GuideSourceRecord",
     "GuideStepRecord",
-    "TaskAttemptRecord",
-    "TaskEventRecord",
-    "TaskRecord",
     "create_database",
     "normalize_database_url",
 ]

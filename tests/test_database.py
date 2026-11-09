@@ -49,9 +49,6 @@ def test_create_database_validates_pool_settings() -> None:
 
 def test_metadata_contains_required_tables_constraints_and_indexes() -> None:
     assert set(Base.metadata.tables) == {
-        "tasks",
-        "task_attempts",
-        "task_events",
         "guide_sources",
         "guide_documents",
         "guide_chunks",
@@ -60,30 +57,6 @@ def test_metadata_contains_required_tables_constraints_and_indexes() -> None:
         "guide_conversations",
     }
 
-    tasks = Base.metadata.tables["tasks"]
-    assert {constraint.name for constraint in tasks.constraints} >= {
-        "pk_tasks",
-        "uq_tasks_idempotency_key",
-        "ck_tasks_task_type_allowed",
-        "ck_tasks_status_allowed",
-        "ck_tasks_version_non_negative",
-        "ck_tasks_attempts_in_cycle_non_negative",
-    }
-    assert {index.name for index in tasks.indexes} == {
-        "ix_tasks_created_at_id",
-        "ix_tasks_status_created_at_id",
-    }
-    attempts = Base.metadata.tables["task_attempts"]
-    assert {index.name for index in attempts.indexes} == {
-        "ix_task_attempts_outcome_lease_expires_at",
-        "uq_task_attempts_active_task",
-    }
-    assert {constraint.name for constraint in attempts.constraints} >= {
-        "ck_task_attempts_attempt_in_cycle_positive",
-        "ck_task_attempts_worker_id_non_empty",
-        "ck_task_attempts_lease_not_before_start",
-        "ck_task_attempts_outcome_allowed",
-    }
     conversations = Base.metadata.tables["guide_conversations"]
     assert {index.name for index in conversations.indexes} == {"ix_guide_conversations_owner_id"}
     assert {constraint.name for constraint in conversations.constraints} >= {
@@ -94,7 +67,7 @@ def test_metadata_contains_required_tables_constraints_and_indexes() -> None:
     }
 
 
-def test_alembic_head_generates_three_tables_from_empty_schema() -> None:
+def test_alembic_head_generates_guide_schema_and_keeps_migration_history() -> None:
     output = StringIO()
     configuration = Config(PROJECT_ROOT / "alembic.ini", output_buffer=output)
 
@@ -102,15 +75,8 @@ def test_alembic_head_generates_three_tables_from_empty_schema() -> None:
 
     migration_sql = output.getvalue()
     assert "CREATE TABLE tasks" in migration_sql
-    assert "CREATE TABLE task_attempts" in migration_sql
-    assert "CREATE TABLE task_events" in migration_sql
-    assert "uq_tasks_idempotency_key" in migration_sql
-    assert "ix_tasks_status_created_at_id" in migration_sql
-    assert "available_at" in migration_sql
-    assert "lease_expires_at" in migration_sql
-    assert "uq_task_attempts_active_task" in migration_sql
-    assert "ix_task_attempts_task_id_attempt_number" not in migration_sql
-    for table in ("guide_sources", "guide_documents", "guide_chunks", "guide_ingestion_steps"):
+    assert "DROP TABLE tasks" not in migration_sql
+    for table in Base.metadata.tables:
         assert f"CREATE TABLE {table}" in migration_sql
     assert "ck_guide_documents_published_metadata_valid" in migration_sql
     assert "uq_guide_documents_version" in migration_sql

@@ -32,8 +32,8 @@ from teyvatnotes.application.question_preparation import (
 from teyvatnotes.application.question_understanding import QuestionUnderstandingService
 from teyvatnotes.application.tool_model_ports import ToolModelClient
 from teyvatnotes.database import create_database
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.agent_cli import (
     OfflineToolClient,
     agent_to_json,

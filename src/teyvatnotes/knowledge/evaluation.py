@@ -21,6 +21,7 @@ from teyvatnotes.application.guide_ingestion import (
 )
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.question_preparation import QuestionPreparationService
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
 from teyvatnotes.domain.knowledge import (
     EvidenceHit,
@@ -29,7 +30,6 @@ from teyvatnotes.domain.knowledge import (
     KeywordQuery,
     document_in_scope,
 )
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.agent_cli import (
     OfflineToolClient,
     agent_to_json,

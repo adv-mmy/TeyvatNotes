@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from teyvatnotes.application.model_ports import ModelMessage, ModelUsage
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.knowledge import EvidenceWindow
-from teyvatnotes.domain.task import JsonValue
 
 
 @dataclass(frozen=True, slots=True)

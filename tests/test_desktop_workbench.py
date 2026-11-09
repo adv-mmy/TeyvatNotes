@@ -1,6 +1,7 @@
 """桌面版配置、交互和真实会话接入的回归验收。"""
 
 import asyncio
+import sqlite3
 from codecs import BOM_UTF8
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 
 from teyvatnotes.application.conversations import QuestionPatch, question_to_data
 from teyvatnotes.desktop.config import DesktopError, load_config, save_model
+from teyvatnotes.desktop.library import STARTER_QUESTION, STARTER_VERSION
 from teyvatnotes.desktop.service import (
     DEMO_FAILURE,
     DEMO_GAP,
@@ -119,6 +121,8 @@ def test_qt_window_offline_flow_settings_and_shutdown(
 
     try:
         wait_for(lambda: window._ready_flag)
+        assert window._real and (tmp_path / "conversations.sqlite3").is_file()
+        click("本地攻略 · 切换演示")
         click(DEMO_QUESTION)
         click("补充条件")
         click("填入示例")
@@ -159,21 +163,11 @@ def test_qt_window_offline_flow_settings_and_shutdown(
         app.processEvents()
 
 
-@pytest.mark.postgres
-def test_desktop_real_workspace_reuses_published_knowledge_and_reloads_settings(
+def test_desktop_real_workspace_uses_bundled_knowledge_and_reloads_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import json
-
-    from test_guide_postgres import connect, isolated_database
-
-    from teyvatnotes.application.guide_ingestion import GuideIngestionService
-    from teyvatnotes.desktop import service
+    from teyvatnotes.desktop import library
     from teyvatnotes.knowledge.agent_cli import OfflineToolClient
-    from teyvatnotes.knowledge.demo import PROJECT_ROOT
-    from teyvatnotes.knowledge.questions import load_question
-    from teyvatnotes.knowledge.snapshots import parse_snapshot
-    from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
     class Model(OfflineToolClient):
         def __init__(self, settings):
@@ -187,53 +181,72 @@ def test_desktop_real_workspace_reuses_published_knowledge_and_reloads_settings(
     selected: list[str] = []
 
     async def run() -> None:
-        async with isolated_database() as (database, schema):
-            monkeypatch.setattr(service, "create_database", lambda _url: connect(schema))
-            repo = PostgresKnowledgeRepository(database.session_factory)
-            raw = json.loads(
-                (PROJECT_ROOT / "samples/guides/retrieval_character.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            version = "desktop-synthetic"
-            raw.update(is_fixture=False, game_version=version)
-            await GuideIngestionService(repo).import_snapshot(parse_snapshot(raw), publish=True)
-            question = replace(
-                load_question(PROJECT_ROOT / "samples/questions/character.json"),
-                game_version=version,
-            )
-            path = tmp_path / ".env"
-            path.write_text(
-                "DATABASE_URL=postgresql+asyncpg://test@127.0.0.1/test\n"
-                "GUIDE_SESSION_OWNER_ID=05bdc67b-e55c-4541-80a5-bbc490a90227\n"
-                f"LLM_BASE_URL={NEW_URL}\nLLM_MODEL=first-test\nLLM_API_KEY=test\n",
-                encoding="utf-8",
-            )
-            workbench = Workbench(Model)
-            try:
-                assert not (await workbench.connect(path)).items
-                draft = await workbench.submit(None, "请核对这条测试问题")
-                patch = QuestionPatch(question_to_data(question))
-                result = await workbench.submit(draft.conversation, patch)
-                reply = result.conversation.latest_reply
-                assert reply["status"] == "answer" and reply["model"] == "first-test"
-                assert reply["claims"][0]["citations"][0]["game_version"] == version
-                save_model(load_config(path), NEW_URL, "second-test", "")
-                updated = await workbench.submit(result.conversation, patch)
-                assert updated.conversation.latest_reply["model"] == "second-test"
-                conflict = await workbench.submit(result.conversation, patch)
-                assert not conflict.saved and conflict.conversation.revision == (
-                    updated.conversation.revision
-                )
-                assert selected == ["first-test", "second-test"]
-            finally:
-                await workbench.close()
-            reopened = Workbench(Model)
-            try:
-                page = await reopened.connect(path)
-                assert page.items[0].id == updated.conversation.id
-                assert (await reopened.get(page.items[0].id)).turns == updated.conversation.turns
-            finally:
-                await reopened.close()
+        bundle = tmp_path / library.LIBRARY_NAME
+        await library.build_library(bundle)
+        pack_bytes = bundle.read_bytes()
+        monkeypatch.setattr(library, "DATA", tmp_path)
+        path = tmp_path / ".env"
+        workbench = Workbench(Model)
+        assert not (await workbench.connect(tmp_path)).items
+        assert workbench.real and not path.exists()
+        first = await workbench.submit(None, STARTER_QUESTION)
+        assert first.conversation.latest_reply["status"] == "needs_clarification"
+        assert not selected
+        save_model(load_config(path), NEW_URL, "first-test", "test")
+        assert set(load_config(path).values) == {"LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"}
+        patch = QuestionPatch(
+            {
+                **question_to_data(first.conversation.context),
+                "game_version": STARTER_VERSION,
+                "owned_characters": ["薇斯纳", "奥黛塔", "砂糖", "七七"],
+                "owned_equipment": [],
+            }
+        )
+        result = await workbench.submit(first.conversation, patch)
+        reply = result.conversation.latest_reply
+        assert reply["status"] == "answer" and reply["model"] == "first-test"
+        citation = reply["claims"][0]["citations"][0]
+        assert citation["game_version"] == STARTER_VERSION
+        assert "78297730" in citation["source_url"]
+        save_model(load_config(path), NEW_URL, "second-test", "")
+        updated = await workbench.submit(result.conversation, patch)
+        assert updated.conversation.latest_reply["model"] == "second-test"
+        conflict = await workbench.submit(result.conversation, patch)
+        assert not conflict.saved and conflict.conversation.revision == (
+            updated.conversation.revision
+        )
+        assert selected == ["first-test", "second-test"]
+        await workbench.close()
+        reopened = Workbench(Model)
+        page = await reopened.connect(tmp_path)
+        assert page.items[0].id == updated.conversation.id
+        persisted = await reopened.get(page.items[0].id)
+        assert persisted.turns == updated.conversation.turns
+        assert persisted.owner_id == updated.conversation.owner_id
+        assert bundle.read_bytes() == pack_bytes
+        await reopened.close()
+
+    asyncio.run(run())
+
+
+def test_sqlite_profile_is_stable_and_does_not_reset_unsupported_database(tmp_path: Path) -> None:
+    from contextlib import closing
+
+    from teyvatnotes.application.conversations import ConversationError
+    from teyvatnotes.repositories.conversation_sqlite import SqliteConversationRepository
+
+    async def run() -> None:
+        path = tmp_path / "conversations.sqlite3"
+        first, second = await asyncio.gather(
+            SqliteConversationRepository(path).initialize(),
+            SqliteConversationRepository(path).initialize(),
+        )
+        assert first == second
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute("PRAGMA user_version = 999")
+        original = path.read_bytes()
+        with pytest.raises(ConversationError, match="conversation_storage_version"):
+            await SqliteConversationRepository(path).initialize()
+        assert path.read_bytes() == original
 
     asyncio.run(run())

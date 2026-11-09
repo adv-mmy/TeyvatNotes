@@ -9,8 +9,8 @@ from uuid import UUID
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.knowledge_ports import KnowledgeRepository
 from teyvatnotes.database import Database, create_database
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, ImportReport
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.output import emit_json
 from teyvatnotes.knowledge.snapshots import load_snapshot
 from teyvatnotes.knowledge.terminology import load_catalog

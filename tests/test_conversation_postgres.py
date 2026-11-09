@@ -9,12 +9,10 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
 from sqlalchemy import select
 from test_conversations import REQUEST, RecordingAnswerer
 from test_guide_ingestion import article_snapshot
-from test_guide_postgres import connect, isolated_database, migrate
+from test_guide_postgres import check_migrations, connect, isolated_database, migrate
 
 from teyvatnotes.application.conversations import (
     ConversationError,
@@ -26,13 +24,10 @@ from teyvatnotes.application.conversations import (
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.question_preparation import QuestionRequest
-from teyvatnotes.database import Base
 from teyvatnotes.database.conversations import GuideConversationRecord
-from teyvatnotes.domain import Task, TaskType
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.knowledge import conversation_cli as cli
 from teyvatnotes.knowledge.snapshots import parse_snapshot
-from teyvatnotes.repositories import PostgresTaskRepository
 from teyvatnotes.repositories.conversation_postgres import (
     PostgresConversationRepository,
 )
@@ -166,25 +161,16 @@ def test_owner_predicate_and_close_are_persisted_without_model_calls() -> None:
     asyncio.run(scenario())
 
 
-def test_upgrade_from_0004_preserves_tasks_and_guides_and_matches_metadata() -> None:
+def test_upgrade_from_0004_preserves_guides_and_matches_metadata() -> None:
     async def scenario() -> None:
         async with isolated_database("20261004_0004") as (db, _):
-            task = Task(task_type=TaskType.SUM_NUMBERS, payload={"numbers": [1, 2]})
-            await PostgresTaskRepository(db.session_factory).add(task)
             repo = PostgresKnowledgeRepository(db.session_factory)
             imported = await GuideIngestionService(repo).import_snapshot(
                 parse_snapshot(article_snapshot())
             )
             async with db.engine.begin() as connection:
                 await connection.run_sync(migrate)
-                differences = await connection.run_sync(
-                    lambda sync: compare_metadata(
-                        MigrationContext.configure(sync, opts={"compare_type": True}),
-                        Base.metadata,
-                    )
-                )
-            assert differences == []
-            assert (await PostgresTaskRepository(db.session_factory).get(task.id)) is not None
+                await connection.run_sync(check_migrations)
             assert (await repo.get_document(imported.document_id)) is not None
             value = await ConversationService(
                 PostgresConversationRepository(db.session_factory),

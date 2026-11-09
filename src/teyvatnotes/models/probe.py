@@ -4,7 +4,7 @@ import asyncio
 from time import perf_counter
 
 from teyvatnotes.application.model_ports import ModelError, ModelMessage, ModelRequest
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.knowledge.output import emit_json
 from teyvatnotes.models.responses import configured_client
 

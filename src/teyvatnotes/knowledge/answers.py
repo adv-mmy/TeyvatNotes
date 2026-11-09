@@ -17,7 +17,7 @@ from teyvatnotes.application.guide_answering import (
 )
 from teyvatnotes.application.model_ports import ModelError
 from teyvatnotes.application.question_preparation import QuestionRequest
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.knowledge.evidence_json import hit_to_json
 
 Text = Annotated[str, Field(strict=True, min_length=1, max_length=1000, pattern=r"\S")]

@@ -38,8 +38,6 @@ jobs:
         run: uv run mypy --platform win32
       - name: 单元与契约测试
         run: uv run pytest -m "not postgres" -q
-      - name: 并发基线
-        run: uv run python -m scripts.concurrency_baseline --tasks 200 --concurrency 20
 
   postgres:
     name: 真实 PostgreSQL 集成测试
@@ -49,19 +47,19 @@ jobs:
       postgres:
         image: postgres:17-bookworm
         env:
-          POSTGRES_DB: agent_runtime_test
+          POSTGRES_DB: teyvatnotes_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d agent_runtime_test"
+          --health-cmd "pg_isready -U postgres -d teyvatnotes_test"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/agent_runtime_test
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/agent_runtime_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/teyvatnotes_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/teyvatnotes_test
     steps:
       - name: 检出代码
         uses: actions/checkout@v7.0.1
@@ -75,9 +73,5 @@ jobs:
         run: uv sync --locked --dev
       - name: 执行真实迁移
         run: uv run alembic upgrade head
-      - name: PostgreSQL Repository 集成测试
+      - name: 攻略 PostgreSQL 集成测试
         run: uv run pytest -m postgres -q
-      - name: PostgreSQL 租约恢复演示
-        run: uv run python -m scripts.postgres_recovery_demo
-      - name: 本机独立进程强杀恢复与 SSE 验收
-        run: uv run python -m scripts.process_acceptance_demo
