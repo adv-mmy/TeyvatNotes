@@ -30,12 +30,15 @@ $output = Join-Path $repo 'dist\desktop'
 [void][IO.Directory]::CreateDirectory($output)
 $entry = Join-Path $repo 'src\teyvatnotes\desktop\__main__.py'
 $data = Join-Path $repo 'src\teyvatnotes\knowledge\data'
+$library = Join-Path $stage 'desktop_guides.sqlite3'
 $installer = Join-Path $PSScriptRoot 'desktop_installer.iss'
 
 Push-Location -LiteralPath $repo
 try {
     $appVersion = & $Python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
     if ($LASTEXITCODE) { throw 'Unable to resolve the application version.' }
+    & $Python -m teyvatnotes.desktop.library $library
+    if ($LASTEXITCODE) { throw 'Unable to build the starter guide database.' }
     $savedPath = $env:Path
     try {
         # Qt 依赖 Windows 的 ICU。开发机 PATH 上的第三方同名 DLL 会遮蔽系统版本。
@@ -43,7 +46,7 @@ try {
         & $Python -m PyInstaller --noconfirm --onedir --windowed --name TeyvatNotes `
             --specpath $stage --distpath $package --workpath (Join-Path $stage 'work') `
             --paths (Join-Path $repo 'src') --add-data "${data}:teyvatnotes/knowledge/data" `
-            --hidden-import sqlalchemy.dialects.postgresql.asyncpg --collect-data certifi `
+            --add-data "${library}:teyvatnotes/knowledge/data" --collect-data certifi `
             --copy-metadata PySide6-Essentials --copy-metadata shiboken6 $entry
         if ($LASTEXITCODE) { throw 'PyInstaller failed.' }
     }

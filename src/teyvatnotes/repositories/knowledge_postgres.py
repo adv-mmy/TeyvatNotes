@@ -14,6 +14,7 @@ from teyvatnotes.database.knowledge import (
     GuideSourceRecord,
     GuideStepRecord,
 )
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     DocumentStatus,
     GuideChunk,
@@ -37,7 +38,6 @@ from teyvatnotes.domain.knowledge import (
     document_in_scope,
     require_context_limit,
 )
-from teyvatnotes.domain.task import JsonValue
 
 
 def _document(record: GuideDocumentRecord, source: GuideSourceRecord) -> GuideDocument:

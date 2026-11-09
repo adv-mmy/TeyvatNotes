@@ -37,6 +37,7 @@ Type: files; Name: "{app}\_internal\icudt78.dll"; Check: ExistingTeyvatBundle
 
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "desktop_config.env"; DestDir: "{localappdata}\TeyvatNotes"; DestName: ".env"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 Name: "{userprograms}\{#ShortcutName}"; Filename: "{app}\TeyvatNotes.exe"; WorkingDir: "{app}"

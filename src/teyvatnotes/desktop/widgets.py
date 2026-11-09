@@ -27,8 +27,8 @@ from teyvatnotes.desktop.config import (
     load_config,
     save_model,
 )
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideKind
-from teyvatnotes.domain.task import JsonValue
 
 ERRORS = {
     "config_conflict": "配置文件已被修改。请重新读取后再保存。",
@@ -36,12 +36,13 @@ ERRORS = {
     "config_key_required": "请填写与此接口地址对应的 API Key。",
     "config_unavailable": "无法读取或写入配置文件，请检查格式或文件权限。",
     "conversation_not_found": "此会话不可用。请刷新列表。",
-    "conversation_storage_unavailable": "会话库暂不可用，请核对连接并重试。",
+    "conversation_storage_unavailable": "本地会话库暂不可用，请检查数据目录权限后重试。",
+    "conversation_storage_corrupt": "本地会话库内容异常，请保留文件并从备份恢复。",
+    "conversation_storage_version": "本地会话库版本不兼容，请更新应用；不要删除数据文件。",
     "conversation_turn_budget_exceeded": "此会话已到轮次上限，可以新建攻略。",
     "conversation_scope_change": "已确认的角色、版本和攻略类型需通过新建会话更换。",
     "conversation_conflict": "会话已有更新，请刷新后核对。",
-    "database_config_required": "配置文件需要 PostgreSQL 的 DATABASE_URL 和会话所有者 UUID。",
-    "database_unavailable": "无法读取攻略数据库，请检查连接和既有迁移。",
+    "local_library_unavailable": "无法读取内置攻略库，请检查应用安装是否完整后重试。",
     "demo_failure": "演示请求失败。你可以修改输入后再次发送。",
     "invalid_conversation_input": "请检查问题、版本或持有名单的格式。",
     "invalid_question": "请填写有效问题，长度最多 1000 字符。",

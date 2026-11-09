@@ -11,10 +11,10 @@ from teyvatnotes.application.rag_service import (
     read_context,
 )
 from teyvatnotes.database import Database, create_database
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
 from teyvatnotes.domain.knowledge import EvidenceScope, require_context_limit
 from teyvatnotes.domain.rag import RagQuery, RetrievalMode, require_budget
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.demo import create_demo_repository
 from teyvatnotes.knowledge.evidence_json import hit_to_json, window_to_json
 from teyvatnotes.knowledge.lexical_embedding import DemoLexicalEmbedding

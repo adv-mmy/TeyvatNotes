@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 
 
 @dataclass(frozen=True, slots=True)

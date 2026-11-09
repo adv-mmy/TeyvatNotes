@@ -19,6 +19,11 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _include_name(name: str | None, type_: str, parent_names: dict[str, str | None]) -> bool:
+    """历史任务表留在数据库里，自动生成攻略迁移时不比较这些表。"""
+    return type_ != "table" or name not in {"tasks", "task_attempts", "task_events"}
+
+
 def _database_url() -> str:
     configured = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     return normalize_database_url(configured)
@@ -43,6 +48,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_name=_include_name,
     )
     with context.begin_transaction():
         context.run_migrations()

@@ -4,16 +4,14 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from test_guide_postgres import connect, isolated_database, migrate
+from test_guide_postgres import check_migrations, connect, isolated_database, migrate
 from test_knowledge_retrieval import scope, searchable_snapshot
 from test_rag_repository import SEMANTIC, vector
 
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
-from teyvatnotes.database import Base, GuideChunkVectorRecord
+from teyvatnotes.database import GuideChunkVectorRecord
 from teyvatnotes.domain.guides import GuideImportError
 from teyvatnotes.domain.rag import content_digest, embedding_text
 from teyvatnotes.knowledge.snapshots import parse_snapshot
@@ -35,13 +33,7 @@ def test_rag_additive_upgrade_preserves_knowledge_and_metadata_matches() -> None
             chunks = await knowledge.list_chunks(report.document_id)
             async with database.engine.begin() as connection:
                 await connection.run_sync(migrate)
-                differences = await connection.run_sync(
-                    lambda sync_connection: compare_metadata(
-                        MigrationContext.configure(sync_connection, opts={"compare_type": True}),
-                        Base.metadata,
-                    )
-                )
-            assert differences == []
+                await connection.run_sync(check_migrations)
             assert await knowledge.list_chunks(report.document_id) == chunks
             rag = PostgresRagRepository(database.session_factory)
             assert tuple(hit.chunk for hit in await rag.list_candidates(scope())) == chunks

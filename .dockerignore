@@ -2,6 +2,9 @@
 .gitignore
 .env
 .venv
+.idea
+build
+dist
 __pycache__
 .mypy_cache
 .pytest_cache
@@ -9,4 +12,3 @@ __pycache__
 *.py[cod]
 pytest-cache-files-*
 tests
-agent_runtime_foundation_Code_Review与Python语法学习.md

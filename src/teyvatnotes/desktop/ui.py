@@ -23,6 +23,7 @@ from teyvatnotes.application.conversations import (
     GuideConversation,
     QuestionPatch,
 )
+from teyvatnotes.desktop.library import STARTER_QUESTION, STARTER_VERSION
 from teyvatnotes.desktop.service import (
     DEMO_FAILURE,
     DEMO_GAP,
@@ -41,7 +42,7 @@ from teyvatnotes.desktop.widgets import (
     label,
 )
 from teyvatnotes.desktop.worker import AsyncWorker
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 
 
 def _clear(layout: QVBoxLayout) -> None:
@@ -102,6 +103,7 @@ class WorkbenchWindow(QMainWindow):
         self.resize(1240, 760)
         self.setMinimumSize(730, 525)
         self._settings = QSettings(str(directory / "ui.ini"), QSettings.Format.IniFormat)
+        self._directory = directory
         self._default_path = directory / ".env"
         self._path = Path(str(self._settings.value("config_path", str(self._default_path))))
         self._workbench = workbench or Workbench()
@@ -112,7 +114,7 @@ class WorkbenchWindow(QMainWindow):
         self._worker.finished.connect(self.close)
         self._ready_flag = False
         self._sending = False
-        self._switching = False
+        self._switching = True
         self._real = False
         self._closing = False
         self._target: UUID | None = None
@@ -187,7 +189,7 @@ class WorkbenchWindow(QMainWindow):
         self._show_context.setChecked(True)
         self._show_context.clicked.connect(self._toggle_context)
         top.addWidget(self._show_context)
-        self._mode = button("虚构演示 · 切换真实资料", "demoMode")
+        self._mode = button("打开本地攻略", "demoMode")
         self._mode.clicked.connect(self._switch_mode)
         top.addWidget(self._mode)
         conversation_layout.addWidget(header)
@@ -212,7 +214,7 @@ class WorkbenchWindow(QMainWindow):
         self._input.textChanged.connect(self._sync_actions)
         composer_box.addWidget(self._input)
         actions = QHBoxLayout()
-        self._note = label("虚构资料 · 本地演示  /  Ctrl+Enter 发送", "muted", wrap=True)
+        self._note = label("正在启动  /  Ctrl+Enter 发送", "muted", wrap=True)
         actions.addWidget(self._note, 1)
         self._send = button("发送", "primary")
         self._send.clicked.connect(self.send_prompt)
@@ -257,9 +259,7 @@ class WorkbenchWindow(QMainWindow):
         self._set_evidence_visible(checked)
 
     def _ready(self) -> None:
-        self._ready_flag = True
-        self._load_page()
-        self._sync_actions()
+        self._switch_mode()
 
     def _sync_actions(self) -> None:
         busy = self._sending or self._switching or not self._ready_flag
@@ -271,7 +271,7 @@ class WorkbenchWindow(QMainWindow):
             not busy and not open_pending and not closed and bool(self._input.toPlainText().strip())
         )
         self._new.setEnabled(not busy)
-        self._mode.setEnabled(not busy)
+        self._mode.setEnabled(not self._sending and not self._switching)
         self._refresh.setEnabled(not self._switching and self._ready_flag)
         if self._form is not None:
             self._form.setEnabled(not busy)
@@ -339,8 +339,8 @@ class WorkbenchWindow(QMainWindow):
             self._feedback("正在切回演示…")
             self._worker.dispatch("demo", self._workbench.close())
         else:
-            self._feedback("正在连接已配置的攻略数据库…")
-            self._worker.dispatch("real", self._workbench.connect(self._path))
+            self._feedback("正在打开内置攻略和本地会话…")
+            self._worker.dispatch("real", self._workbench.connect(self._directory))
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(
@@ -354,10 +354,7 @@ class WorkbenchWindow(QMainWindow):
             self._path = dialog.selected
             self._settings.setValue("config_path", str(self._path))
             self._settings.sync()
-            if self._real:
-                self._switch_mode()
-            else:
-                self._feedback("已选用配置文件。点击右上角切换真实资料。")
+            self._feedback("已选用配置文件，下一轮攻略问答使用其中的模型配置。")
 
     def send_prompt(self) -> None:
         if self._send.isEnabled():
@@ -379,7 +376,9 @@ class WorkbenchWindow(QMainWindow):
         self._send_text = question if isinstance(question, str) else ""
         self._feedback("正在查找攻略依据…")
         self._sync_actions()
-        self._worker.dispatch("submit", self._workbench.submit(self._conversation, question))
+        self._worker.dispatch(
+            "submit", self._workbench.submit(self._conversation, question, config_path=self._path)
+        )
 
     def _interrupt(self) -> None:
         if self._conversation is None or self._sending:
@@ -393,11 +392,12 @@ class WorkbenchWindow(QMainWindow):
     def _received(self, operation: str, result: object) -> None:
         if operation in {"demo", "real"}:
             self._list_serial += 1
+            self._ready_flag = True
             self._real = operation == "real"
             self._switching = False
-            self._mode.setText("真实资料 · 切换演示" if self._real else "虚构演示 · 切换真实资料")
+            self._mode.setText("本地攻略 · 切换演示" if self._real else "虚构演示 · 返回本地攻略")
             self._note.setText(
-                "真实资料  /  Ctrl+Enter 发送"
+                "内置资料 · 模型联网回答  /  Ctrl+Enter 发送"
                 if self._real
                 else "虚构资料 · 本地演示  /  Ctrl+Enter 发送"
             )
@@ -462,7 +462,18 @@ class WorkbenchWindow(QMainWindow):
             label("从版本和持有条件出发，查看有出处的角色与任务建议。", "muted", wrap=True)
         )
         self._messages.addWidget(hero)
-        if not self._real:
+        if self._real:
+            self._messages.addWidget(
+                label(
+                    f"内置入门资料：薇斯纳 {STARTER_VERSION} 配队。"
+                    "首次问答前请在「设置」保存模型。",
+                    wrap=True,
+                )
+            )
+            example = button(STARTER_QUESTION, "exampleQuestion")
+            example.clicked.connect(lambda: self._send_value(STARTER_QUESTION))
+            self._messages.addWidget(example)
+        elif self._ready_flag:
             self._messages.addWidget(label("快速上手 · 以下内容均为虚构演示", "eyebrow"))
             example = button(DEMO_QUESTION, "exampleQuestion")
             example.clicked.connect(lambda: self._send_value(DEMO_QUESTION))

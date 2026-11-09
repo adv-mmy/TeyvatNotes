@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     GuideImportError,
     GuideKind,
@@ -16,7 +17,6 @@ from teyvatnotes.domain.guides import (
     GuideSource,
     SourcePlatform,
 )
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.domain.terminology import TermCategory
 
 MAX_SNAPSHOT_BYTES = 1_048_576

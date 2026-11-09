@@ -58,7 +58,7 @@ uv run python -m teyvatnotes.knowledge.evaluation_cli reliability
 8. 合作式取消：用 Event 确认模型已进入，再取消；没有后续模型调用，保留取消事件，不自动重放。
 9. 回答元数据事件：正常搜索/回读/回答产生连续 12 个事件，并有明确终点。
 
-上述检查不访问 PostgreSQL，不证明实际数据库检查点恢复、跨进程锁、TaskWorker 步骤恢复、租约副作用隔离或服务商停止计费；取消也不保证外部调用恰好一次。
+上述检查使用内存替身。数据库检查点恢复和跨进程锁需要独立的 PostgreSQL 验证。异步取消结束本地等待，远端是否继续执行或计费由服务商确认。
 
 ## 回答事件接口
 
@@ -66,7 +66,7 @@ uv run python -m teyvatnotes.knowledge.evaluation_cli reliability
 
 事件只有 sequence、kind、index、status、稳定 error，包含回答开始/结束/取消、模型和工具开始/结束。成对顺序检查只允许一个正在执行的操作；模型最多四组、工具最多三组，正常完整最大 16 个事件，Recorder 另设 32 个硬上限。取消后可从外部持有的 Recorder 读取事件；意外异常仍向调用方传播，事件只记稳定 `model_unavailable/agent_unavailable`。
 
-这是进程内元数据快照，不是模型文本增量，不持久化、不提供订阅/断线重连，也未接入公开 HTTP 或现有任务 SSE。不得把它描述为已经完成流式回答、重放或持久事件日志。
+该记录的生命周期限于进程内的单次问答，内容是事件元数据快照。
 
 ## 本轮验证与后续
 

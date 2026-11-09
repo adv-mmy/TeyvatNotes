@@ -11,7 +11,7 @@
 - 问答准备先检查必要字段，不足时追问；无证据或上下文截断时说明缺口。
 - PostgreSQL 查询为只读，不自动迁移、不调用模型、不执行网络抓取、不写玩家会话。
 
-这里没有自然语言实体识别、俗称解析、分词、Embedding、向量检索、Agent 工具循环、模型答案或回答流。`search_knowledge/read_evidence` 是只读应用端口，不代表模型已经能够选择调用它们。第一阶段任务类型、Worker 和 HTTP/SSE 契约不变。
+本页说明关键词检索与证据回读。`search_knowledge/read_evidence` 是只读应用端口，工具问答见 [只读工具循环](tool-agent.md)，向量检索见 [RAG 检索](rag-retrieval.md)。
 
 ## 2. 先运行完全离线的演示
 

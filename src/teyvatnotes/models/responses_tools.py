@@ -13,7 +13,7 @@ from teyvatnotes.application.tool_model_ports import (
     ToolTurnRequest,
     ToolTurnResponse,
 )
-from teyvatnotes.domain.task import JsonValue
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.models.responses import (
     ResponsesSettings,
     _response_bytes,

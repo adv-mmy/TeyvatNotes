@@ -9,22 +9,19 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
-from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_guide_ingestion import CountingParser, article_snapshot
 
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
-from teyvatnotes.database import Base, Database, normalize_database_url
+from teyvatnotes.database import Database, normalize_database_url
 from teyvatnotes.database.knowledge import (
     GuideChunkRecord,
     GuideDocumentRecord,
     GuideStepRecord,
 )
-from teyvatnotes.domain import Task, TaskType
 from teyvatnotes.domain.guides import (
     DocumentStatus,
     GuideChunk,
@@ -33,23 +30,31 @@ from teyvatnotes.domain.guides import (
     StepName,
 )
 from teyvatnotes.knowledge.snapshots import parse_snapshot
-from teyvatnotes.repositories import PostgresTaskRepository
 from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
 pytestmark = pytest.mark.postgres
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def migrate(connection: Connection, revision: str = "head") -> None:
+def _migration_config(connection: Connection) -> Config:
     configuration = Config(PROJECT_ROOT / "alembic.ini")
     configuration.attributes["connection"] = connection
-    command.upgrade(configuration, revision)
+    return configuration
+
+
+def migrate(connection: Connection, revision: str = "head") -> None:
+    command.upgrade(_migration_config(connection), revision)
+
+
+def check_migrations(connection: Connection) -> None:
+    """用实际 Alembic 配置核对攻略模型与已迁移的数据库。"""
+    command.check(_migration_config(connection))
 
 
 def connect(schema: str) -> Database:
-    url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    url = os.getenv("TEST_DATABASE_URL")
     if not url:
-        pytest.skip("未设置数据库 URL；真实测试不得用内存仓储替代")
+        pytest.skip("未设置隔离的 TEST_DATABASE_URL")
     engine = create_async_engine(
         normalize_database_url(url),
         pool_pre_ping=True,
@@ -72,22 +77,27 @@ async def isolated_database(revision: str = "head") -> AsyncIterator[tuple[Datab
         await database.dispose()
 
 
-def test_upgrade_preserves_task_and_metadata_matches() -> None:
+def test_guide_migrations_preserve_historical_task_data() -> None:
     async def scenario() -> None:
         async with isolated_database("20260825_0002") as (database, _):
-            task = Task(task_type=TaskType.SUM_NUMBERS, payload={"numbers": [1, 2]})
-            await PostgresTaskRepository(database.session_factory).add(task)
+            task_id = uuid4()
             async with database.engine.begin() as connection:
-                await connection.run_sync(migrate)
-                differences = await connection.run_sync(
-                    lambda sync_connection: compare_metadata(
-                        MigrationContext.configure(sync_connection, opts={"compare_type": True}),
-                        Base.metadata,
-                    )
+                await connection.execute(
+                    text("""
+                        INSERT INTO tasks (id, task_type, payload, status, created_at, updated_at,
+                                           available_at, attempts_in_cycle)
+                        VALUES (:id, 'sum_numbers', CAST(:payload AS jsonb), 'queued',
+                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    """),
+                    {"id": task_id, "payload": '{"numbers": [1, 2]}'},
                 )
-            assert differences == []
-            saved = await PostgresTaskRepository(database.session_factory).get(task.id)
-            assert saved is not None and saved.payload == {"numbers": [1, 2]}
+                await connection.run_sync(migrate)
+                await connection.run_sync(check_migrations)
+                preserved = await connection.scalar(
+                    text("SELECT payload->'numbers' = '[1,2]'::jsonb FROM tasks WHERE id = :id"),
+                    {"id": task_id},
+                )
+                assert preserved is True
 
     asyncio.run(scenario())
 

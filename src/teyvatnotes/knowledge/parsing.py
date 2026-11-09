@@ -2,6 +2,7 @@
 
 from uuid import UUID, uuid5
 
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     EvidenceBlock,
     GuideChunk,
@@ -9,7 +10,6 @@ from teyvatnotes.domain.guides import (
     GuideSnapshot,
     SourcePlatform,
 )
-from teyvatnotes.domain.task import JsonValue
 
 
 def json_object(value: JsonValue) -> dict[str, JsonValue]:

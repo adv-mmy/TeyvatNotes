@@ -18,9 +18,9 @@ from teyvatnotes.application.question_preparation import (
     QuestionPreparationService,
     QuestionRequest,
 )
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
 from teyvatnotes.domain.knowledge import EvidenceWindow
-from teyvatnotes.domain.task import JsonValue
 
 ClaimSection = Literal["summary", "prerequisite", "step", "completion", "alternative"]
 ClaimKind = Literal["fact", "recommendation", "inference"]

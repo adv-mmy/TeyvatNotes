@@ -1,19 +1,3 @@
-"""任务领域模型。"""
+"""攻略领域共享类型。"""
 
-from teyvatnotes.domain.errors import InvalidTaskTransition
-from teyvatnotes.domain.task import (
-    JsonValue,
-    Task,
-    TaskResult,
-    TaskStatus,
-    TaskType,
-)
-
-__all__ = [
-    "InvalidTaskTransition",
-    "JsonValue",
-    "Task",
-    "TaskResult",
-    "TaskStatus",
-    "TaskType",
-]
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]

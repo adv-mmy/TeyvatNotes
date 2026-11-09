@@ -9,13 +9,13 @@ from uuid import UUID
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.question_preparation import QuestionPreparationService
 from teyvatnotes.database import Database, create_database
+from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
 from teyvatnotes.domain.knowledge import (
     EvidenceScope,
     KeywordQuery,
     require_context_limit,
 )
-from teyvatnotes.domain.task import JsonValue
 from teyvatnotes.knowledge.demo import create_demo_repository
 from teyvatnotes.knowledge.evidence_json import (
     hit_to_json,
