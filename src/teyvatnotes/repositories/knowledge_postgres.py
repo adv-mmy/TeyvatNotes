@@ -14,7 +14,6 @@ from teyvatnotes.database.knowledge import (
     GuideSourceRecord,
     GuideStepRecord,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     DocumentStatus,
     GuideChunk,
@@ -29,6 +28,7 @@ from teyvatnotes.domain.guides import (
     require_publishable,
     require_valid_checkpoint,
 )
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import (
     EvidenceHit,
     EvidenceScope,
@@ -140,8 +140,16 @@ class PostgresKnowledgeRepository:
                     part_id=source.part_id,
                     canonical_url=source.canonical_url,
                 )
-                .on_conflict_do_nothing(index_elements=["id"])
+                .on_conflict_do_nothing()
             )
+            saved = await session.get(GuideSourceRecord, source.id)
+            if saved is None or (
+                saved.platform,
+                saved.native_id,
+                saved.part_id,
+                saved.canonical_url,
+            ) != (source.platform.value, source.native_id, source.part_id, source.canonical_url):
+                raise GuideImportError("guide_source_identity_conflict")
             await session.execute(
                 insert(GuideDocumentRecord)
                 .values(
@@ -157,9 +165,15 @@ class PostgresKnowledgeRepository:
                     status=DocumentStatus.DRAFT.value,
                     created_at=document.created_at,
                 )
-                .on_conflict_do_nothing(index_elements=["id"])
+                .on_conflict_do_nothing()
             )
             record, saved_source = await self._find(session, document.id)
+            if (record.source_id, record.content_hash, record.processing_version) != (
+                source.id,
+                document.content_hash,
+                document.processing_version,
+            ):
+                raise GuideImportError("guide_document_identity_conflict")
             return _document(record, saved_source)
 
     async def get_document(self, document_id: UUID) -> GuideDocument:

@@ -8,8 +8,8 @@ from teyvatnotes.application.terminology import (
     prepare_terminology,
     resolution_to_json,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.terminology import TermCategory
 from teyvatnotes.knowledge.output import emit_json
 from teyvatnotes.knowledge.parsing import OfflineSnapshotParser, blocks_to_json

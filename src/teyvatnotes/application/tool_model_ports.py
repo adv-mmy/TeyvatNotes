@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from teyvatnotes.application.model_ports import ModelMessage, ModelUsage
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import EvidenceWindow
 
 

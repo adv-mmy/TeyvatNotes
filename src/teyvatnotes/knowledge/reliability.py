@@ -13,7 +13,6 @@ from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.model_ports import ModelUsage
 from teyvatnotes.application.question_preparation import QuestionPreparationService
 from teyvatnotes.application.tool_model_ports import ToolTurnRequest, ToolTurnResponse
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     EvidenceBlock,
     GuideChunk,
@@ -23,6 +22,7 @@ from teyvatnotes.domain.guides import (
     StepName,
     StepStatus,
 )
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.knowledge.agent_cli import OfflineToolClient, tool_session
 from teyvatnotes.knowledge.answers import JsonAnswerDecoder
 from teyvatnotes.knowledge.demo import PROJECT_ROOT, create_demo_repository

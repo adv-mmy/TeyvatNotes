@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +46,10 @@ class ModelError(Exception):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+class ModelNotCalledError(ModelError):
+    """发送请求之前被配额或并发门禁拦截。"""
 
 
 class ModelClient(Protocol):

@@ -24,8 +24,8 @@ from teyvatnotes.application.model_ports import (
     ModelUsage,
 )
 from teyvatnotes.application.question_preparation import QuestionRequest
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.terminology import TermCategory, TerminologyCatalog
 
 GOALS = {

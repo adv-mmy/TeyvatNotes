@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -22,32 +21,40 @@ from PySide6.QtWidgets import (
 from teyvatnotes.application.conversations import ConversationError, QuestionPatch
 from teyvatnotes.application.question_preparation import QuestionRequest
 from teyvatnotes.desktop.config import (
-    ConfigSnapshot,
     DesktopError,
     load_config,
-    save_model,
+    save_config,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideKind
+from teyvatnotes.domain.json_types import JsonValue
 
 ERRORS = {
-    "config_conflict": "配置文件已被修改。请重新读取后再保存。",
-    "config_invalid_model": "请检查 HTTPS 地址、Responses 协议、型号和 API Key。",
-    "config_key_required": "请填写与此接口地址对应的 API Key。",
-    "config_unavailable": "无法读取或写入配置文件，请检查格式或文件权限。",
+    "client_config_required": "请先在设置中填写本地攻略服务的 HTTPS 地址。",
+    "client_config_invalid": "地址必须是 HTTPS 源，不带路径、参数或凭据。",
+    "client_config_unavailable": "无法读取客户端配置，请检查本机文件权限。",
+    "client_config_conflict": "配置已被外部修改，请重新打开设置。",
+    "client_ca_invalid": "本地 HTTPS 证书文件无效。",
+    "guide_service_unavailable": "无法连接攻略服务，请检查服务是否启动和证书是否受信。",
+    "guide_response_invalid": "攻略服务返回了不符合约定的数据。",
+    "authentication_required": "匿名会话已失效。重新提问时会获取新凭据，不会自动重发。",
+    "quota_exceeded": "今日匿名额度已用完，请在 UTC 日期切换后重试。",
+    "guide_busy": "攻略服务繁忙，请稍后再试。",
+    "knowledge_unavailable": "攻略数据库不可用，本轮未继续查询。",
+    "model_unavailable": "服务端模型不可用，请联系维护者。",
+    "model_timeout": "服务端模型超时，没有自动重试。",
+    "request_timeout": "等待攻略服务超时，没有自动重试。",
+    "source_busy": "资料补查繁忙，请稍后再试。",
+    "source_timeout": "资料补查超时，没有自动重试。",
+    "source_unavailable": "授权资料源暂不可用。",
+    "conversation_storage_unavailable": "无法打开本地会话库，请检查权限或备份。",
+    "conversation_interrupted": "这轮在旧应用中未完成，迁移后不会自动重试。",
+    "conversation_storage_version": "会话库版本不兼容，请使用独立迁移工具。",
     "conversation_not_found": "此会话不可用。请刷新列表。",
-    "conversation_storage_unavailable": "本地会话库暂不可用，请检查数据目录权限后重试。",
-    "conversation_storage_corrupt": "本地会话库内容异常，请保留文件并从备份恢复。",
-    "conversation_storage_version": "本地会话库版本不兼容，请更新应用；不要删除数据文件。",
     "conversation_turn_budget_exceeded": "此会话已到轮次上限，可以新建攻略。",
     "conversation_scope_change": "已确认的角色、版本和攻略类型需通过新建会话更换。",
     "conversation_conflict": "会话已有更新，请刷新后核对。",
-    "local_library_unavailable": "无法读取内置攻略库，请检查应用安装是否完整后重试。",
-    "demo_failure": "演示请求失败。你可以修改输入后再次发送。",
     "invalid_conversation_input": "请检查问题、版本或持有名单的格式。",
     "invalid_question": "请填写有效问题，长度最多 1000 字符。",
-    "model_key_not_configured": "请在设置中填写模型 API Key。",
-    "invalid_model_configuration": "模型配置有误，请检查设置。",
     "conversation_timeout": "本轮等待超时，请核对会话后再继续。",
 }
 
@@ -74,121 +81,45 @@ def button(text: str, style: str = "") -> QPushButton:
 
 
 class SettingsDialog(QDialog):
-    def __init__(
-        self, parent: QWidget, current_path: Path, default_path: Path, *, allow_switch: bool
-    ) -> None:
+    """编辑服务地址；不再接受模型密钥或数据库配置。"""
+
+    def __init__(self, parent: QWidget, path: Path) -> None:
         super().__init__(parent)
-        self.setWindowTitle("设置 · 模型 API")
-        self.setMinimumWidth(530)
-        self.selected = current_path
-        self._default = default_path
-        self._allow_switch = allow_switch
-        self._snapshot: ConfigSnapshot | None = None
-        self._path_label = label("", "muted", wrap=True)
-        self._status = label("", "muted", wrap=True)
+        self.setWindowTitle("设置 · 攻略服务")
+        self.setMinimumWidth(460)
         self._url = QLineEdit()
-        self._url.setObjectName("baseUrl")
-        self._url.setPlaceholderText("https://example.com/v1")
+        self._url.setObjectName("serviceUrl")
         self._url.setMaxLength(2048)
-        self._model = QLineEdit()
-        self._model.setObjectName("modelName")
-        self._model.setMaxLength(160)
-        self._key = QLineEdit()
-        self._key.setObjectName("modelKey")
-        self._key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key.setMaxLength(512)
-        self._save = button("保存到 .env", "primary")
-        self._save.setObjectName("saveModel")
-        self._save.clicked.connect(self._write)
-
+        self._url.setPlaceholderText("https://127.0.0.1:8443")
+        self._status = label("", "muted", wrap=True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 20, 22, 20)
-        layout.setSpacing(12)
-        layout.addWidget(label("默认模型 API", "heading"))
-        layout.addWidget(label("配置保存后，从下一轮真实问答起使用。", "muted"))
-        layout.addWidget(self._path_label)
-        paths = QHBoxLayout()
-        choose = button("选用配置文件")
-        choose.setEnabled(self._allow_switch)
-        choose.clicked.connect(self._choose)
-        default = button("使用默认位置")
-        default.setEnabled(self._allow_switch)
-        default.clicked.connect(lambda: self._load(self._default))
-        refresh = button("重新读取")
-        refresh.clicked.connect(lambda: self._load(self.selected))
-        paths.addWidget(choose)
-        paths.addWidget(default)
-        paths.addWidget(refresh)
-        paths.addStretch()
-        layout.addLayout(paths)
-        fields = QFormLayout()
-        fields.setSpacing(9)
-        fields.addRow("HTTPS Base URL", self._url)
-        fields.addRow("模型型号", self._model)
-        fields.addRow("API Key", self._key)
-        layout.addLayout(fields)
-        layout.addWidget(
-            label("同一地址可留空保留密钥；更换地址需填写对应密钥。", "muted", wrap=True)
-        )
+        layout.addWidget(label("服务地址", "sectionTitle"))
+        layout.addWidget(self._url)
         layout.addWidget(self._status)
-        actions = QHBoxLayout()
-        actions.addStretch()
-        done = button("完成")
-        done.clicked.connect(self.accept)
-        actions.addWidget(done)
-        actions.addWidget(self._save)
-        layout.addLayout(actions)
-        self._load(self.selected)
-
-    def _choose(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选用配置文件", str(self.selected.parent), "环境配置 (*.env .env);;所有文件 (*)"
-        )
-        if path:
-            self._load(Path(path))
-
-    def _load(self, path: Path) -> None:
-        self._key.clear()
+        controls = QHBoxLayout()
+        close = button("关闭")
+        close.clicked.connect(self.reject)
+        save = button("保存", "primary")
+        controls.addWidget(close)
+        controls.addWidget(save)
+        layout.addLayout(controls)
         try:
-            snapshot = load_config(path)
+            config = load_config(path)
+            self._url.setText(config.service_url)
         except DesktopError as error:
+            save.setEnabled(False)
             self._status.setText(error_text(error.code))
-            if path == self.selected:
-                self._snapshot = None
-                self._save.setEnabled(False)
-            return
-        self._accept(snapshot)
+        else:
 
-    def _accept(self, snapshot: ConfigSnapshot) -> None:
-        self.selected = snapshot.path
-        self._snapshot = snapshot
-        self._path_label.setText(str(snapshot.path))
-        self._url.setText(snapshot.base_url)
-        self._model.setText(snapshot.model)
-        self._key.clear()
-        self._key.setPlaceholderText(
-            "已配置 · 留空保留" if snapshot.has_key else "输入模型 API Key"
-        )
-        self._save.setEnabled(True)
-        self._status.setText("")
+            def update() -> None:
+                try:
+                    save_config(config, self._url.text().strip())
+                except DesktopError as error:
+                    self._status.setText(error_text(error.code))
+                else:
+                    self.accept()
 
-    def _write(self) -> None:
-        if self._snapshot is None:
-            return
-        try:
-            snapshot = save_model(
-                self._snapshot,
-                self._url.text().strip(),
-                self._model.text().strip(),
-                self._key.text().strip(),
-            )
-        except DesktopError as error:
-            self._status.setText(error_text(error.code))
-            if error.code == "config_conflict":
-                self._save.setEnabled(False)
-            return
-        self._accept(snapshot)
-        self._status.setText("已保存配置。")
+            save.clicked.connect(update)
 
 
 def _tokens(text: str) -> list[JsonValue]:
@@ -233,7 +164,7 @@ class ConditionsForm(QFrame):
     submitted = Signal(object)
     cancelled = Signal()
 
-    def __init__(self, request: QuestionRequest, *, demo: bool) -> None:
+    def __init__(self, request: QuestionRequest) -> None:
         super().__init__()
         self.setObjectName("conditionForm")
         self._request = request
@@ -263,10 +194,6 @@ class ConditionsForm(QFrame):
         title = QHBoxLayout()
         title.addWidget(label("确认玩家条件", "sectionTitle"))
         title.addStretch()
-        if demo:
-            fill = button("填入示例")
-            fill.clicked.connect(self._fill_demo)
-            title.addWidget(fill)
         layout.addLayout(title)
         fields = QGridLayout()
         fields.setHorizontalSpacing(12)
@@ -297,12 +224,6 @@ class ConditionsForm(QFrame):
         actions.addWidget(cancel)
         actions.addWidget(self._save)
         layout.addLayout(actions)
-
-    def _fill_demo(self) -> None:
-        if not self._version.isReadOnly():
-            self._version.setText("1.0")
-        self._characters.set_items(("风铃旅人", "苔羽", "星见"))
-        self._equipment.set_items(("旅途木剑",))
 
     def _submit(self) -> None:
         if not self._version.text().strip() or not self._entity.text().strip():

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from teyvatnotes.application.question_preparation import QuestionPreparationService
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.knowledge.demo import create_demo_repository
 from teyvatnotes.knowledge.evidence_json import preparation_to_json
 from teyvatnotes.knowledge.output import emit_json

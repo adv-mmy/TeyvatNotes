@@ -3,7 +3,7 @@
 from pathlib import Path
 from uuid import UUID
 
-from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QKeyEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -23,16 +23,7 @@ from teyvatnotes.application.conversations import (
     GuideConversation,
     QuestionPatch,
 )
-from teyvatnotes.desktop.library import STARTER_QUESTION, STARTER_VERSION
-from teyvatnotes.desktop.service import (
-    DEMO_FAILURE,
-    DEMO_GAP,
-    DEMO_QUESTION,
-    DEMO_REPLACEMENT,
-    Page,
-    SubmitResult,
-    Workbench,
-)
+from teyvatnotes.desktop.service import Page, SubmitResult, Workbench
 from teyvatnotes.desktop.style import WORKBENCH_STYLE
 from teyvatnotes.desktop.widgets import (
     ConditionsForm,
@@ -42,7 +33,7 @@ from teyvatnotes.desktop.widgets import (
     label,
 )
 from teyvatnotes.desktop.worker import AsyncWorker
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 
 def _clear(layout: QVBoxLayout) -> None:
@@ -66,6 +57,14 @@ def _texts(value: JsonValue) -> str:
     if isinstance(value, list):
         return "\n".join(item for item in value if isinstance(item, str))
     return ""
+
+
+def _gap_text(reason: JsonValue) -> str:
+    if reason == "source_disabled":
+        return "没有匹配的本地攻略，联网资料源尚未启用，本轮未调用模型。"
+    if reason == "no_matching_evidence":
+        return "未找到匹配的本地攻略，本轮未调用模型。"
+    return "当前范围内缺少可核对的证据。"
 
 
 def _inventory(value: tuple[str, ...] | None) -> str:
@@ -102,10 +101,8 @@ class WorkbenchWindow(QMainWindow):
         self.setStyleSheet(WORKBENCH_STYLE)
         self.resize(1240, 760)
         self.setMinimumSize(730, 525)
-        self._settings = QSettings(str(directory / "ui.ini"), QSettings.Format.IniFormat)
         self._directory = directory
-        self._default_path = directory / ".env"
-        self._path = Path(str(self._settings.value("config_path", str(self._default_path))))
+        self._config_path = directory / "client.toml"
         self._workbench = workbench or Workbench()
         self._worker = AsyncWorker(self._workbench)
         self._worker.ready.connect(self._ready)
@@ -114,8 +111,7 @@ class WorkbenchWindow(QMainWindow):
         self._worker.finished.connect(self.close)
         self._ready_flag = False
         self._sending = False
-        self._switching = True
-        self._real = False
+        self._switching = False
         self._closing = False
         self._target: UUID | None = None
         self._send_target: UUID | None = None
@@ -189,9 +185,6 @@ class WorkbenchWindow(QMainWindow):
         self._show_context.setChecked(True)
         self._show_context.clicked.connect(self._toggle_context)
         top.addWidget(self._show_context)
-        self._mode = button("打开本地攻略", "demoMode")
-        self._mode.clicked.connect(self._switch_mode)
-        top.addWidget(self._mode)
         conversation_layout.addWidget(header)
 
         self._scroll = QScrollArea()
@@ -214,7 +207,7 @@ class WorkbenchWindow(QMainWindow):
         self._input.textChanged.connect(self._sync_actions)
         composer_box.addWidget(self._input)
         actions = QHBoxLayout()
-        self._note = label("正在启动  /  Ctrl+Enter 发送", "muted", wrap=True)
+        self._note = label("本地会话 · 共享攻略服务  /  Ctrl+Enter 发送", "muted", wrap=True)
         actions.addWidget(self._note, 1)
         self._send = button("发送", "primary")
         self._send.clicked.connect(self.send_prompt)
@@ -259,20 +252,27 @@ class WorkbenchWindow(QMainWindow):
         self._set_evidence_visible(checked)
 
     def _ready(self) -> None:
-        self._switch_mode()
+        self._switching = True
+        self._feedback("正在打开本地会话…")
+        self._worker.dispatch("connect", self._workbench.connect(self._directory))
+        self._sync_actions()
 
     def _sync_actions(self) -> None:
         busy = self._sending or self._switching or not self._ready_flag
         open_pending = self._target is not None and self._conversation is None
         closed = bool(
-            self._conversation and (self._conversation.closed or self._conversation.active_turn)
+            self._conversation
+            and (
+                self._conversation.closed
+                or self._conversation.active_turn
+                or self._conversation.demo_only
+            )
         )
         self._send.setEnabled(
             not busy and not open_pending and not closed and bool(self._input.toPlainText().strip())
         )
         self._new.setEnabled(not busy)
-        self._mode.setEnabled(not self._sending and not self._switching)
-        self._refresh.setEnabled(not self._switching and self._ready_flag)
+        self._refresh.setEnabled(not self._switching and self._worker.isRunning())
         if self._form is not None:
             self._form.setEnabled(not busy)
 
@@ -317,6 +317,9 @@ class WorkbenchWindow(QMainWindow):
         self._sync_actions()
 
     def _refresh_view(self) -> None:
+        if not self._ready_flag:
+            self._ready()
+            return
         self._load_page()
         if self._target is not None:
             self._worker.dispatch(f"open:{self._target}", self._workbench.get(self._target))
@@ -332,29 +335,8 @@ class WorkbenchWindow(QMainWindow):
         self._sync_actions()
         self._input.setFocus()
 
-    def _switch_mode(self) -> None:
-        self._switching = True
-        self._sync_actions()
-        if self._real:
-            self._feedback("正在切回演示…")
-            self._worker.dispatch("demo", self._workbench.close())
-        else:
-            self._feedback("正在打开内置攻略和本地会话…")
-            self._worker.dispatch("real", self._workbench.connect(self._directory))
-
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(
-            self,
-            self._path,
-            self._default_path,
-            allow_switch=not (self._sending or self._switching),
-        )
-        dialog.exec()
-        if dialog.selected != self._path:
-            self._path = dialog.selected
-            self._settings.setValue("config_path", str(self._path))
-            self._settings.sync()
-            self._feedback("已选用配置文件，下一轮攻略问答使用其中的模型配置。")
+        SettingsDialog(self, self._config_path).exec()
 
     def send_prompt(self) -> None:
         if self._send.isEnabled():
@@ -367,7 +349,12 @@ class WorkbenchWindow(QMainWindow):
             or self._switching
             or (self._target is not None and self._conversation is None)
             or (
-                self._conversation and (self._conversation.closed or self._conversation.active_turn)
+                self._conversation
+                and (
+                    self._conversation.closed
+                    or self._conversation.active_turn
+                    or self._conversation.demo_only
+                )
             )
         ):
             return
@@ -376,9 +363,7 @@ class WorkbenchWindow(QMainWindow):
         self._send_text = question if isinstance(question, str) else ""
         self._feedback("正在查找攻略依据…")
         self._sync_actions()
-        self._worker.dispatch(
-            "submit", self._workbench.submit(self._conversation, question, config_path=self._path)
-        )
+        self._worker.dispatch("submit", self._workbench.submit(self._conversation, question))
 
     def _interrupt(self) -> None:
         if self._conversation is None or self._sending:
@@ -390,21 +375,11 @@ class WorkbenchWindow(QMainWindow):
         self._worker.dispatch("submit", self._workbench.interrupt(self._conversation))
 
     def _received(self, operation: str, result: object) -> None:
-        if operation in {"demo", "real"}:
-            self._list_serial += 1
-            self._ready_flag = True
-            self._real = operation == "real"
+        if operation == "connect" and isinstance(result, Page):
             self._switching = False
-            self._mode.setText("本地攻略 · 切换演示" if self._real else "虚构演示 · 返回本地攻略")
-            self._note.setText(
-                "内置资料 · 模型联网回答  /  Ctrl+Enter 发送"
-                if self._real
-                else "虚构资料 · 本地演示  /  Ctrl+Enter 发送"
-            )
-            self._new_session()
-            self._render_page(result if isinstance(result, Page) else Page((), 0, False))
-            if not self._real:
-                self._load_page()
+            self._ready_flag = True
+            self._feedback()
+            self._render_page(result)
         elif (
             not self._switching
             and operation == f"page:{self._list_serial}"
@@ -429,7 +404,7 @@ class WorkbenchWindow(QMainWindow):
             self._sending = False
             if code.startswith("conversation_") and self._target is not None:
                 self._refresh_view()
-        elif operation in {"demo", "real"}:
+        elif operation == "connect":
             self._switching = False
         elif operation == f"page:{self._list_serial}":
             self._more.setEnabled(True)
@@ -462,31 +437,6 @@ class WorkbenchWindow(QMainWindow):
             label("从版本和持有条件出发，查看有出处的角色与任务建议。", "muted", wrap=True)
         )
         self._messages.addWidget(hero)
-        if self._real:
-            self._messages.addWidget(
-                label(
-                    f"内置入门资料：薇斯纳 {STARTER_VERSION} 配队。"
-                    "首次问答前请在「设置」保存模型。",
-                    wrap=True,
-                )
-            )
-            example = button(STARTER_QUESTION, "exampleQuestion")
-            example.clicked.connect(lambda: self._send_value(STARTER_QUESTION))
-            self._messages.addWidget(example)
-        elif self._ready_flag:
-            self._messages.addWidget(label("快速上手 · 以下内容均为虚构演示", "eyebrow"))
-            example = button(DEMO_QUESTION, "exampleQuestion")
-            example.clicked.connect(lambda: self._send_value(DEMO_QUESTION))
-            self._messages.addWidget(example)
-            extras = QWidget()
-            layout_extras = QHBoxLayout(extras)
-            layout_extras.setContentsMargins(0, 0, 0, 0)
-            for text, prompt in (("试试资料不足", DEMO_GAP), ("试试请求失败", DEMO_FAILURE)):
-                quick = button(text)
-                quick.clicked.connect(lambda _checked=False, value=prompt: self._send_value(value))
-                layout_extras.addWidget(quick)
-            layout_extras.addStretch()
-            self._messages.addWidget(extras)
 
     def _draw_history(self) -> None:
         _clear(self._messages)
@@ -497,6 +447,8 @@ class WorkbenchWindow(QMainWindow):
             if self._target is None:
                 self._hero()
             return
+        if conversation.demo_only:
+            self._messages.addWidget(label("旧版虚构演示记录 · 仅供回顾", "notice", wrap=True))
         for turn in conversation.turns:
             question = label(turn.request.question, "userMessage", wrap=True)
             question.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -512,7 +464,7 @@ class WorkbenchWindow(QMainWindow):
             interrupt = button("标记待处理轮次中断")
             interrupt.clicked.connect(self._interrupt)
             self._messages.addWidget(interrupt, alignment=Qt.AlignmentFlag.AlignLeft)
-        elif not conversation.closed:
+        elif not conversation.closed and not conversation.demo_only:
             edit = button(
                 "补充条件"
                 if (conversation.latest_reply or {}).get("status") == "needs_clarification"
@@ -520,14 +472,6 @@ class WorkbenchWindow(QMainWindow):
             )
             edit.clicked.connect(self._open_conditions)
             self._messages.addWidget(edit, alignment=Qt.AlignmentFlag.AlignLeft)
-            if (
-                not self._real
-                and (conversation.latest_reply or {}).get("status") == "answer"
-                and "苔羽" in (conversation.context.owned_characters or ())
-            ):
-                replacement = button(DEMO_REPLACEMENT)
-                replacement.clicked.connect(lambda: self._send_value(DEMO_REPLACEMENT))
-                self._messages.addWidget(replacement, alignment=Qt.AlignmentFlag.AlignLeft)
         if conversation.closed:
             self._messages.addWidget(label("会话已关闭，历史仍可查看。", "muted"))
 
@@ -541,7 +485,7 @@ class WorkbenchWindow(QMainWindow):
             self._messages.addWidget(
                 label(
                     "现有资料不足\n"
-                    + (_texts(reply.get("gaps")) or "当前范围内缺少可核对的证据。"),
+                    + (_texts(reply.get("gaps")) or _gap_text(reply.get("reason"))),
                     "notice",
                     wrap=True,
                 )
@@ -590,7 +534,7 @@ class WorkbenchWindow(QMainWindow):
     def _open_conditions(self) -> None:
         if self._conversation is None or self._form is not None or self._sending:
             return
-        form = ConditionsForm(self._conversation.context, demo=not self._real)
+        form = ConditionsForm(self._conversation.context)
         self._form = form
         form.submitted.connect(self._send_value)
         form.cancelled.connect(self._close_conditions)

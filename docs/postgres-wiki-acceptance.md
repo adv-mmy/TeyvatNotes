@@ -1,5 +1,7 @@
 # 2026-10-05 PostgreSQL 与Wiki词表补验
 
+> 历史记录：此页旧命令和部署入口不适用于当前产品。现行操作见[本机攻略服务与迁移](local-guide-service.md)。
+
 ## 实际结果
 
 用户启动本机 `postgresql-x64-18` 服务后，真实连接成功。完整测试最终为 **942 passed in 48.88s**，没有skip或deselect；其中896项非PG、46项真实PG。Ruff check通过、159个Python文件格式检查通过、strict mypy110个源文件通过。

@@ -16,15 +16,17 @@ from teyvatnotes.application.conversations import (
     ConversationTurn,
     QuestionPatch,
 )
+from teyvatnotes.application.guide_agent import GuideAgentService
 from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.model_ports import ModelError, ModelResponse, ModelUsage
-from teyvatnotes.application.question_preparation import QuestionRequest
+from teyvatnotes.application.question_preparation import QuestionPreparationService, QuestionRequest
 from teyvatnotes.application.question_understanding import (
     QuestionUnderstandingService,
     UnderstandingCancelled,
 )
 from teyvatnotes.domain.guides import GuideKind
-from teyvatnotes.knowledge.conversation_cli import GuideConversationAnswerer
+from teyvatnotes.knowledge.agent_cli import OfflineToolClient, tool_session
+from teyvatnotes.knowledge.answers import JsonAnswerDecoder
 from teyvatnotes.knowledge.demo import PROJECT_ROOT, create_demo_repository
 from teyvatnotes.knowledge.questions import load_question
 from teyvatnotes.knowledge.terminology import load_catalog
@@ -368,10 +370,15 @@ def test_real_answer_adapter_forwards_budget_into_actual_tool_loop():
         ledger = GenerationLedger()
         index = ledger.claim("understanding")
         ledger.record(index, ModelUsage(12, 4), "fake-extractor")
-        result = await GuideConversationAnswerer(reader).answer(
-            request, demo_only=True, generation=ledger
+        service = GuideAgentService(
+            QuestionPreparationService(reader, demo_only=True),
+            OfflineToolClient,
+            lambda question: tool_session(reader, question, True),
+            JsonAnswerDecoder(),
+            demo_only=True,
         )
-        assert result["status"] == "answer"
+        result = await service.answer(request, generation=ledger)
+        assert result.answer.status == "answer"
         assert ledger.usage("answer")["generation_attempts"] == 3
         assert ledger.remaining_calls == 0
 

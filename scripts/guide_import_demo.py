@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.knowledge.cli import report_to_json
 from teyvatnotes.knowledge.output import emit_json
 from teyvatnotes.knowledge.snapshots import load_snapshot

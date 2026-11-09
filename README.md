@@ -1,53 +1,37 @@
-# TeyvatNotes
+# TeyvatNotes · 提瓦特手记
 
-原神攻略问答工具，支持检索资料、核对引用和保存多轮会话。
+共享原神攻略服务和 Windows 桌面客户端。桌面保存自己的会话，通过 HTTPS 向本机服务提问；PostgreSQL 攻略库和模型都由服务端管理。客户端无需数据库密码、模型密钥或会话 UUID。
 
-- **提瓦特手记桌面版**：在 Windows 窗口中提问、补充玩家条件、核对引用和保存模型配置。
-- **攻略 CLI**：导入自备资料、检索证据并生成带引用的回答，也可运行离线演示。
+## 本机运行
 
-## 快速开始
+需要 Python 3.12+、uv 和 PostgreSQL。先创建一个**专用空数据库**，不要指向旧项目库或测试库。将 [.env.example](.env.example) 复制成未纳入 Git 的 `.guide-server.env`，填写 `GUIDE_DATABASE_URL`、至少 32 字节且固定不变的 `GUIDE_IP_HASH_KEY`，以及服务端的通用 `LLM_*` 模型配置。
 
-安装 Python 3.12+ 和 uv，在仓库根目录运行：
+在项目目录运行（PowerShell 7）：
 
 ```powershell
 uv sync --locked
+uv run --locked --env-file .guide-server.env alembic upgrade head
+.\scripts\create_local_tls.ps1
+.\scripts\start_local.ps1 -EnvFile .guide-server.env
 ```
 
-然后任选一个入口试用。以下命令以 PowerShell 为例。
+服务只监听 `https://127.0.0.1:8443`。证书不写入系统信任库；只把 `build\local-tls\service-ca.pem` 提供给客户端，**不要分发服务端私钥**。本机 Compose 方式与部署边界见[架构说明](docs/architecture.md)。
 
-### 试用知识问答 CLI
+## 准备攻略与使用桌面端
 
-运行离线演示：
+先按[资料入库说明](docs/guide-ingestion.md)导入并发布实际攻略。新库是空的，不随安装包提供攻略；匹配不到已发布证据时不调用模型。自动补查接口目前只用于隔离验收，真实米游社来源没有启用。
 
-```powershell
-uv run python -m teyvatnotes.knowledge.answer_cli samples/questions/character.json --demo
-```
+运行 `dist/desktop/TeyvatNotes-Setup.exe`。本机安装包预填服务地址并可携带公开证书；首次有效提问会自动领取匿名访问令牌。聊天历史保存在 `%LOCALAPPDATA%\TeyvatNotes\client\conversations.sqlite3`，断网仍可查看。新版不会读取旧桌面 `.env`，也不自动转换旧会话。
 
-命令会输出一份含回答和引用的 JSON，并标记 `demo_only: true`。示例使用虚构资料，只用于体验流程。
-
-### 使用 Windows 桌面版
-
-运行 `dist/desktop/TeyvatNotes-Setup.exe`，安装后从开始菜单打开「提瓦特手记」。默认进入本地攻略，不需要另装 Python、Qt 或 PostgreSQL。入门资料覆盖薇斯纳 7.1 的一组配队建议，保留原攻略链接；其他角色或版本没有证据时会提示资料不足。右上角可主动切换到独立的虚构演示。
-
-在「设置」填写 HTTPS Base URL、模型型号和 API Key，点「保存到 .env」，即可开始本地资料的联网模型问答。模型须支持 Responses 工具调用，实际调用可能计费。安装时在 `%LOCALAPPDATA%\TeyvatNotes\.env` 创建空白模型模板，已存在则保留；也可选择已有配置文件，不需要填写数据库连接或 UUID。
-
-攻略库随安装包只读交付。会话和自动生成的用户标识保存在 `%LOCALAPPDATA%\TeyvatNotes\conversations.sqlite3`，升级或卸载不会移除这些用户文件。桌面版不再连接旧 PostgreSQL，会话不会自动导入；正式攻略 CLI 使用 PostgreSQL。详见[桌面本地数据说明](docs/desktop.md)。
-
-开发时在仓库根目录运行：
-
-```powershell
-uv sync --locked --group desktop
-uv run --no-sync python -m teyvatnotes.desktop
-```
-
-在 Windows x64 上构建安装包时，安装 [Inno Setup](https://jrsoftware.org/isdl.php)，然后运行：
+需要自行打包时，安装 Inno Setup 后执行：
 
 ```powershell
 uv sync --locked --group desktop-build
-.\scripts\build_desktop.ps1 -InnoCompiler "<ISCC.exe 的绝对路径>"
+.\scripts\build_desktop.ps1 -CaCertificate .\build\local-tls\service-ca.pem
 ```
 
-## 下一步
+已安装的 `client.toml` 和公开证书不会被覆盖。若复用不同证书，在确认新证书来源后由维护者显式更新。不要通过关闭 TLS 验证解决证书问题。
 
-- **使用自己的资料和模型**：[资料入库](docs/guide-ingestion.md) · [模型配置与单轮问答](docs/model-answering.md) · [多轮会话](docs/conversations.md)
-- **了解实现与验证**：[检索方式](docs/rag-retrieval.md) · [评测说明](docs/evaluation.md)
+## 迁移与维护
+
+独立迁移工具默认只预检。核对备份、源和目标后才加 `--apply`，不会覆盖冲突记录，也不会删除旧库。命令、接口、限额和故障处理见[本机操作与迁移](docs/local-guide-service.md)。

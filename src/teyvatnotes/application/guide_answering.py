@@ -11,15 +11,16 @@ from teyvatnotes.application.model_ports import (
     ModelClient,
     ModelError,
     ModelMessage,
+    ModelNotCalledError,
     ModelRequest,
     ModelResponse,
 )
 from teyvatnotes.application.question_preparation import (
-    QuestionPreparationService,
+    QuestionPreparation,
     QuestionRequest,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import EvidenceWindow
 
 ClaimSection = Literal["summary", "prerequisite", "step", "completion", "alternative"]
@@ -60,6 +61,13 @@ class AnswerDecoder(Protocol):
         """不合规输出抛出稳定错误，不尝试自动修复或付费重试。"""
 
 
+class QuestionPreparer(Protocol):
+    """提供可回读证据；不要求每个部署使用同一种检索编排。"""
+
+    async def prepare(self, request: QuestionRequest) -> QuestionPreparation:
+        """为单轮回答取得所需的证据窗口。"""
+
+
 @dataclass(frozen=True, slots=True)
 class AnswerResult:
     """输出含可核查依据和实际调用记录；没有已验证的价格时费用保持未知。"""
@@ -75,6 +83,7 @@ class AnswerResult:
     response: ModelResponse | None = None
     elapsed_ms: int = 0
     demo_only: bool = False
+    lookup_path: Literal["local", "supplement", "miss"] | None = None
 
 
 @dataclass(slots=True)
@@ -175,12 +184,23 @@ def verify_answer(
                 raise ModelError("invalid_quest_order")
 
 
+def missing_player_conditions(request: QuestionRequest) -> tuple[str, ...]:
+    """回答和联网补查共用的显式持有条件门禁。"""
+    questions: list[str] = []
+    if request.guide_kind is not None and request.guide_kind.value == "character":
+        if request.owned_equipment is None:
+            questions.append("请提供已拥有的装备列表；明确没有时填空列表。")
+        if request.goal == "配队" and request.owned_characters is None:
+            questions.append("请提供已拥有的角色列表。")
+    return tuple(questions)
+
+
 class GuideAnswerService:
     """首版只生成一轮，拒绝失败输出而不重试；总时限覆盖检索与生成。"""
 
     def __init__(
         self,
-        preparation: QuestionPreparationService,
+        preparation: QuestionPreparer,
         model_factory: Callable[[], ModelClient],
         decoder: AnswerDecoder,
         *,
@@ -218,14 +238,9 @@ class GuideAnswerService:
             return AnswerResult(
                 preparation.status, questions=preparation.questions, reason=preparation.reason
             )
-        if request.guide_kind is not None and request.guide_kind.value == "character":
-            questions: list[str] = []
-            if request.owned_equipment is None:
-                questions.append("请提供已拥有的装备列表；明确没有时填空列表。")
-            if request.goal == "配队" and request.owned_characters is None:
-                questions.append("请提供已拥有的角色列表。")
-            if questions:
-                return AnswerResult("needs_clarification", questions=tuple(questions))
+        questions = missing_player_conditions(request)
+        if questions:
+            return AnswerResult("needs_clarification", questions=questions)
         evidence = evidence_payload(preparation.evidence)
         schema = self._decoder.schema()
         content = json.dumps(
@@ -240,7 +255,11 @@ class GuideAnswerService:
         )
         client = self._model_factory()
         record.called = True
-        record.response = await client.generate(model_request)
+        try:
+            record.response = await client.generate(model_request)
+        except ModelNotCalledError:
+            record.called = False
+            raise
         generated = self._decoder.decode(record.response.text)
         verify_answer(generated, request, preparation.evidence)
         return AnswerResult(

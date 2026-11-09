@@ -1,43 +1,64 @@
-name: agent-runtime-foundation
+name: teyvatnotes-guide
 
-x-database-url: &database-url "postgresql+asyncpg://${POSTGRES_USER:-agent_runtime}:${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agent_runtime}"
+x-database-url: &guide-db ${GUIDE_COMPOSE_DATABASE_URL:?请配置专用攻略库的容器内连接串}
 
 services:
   postgres:
     image: postgres:17-bookworm
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-agent_runtime}
-      POSTGRES_USER: ${POSTGRES_USER:-agent_runtime}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+      POSTGRES_DB: teyvatnotes
+      POSTGRES_USER: guide
+      POSTGRES_PASSWORD: ${GUIDE_POSTGRES_PASSWORD:?请配置攻略库密码}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - guide-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        - CMD-SHELL
-        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      test: ["CMD", "pg_isready", "-U", "guide", "-d", "teyvatnotes"]
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 10s
     restart: unless-stopped
-    stop_grace_period: 30s
 
   migrate:
-    build:
-      context: .
+    build: .
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: *database-url
+      GUIDE_DATABASE_URL: *guide-db
     depends_on:
       postgres:
         condition: service_healthy
     read_only: true
-    tmpfs:
-      - /tmp
-    user: "10001:10001"
+    tmpfs: [/tmp]
     restart: "no"
 
+  api:
+    build: .
+    command: ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8443", "--ssl-certfile", "/tls/service-ca.pem", "--ssl-keyfile", "/tls/service-key.pem", "--no-proxy-headers", "--no-access-log", "--timeout-graceful-shutdown", "10"]
+    environment:
+      GUIDE_DATABASE_URL: *guide-db
+      GUIDE_IP_HASH_KEY: ${GUIDE_IP_HASH_KEY:?请配置至少 32 字节的固定 IP 散列密钥}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_STYLE: ${LLM_API_STYLE:-responses}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      LLM_STRUCTURED_OUTPUTS: ${LLM_STRUCTURED_OUTPUTS:-false}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${GUIDE_PORT:-8443}:8443"
+    volumes:
+      - "${GUIDE_TLS_DIR:-./build/local-tls}:/tls:ro"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8443/health/ready', context=ssl.create_default_context(cafile='/tls/service-ca.pem'), timeout=3).read()"]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    stop_grace_period: 20s
+
 volumes:
-  postgres-data:
+  guide-postgres-data:

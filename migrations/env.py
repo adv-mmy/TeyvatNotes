@@ -5,9 +5,10 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy import pool, text
+from sqlalchemy.engine import Connection, make_url
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from teyvatnotes.database import Base
 from teyvatnotes.database.session import normalize_database_url
@@ -19,14 +20,18 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def _include_name(name: str | None, type_: str, parent_names: dict[str, str | None]) -> bool:
-    """历史任务表留在数据库里，自动生成攻略迁移时不比较这些表。"""
-    return type_ != "table" or name not in {"tasks", "task_attempts", "task_events"}
-
-
 def _database_url() -> str:
-    configured = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
-    return normalize_database_url(configured)
+    configured = os.getenv("GUIDE_DATABASE_URL")
+    if not configured:
+        raise RuntimeError("必须显式配置新攻略库 GUIDE_DATABASE_URL")
+    normalized = normalize_database_url(configured)
+    try:
+        url = make_url(normalized)
+    except ArgumentError:
+        raise RuntimeError("GUIDE_DATABASE_URL 无效") from None
+    if url.drivername != "postgresql+asyncpg" or not url.database:
+        raise RuntimeError("GUIDE_DATABASE_URL 必须指向明确的 PostgreSQL 数据库")
+    return normalized
 
 
 def run_migrations_offline() -> None:
@@ -48,22 +53,25 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
-        include_name=_include_name,
     )
     with context.begin_transaction():
+        old_tables = connection.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables "
+                "WHERE schemaname = current_schema() AND tablename IN "
+                "('tasks', 'task_attempts', 'task_events', "
+                "'guide_conversations', 'guide_chunk_vectors'))"
+            )
+        )
+        if old_tables:
+            raise RuntimeError("目标含已退休的表，请使用独立的新攻略数据库")
         context.run_migrations()
 
 
 async def run_async_migrations() -> None:
-    configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = _database_url()
-    connectable = async_engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_async_engine(_database_url(), poolclass=pool.NullPool)
     try:
-        async with connectable.connect() as connection:
+        async with connectable.begin() as connection:
             await connection.run_sync(do_run_migrations)
     finally:
         await connectable.dispose()

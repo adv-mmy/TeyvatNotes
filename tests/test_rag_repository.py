@@ -2,20 +2,14 @@
 
 import asyncio
 from dataclasses import replace
-from io import StringIO
-from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from test_guide_ingestion import article_snapshot
 from test_knowledge_retrieval import scope, searchable_snapshot
 
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
-from teyvatnotes.database import Base, GuideChunkVectorRecord
 from teyvatnotes.domain.guides import GuideChunk, GuideImportError
 from teyvatnotes.domain.rag import (
     EmbeddingProfile,
@@ -27,9 +21,7 @@ from teyvatnotes.knowledge.demo import create_demo_repository
 from teyvatnotes.knowledge.snapshots import parse_snapshot
 from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
 from teyvatnotes.repositories.rag_memory import InMemoryRagRepository
-from teyvatnotes.repositories.rag_postgres import PostgresRagRepository
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SEMANTIC = EmbeddingProfile("test-provider", "test-model", "rev-1", 2)
 DEMO = EmbeddingProfile("local", "lexical-test", "rev-1", 2, demo_only=True, semantic=False)
 
@@ -336,62 +328,3 @@ def test_repository_revalidates_vectors_if_frozen_constructor_was_bypassed(damag
         assert await rag.get_vectors(SEMANTIC, tuple(chunk.id for chunk in chunks)) == ()
 
     asyncio.run(scenario())
-
-
-@pytest.mark.parametrize("operation", ["list", "get", "save"])
-@pytest.mark.parametrize("cancelled", [False, True])
-def test_postgres_session_fault_is_stable_but_cancelled_error_propagates(
-    operation: str, cancelled: bool
-) -> None:
-    class BrokenSessions:
-        """模拟连接失败；不访问实际数据库或在日志展示连接配置。"""
-
-        def __call__(self) -> "BrokenSessions":
-            return self
-
-        async def __aenter__(self) -> AsyncSession:
-            if cancelled:
-                raise asyncio.CancelledError
-            raise RuntimeError("PRIVATE-STORAGE-SENTINEL")
-
-        async def __aexit__(self, *arguments: object) -> None:
-            return None
-
-    async def scenario() -> None:
-        _, chunks = await published_repository()
-        repository = PostgresRagRepository(cast(async_sessionmaker[AsyncSession], BrokenSessions()))
-        expected = asyncio.CancelledError if cancelled else GuideImportError
-        with pytest.raises(expected) as caught:
-            match operation:
-                case "list":
-                    await repository.list_candidates(scope())
-                case "get":
-                    await repository.get_vectors(SEMANTIC, (chunks[0].id,))
-                case _:
-                    await repository.save_vectors((vector(chunks[0]),))
-        if not cancelled:
-            assert isinstance(caught.value, GuideImportError)
-            assert caught.value.code == "rag_storage_unavailable"
-        assert "PRIVATE-STORAGE-SENTINEL" not in str(caught.value)
-
-    asyncio.run(scenario())
-
-
-def test_vector_metadata_and_additive_offline_migration_match_contract() -> None:
-    table = Base.metadata.tables["guide_chunk_vectors"]
-    assert tuple(column.name for column in table.primary_key.columns) == ("profile_id", "chunk_id")
-    assert GuideChunkVectorRecord.__table__ is table
-    assert {index.name for index in table.indexes} == {"ix_guide_chunk_vectors_chunk_id"}
-    assert {constraint.name for constraint in table.constraints} >= {
-        "ck_guide_chunk_vectors_vector_dimensions_match",
-        "ck_guide_chunk_vectors_vector_numbers_only",
-        "ck_guide_chunk_vectors_lexical_demo_only",
-    }
-    output = StringIO()
-    configuration = Config(PROJECT_ROOT / "alembic.ini", output_buffer=output)
-    command.upgrade(configuration, "20261003_0003:head", sql=True)
-    sql = output.getvalue()
-    assert "CREATE TABLE guide_chunk_vectors" in sql
-    assert "CREATE TABLE guide_documents" not in sql and "DROP TABLE" not in sql
-    assert "CREATE EXTENSION" not in sql
-    assert "FOREIGN KEY(chunk_id) REFERENCES guide_chunks (id)" in sql

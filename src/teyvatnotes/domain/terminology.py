@@ -10,8 +10,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Literal
 
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 
 
 class TermCategory(StrEnum):

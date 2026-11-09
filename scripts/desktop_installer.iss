@@ -4,6 +4,9 @@
 #ifndef BundleDir
   #error BundleDir is required
 #endif
+#ifndef ClientConfigFile
+  #error ClientConfigFile is required
+#endif
 #ifndef AppIdentity
   #define AppIdentity "{{58FCC0B6-2C5F-4524-B8DE-7C6D3B7496E2}"
 #endif
@@ -37,7 +40,10 @@ Type: files; Name: "{app}\_internal\icudt78.dll"; Check: ExistingTeyvatBundle
 
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "desktop_config.env"; DestDir: "{localappdata}\TeyvatNotes"; DestName: ".env"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#ClientConfigFile}"; DestDir: "{localappdata}\TeyvatNotes"; DestName: "client.toml"; Flags: onlyifdoesntexist uninsneveruninstall
+#ifdef ClientCaFile
+Source: "{#ClientCaFile}"; DestDir: "{localappdata}\TeyvatNotes"; DestName: "service-ca.pem"; Flags: onlyifdoesntexist uninsneveruninstall
+#endif
 
 [Icons]
 Name: "{userprograms}\{#ShortcutName}"; Filename: "{app}\TeyvatNotes.exe"; WorkingDir: "{app}"

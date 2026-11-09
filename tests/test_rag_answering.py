@@ -13,7 +13,7 @@ from teyvatnotes.domain.rag import RetrievalMode
 from teyvatnotes.knowledge.answer_cli import OfflineDemoClient
 from teyvatnotes.knowledge.answers import JsonAnswerDecoder, answer_to_json
 from teyvatnotes.knowledge.questions import load_question
-from teyvatnotes.knowledge.rag_cli import create_indexed_demo
+from teyvatnotes.knowledge.rag_evaluation import create_indexed_demo
 
 ROOT = Path(__file__).resolve().parents[1]
 

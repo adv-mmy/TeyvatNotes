@@ -1,4 +1,4 @@
-"""攻略表共用的 SQLAlchemy 声明基类。"""
+"""当前攻略库的 ORM 命名约定。"""
 
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
@@ -13,6 +13,4 @@ NAMING_CONVENTION = {
 
 
 class Base(DeclarativeBase):
-    """共享命名约定的 ORM 声明基类。"""
-
     metadata = MetaData(naming_convention=NAMING_CONVENTION)

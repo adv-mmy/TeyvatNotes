@@ -375,7 +375,7 @@ def test_cli_demo_never_reads_credentials_and_emits_trace(
 
 
 def test_cli_requires_business_database_without_fallback(monkeypatch, capsys) -> None:
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("GUIDE_DATABASE_URL", raising=False)
     monkeypatch.setenv("TEST_DATABASE_URL", "never-print-secret")
     assert main([str(ROOT / "samples/questions/character.json")]) == 1
     assert json.loads(capsys.readouterr().out) == {

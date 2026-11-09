@@ -4,8 +4,8 @@ import math
 from urllib.parse import urlsplit, urlunsplit
 
 from teyvatnotes.application.question_preparation import QuestionPreparation
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideChunk, SourcePlatform
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import EvidenceHit, EvidenceWindow
 
 

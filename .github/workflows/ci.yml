@@ -58,7 +58,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/teyvatnotes_test
+      GUIDE_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/teyvatnotes_test
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/teyvatnotes_test
     steps:
       - name: 检出代码
@@ -73,5 +73,5 @@ jobs:
         run: uv sync --locked --dev
       - name: 执行真实迁移
         run: uv run alembic upgrade head
-      - name: 攻略 PostgreSQL 集成测试
+      - name: PostgreSQL Repository 集成测试
         run: uv run pytest -m postgres -q
