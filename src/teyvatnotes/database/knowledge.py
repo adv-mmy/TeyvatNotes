@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from teyvatnotes.database.models import Base
+from teyvatnotes.database.base import Base
 
 
 class GuideSourceRecord(Base):

@@ -10,7 +10,6 @@ from uuid import uuid5
 
 from teyvatnotes.application.knowledge_ports import KnowledgeRepository, SnapshotParser
 from teyvatnotes.application.terminology import correct_blocks, prepare_terminology
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import (
     DocumentStatus,
     GuideChunk,
@@ -22,6 +21,7 @@ from teyvatnotes.domain.guides import (
     StepName,
     StepStatus,
 )
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.terminology import TerminologyCatalog
 from teyvatnotes.knowledge.parsing import (
     OfflineSnapshotParser,

@@ -8,7 +8,7 @@ from teyvatnotes.application.conversations import (
     ConversationSummary,
     GuideConversation,
 )
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.repositories.conversation_codec import (
     conversation_from_data,
     conversation_to_data,

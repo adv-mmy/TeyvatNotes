@@ -32,8 +32,8 @@ from teyvatnotes.application.tool_model_ports import (
     ToolTurnRequest,
     ToolTurnResponse,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import EvidenceWindow
 
 AGENT_PROMPT = """你是基于已存攻略证据的中文助手。只能调用提供的两个只读工具。

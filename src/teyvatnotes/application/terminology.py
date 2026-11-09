@@ -3,8 +3,8 @@
 from copy import deepcopy
 from dataclasses import replace
 
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import EvidenceBlock, GuideKind, GuideSnapshot
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.terminology import (
     TermCategory,
     TerminologyCatalog,

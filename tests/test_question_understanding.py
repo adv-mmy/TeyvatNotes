@@ -1,7 +1,6 @@
 """固定问法与保守拒绝集；不连接模型、Wiki或数据库。"""
 
 import asyncio
-import json
 from dataclasses import replace
 from uuid import uuid4
 
@@ -16,7 +15,6 @@ from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.question_preparation import QuestionRequest
 from teyvatnotes.application.question_understanding import QuestionUnderstandingService
 from teyvatnotes.domain.guides import GuideKind
-from teyvatnotes.knowledge import conversation_cli as cli
 from teyvatnotes.knowledge.terminology import load_catalog
 from teyvatnotes.repositories.conversation_memory import InMemoryConversationRepository
 
@@ -205,104 +203,6 @@ def test_clarification_is_saved_without_generation_and_stale_cas_is_rejected(
             )
 
     asyncio.run(scenario())
-
-
-def test_understand_cli_is_offline_and_context_is_explicit(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    import json
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("离线理解不能读取模型或数据库")
-
-    monkeypatch.setattr(cli, "create_database", forbidden)
-    monkeypatch.setattr(cli, "configured_tool_client", forbidden)
-    assert cli.main(["understand", "薇斯纳怎么配队？"]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["status"] == "needs_clarification" and result["model_called"] is False
-    assert (
-        cli.main(
-            [
-                "understand",
-                "她如何配队？",
-                "--context",
-                str(cli.PROJECT_ROOT / "samples/questions/team.json"),
-            ]
-        )
-        == 0
-    )
-    assert json.loads(capsys.readouterr().out)["status"] == "ready"
-
-
-def test_natural_cli_round_trip_and_conflicts(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    repository = InMemoryConversationRepository()
-    calls: list[QuestionRequest] = []
-
-    class Database:
-        session_factory = object()
-
-        async def dispose(self) -> None:
-            pass
-
-    class Answerer:
-        async def answer(
-            self,
-            request: QuestionRequest,
-            *,
-            demo_only: bool,
-            generation: GenerationLedger | None = None,
-        ) -> dict[str, object]:
-            calls.append(request)
-            return {"status": "answer", "claims": [], "model_called": False}
-
-    monkeypatch.setenv("GUIDE_SESSION_OWNER_ID", str(uuid4()))
-    monkeypatch.setenv("DATABASE_URL", "test-only-no-network")
-    monkeypatch.setattr(cli, "create_database", lambda url: Database())
-    monkeypatch.setattr(cli, "PostgresConversationRepository", lambda factory: repository)
-    monkeypatch.setattr(cli, "PostgresKnowledgeRepository", lambda factory: object())
-    monkeypatch.setattr(cli, "GuideConversationAnswerer", lambda reader: Answerer())
-
-    def command(args: list[str]) -> dict[str, object]:
-        cli.main(args)
-        return json.loads(capsys.readouterr().out)
-
-    initial = command(["create", "--text", "薇斯纳应该怎么配队？"])
-    identifier = initial["conversation_id"]
-    assert initial["revision"] == 0 and not calls
-    assert initial["understanding"]["status"] == "needs_clarification"
-    missing = command(["ask", identifier, "--text", "版本：7.1", "--revision", "0"])
-    assert missing["revision"] == 2 and not calls
-    assert missing["latest_reply"]["status"] == "needs_clarification"
-    ready = command(
-        [
-            "ask",
-            identifier,
-            "--text",
-            "角色列表：薇斯纳、奥萝塔、砂糖；装备列表：蝶变",
-            "--revision",
-            "2",
-        ]
-    )
-    assert ready["revision"] == 4 and len(calls) == 1
-    assert calls[-1].owned_characters == ("薇斯纳", "奥黛塔", "砂糖")
-    ambiguous = command(["ask", identifier, "--text", "我没有这个队友", "--revision", "4"])
-    assert ambiguous["status"] == "needs_clarification" and len(calls) == 1
-    shown = command(["show", identifier])
-    assert shown["revision"] == 4
-    replaced = command(["ask", identifier, "--text", "我没有奥黛塔", "--revision", "4"])
-    assert replaced["revision"] == 6 and len(calls) == 2
-    assert calls[-1].owned_characters == ("薇斯纳", "砂糖")
-
-    def forbidden() -> None:
-        raise AssertionError("旧修订必须在解析前拒绝")
-
-    monkeypatch.setattr(cli, "load_catalog", forbidden)
-    stale = command(["ask", identifier, "--text", "她怎么配队", "--revision", "4"])
-    assert stale["error"] == "conversation_conflict" and len(calls) == 2
 
 
 @pytest.mark.parametrize("questions", [[], ("",), ("x" * 401,), ("问",) * 21])

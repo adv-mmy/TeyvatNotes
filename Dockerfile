@@ -20,11 +20,18 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY migrations ./migrations
-COPY alembic.ini ./
+COPY alembic.ini api_main.py ./
 
 RUN uv sync --frozen --no-dev \
     && chown -R 10001:10001 /app
 
 USER 10001:10001
 
-CMD ["python", "-m", "teyvatnotes.knowledge.cli", "--help"]
+EXPOSE 8000
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2).read()"]
+
+# 直接运行镜像时由部署者显式设置 TLS；Compose 只映射到宿主机回环地址。
+CMD ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--no-access-log", "--timeout-graceful-shutdown", "10"]

@@ -9,14 +9,16 @@ from uuid import uuid4
 
 import pytest
 from alembic import command
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_guide_ingestion import CountingParser, article_snapshot
 
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
-from teyvatnotes.database import Database, normalize_database_url
+from teyvatnotes.database import Base, Database, normalize_database_url
 from teyvatnotes.database.knowledge import (
     GuideChunkRecord,
     GuideDocumentRecord,
@@ -36,25 +38,16 @@ pytestmark = pytest.mark.postgres
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _migration_config(connection: Connection) -> Config:
+def migrate(connection: Connection, revision: str = "head") -> None:
     configuration = Config(PROJECT_ROOT / "alembic.ini")
     configuration.attributes["connection"] = connection
-    return configuration
-
-
-def migrate(connection: Connection, revision: str = "head") -> None:
-    command.upgrade(_migration_config(connection), revision)
-
-
-def check_migrations(connection: Connection) -> None:
-    """用实际 Alembic 配置核对攻略模型与已迁移的数据库。"""
-    command.check(_migration_config(connection))
+    command.upgrade(configuration, revision)
 
 
 def connect(schema: str) -> Database:
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
-        pytest.skip("未设置隔离的 TEST_DATABASE_URL")
+        pytest.skip("未设置数据库 URL；真实测试不得用内存仓储替代")
     engine = create_async_engine(
         normalize_database_url(url),
         pool_pre_ping=True,
@@ -77,27 +70,17 @@ async def isolated_database(revision: str = "head") -> AsyncIterator[tuple[Datab
         await database.dispose()
 
 
-def test_guide_migrations_preserve_historical_task_data() -> None:
+def test_clean_guide_baseline_matches_metadata() -> None:
     async def scenario() -> None:
-        async with isolated_database("20260825_0002") as (database, _):
-            task_id = uuid4()
+        async with isolated_database() as (database, _):
             async with database.engine.begin() as connection:
-                await connection.execute(
-                    text("""
-                        INSERT INTO tasks (id, task_type, payload, status, created_at, updated_at,
-                                           available_at, attempts_in_cycle)
-                        VALUES (:id, 'sum_numbers', CAST(:payload AS jsonb), 'queued',
-                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
-                    """),
-                    {"id": task_id, "payload": '{"numbers": [1, 2]}'},
+                differences = await connection.run_sync(
+                    lambda sync_connection: compare_metadata(
+                        MigrationContext.configure(sync_connection, opts={"compare_type": True}),
+                        Base.metadata,
+                    )
                 )
-                await connection.run_sync(migrate)
-                await connection.run_sync(check_migrations)
-                preserved = await connection.scalar(
-                    text("SELECT payload->'numbers' = '[1,2]'::jsonb FROM tasks WHERE id = :id"),
-                    {"id": task_id},
-                )
-                assert preserved is True
+            assert differences == []
 
     asyncio.run(scenario())
 

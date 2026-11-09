@@ -15,7 +15,7 @@ from teyvatnotes.application.conversations import (
     question_to_data,
     validate_conversation,
 )
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 MAX_CONVERSATION_BYTES = 2_000_000
 

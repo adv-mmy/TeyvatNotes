@@ -1,5 +1,7 @@
 .idea/
 .env
+.guide-server.env
+.teyvat-client-*
 .teyvat-env-*
 .venv/
 __pycache__/

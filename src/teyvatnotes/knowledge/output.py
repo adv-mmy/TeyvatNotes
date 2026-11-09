@@ -4,7 +4,7 @@ import json
 import sys
 from io import TextIOWrapper
 
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 
 def emit_json(value: dict[str, JsonValue]) -> None:

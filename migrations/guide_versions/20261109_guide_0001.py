@@ -1,11 +1,11 @@
-"""增加离线攻略来源、版本、切块与导入检查点，不改变任务表。"""
+"""独立攻略库基线：攻略版本、匿名访问和日额度。"""
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "20261003_0003"
-down_revision = "20260825_0002"
+revision = "20261109_guide_0001"
+down_revision = None
 branch_labels = None
 depends_on = None
 
@@ -58,8 +58,7 @@ def upgrade() -> None:
             "status != 'published' OR (game_version IS NOT NULL AND "
             "char_length(trim(game_version)) > 0 AND "
             "COALESCE(snapshot->>'is_fixture' = 'false', false) AND "
-            "COALESCE(snapshot->>'complete' = 'true', false) AND "
-            "COALESCE(snapshot->>'content_nature' = 'released', false))",
+            "COALESCE(snapshot->>'complete' = 'true', false))",
             name=op.f("ck_guide_documents_published_metadata_valid"),
         ),
     )
@@ -117,12 +116,26 @@ def upgrade() -> None:
         ),
     )
 
+    op.create_table(
+        "guide_access_sessions",
+        sa.Column("token_hash", sa.String(64), primary_key=True),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "token_hash ~ '^[0-9a-f]{64}$'",
+            name=op.f("ck_guide_access_sessions_token_hash_valid"),
+        ),
+    )
+    op.create_index("ix_guide_access_sessions_expires_at", "guide_access_sessions", ["expires_at"])
+    op.create_table(
+        "guide_daily_quotas",
+        sa.Column("day", sa.Date(), primary_key=True),
+        sa.Column("bucket", sa.String(16), primary_key=True),
+        sa.Column("subject", sa.String(64), primary_key=True),
+        sa.Column("used", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.CheckConstraint("used >= 0", name=op.f("ck_guide_daily_quotas_used_non_negative")),
+    )
+
 
 def downgrade() -> None:
-    """仅定义回滚；不在演示或本机验证中自动执行删除。"""
-
-    op.drop_table("guide_ingestion_steps")
-    op.drop_table("guide_chunks")
-    op.drop_index("ix_guide_documents_status_kind_version", table_name="guide_documents")
-    op.drop_table("guide_documents")
-    op.drop_table("guide_sources")
+    """不提供会丢失证据、授权或配额的降级；部署回滚保留两个独立数据库。"""
+    raise RuntimeError("攻略库基线不支持破坏性降级")

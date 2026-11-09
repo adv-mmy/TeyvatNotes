@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "TeyvatNotes"
 version = "0.8.1"
-description = "支持资料检索、引用核对和多轮会话的原神攻略问答"
+description = "共享原神攻略服务及 Windows 桌面客户端"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.16,<2",
     "asyncpg>=0.30,<1",
+    "fastapi[standard]",
     "httpx>=0.28,<1",
-    "pydantic>=2,<3",
     "sqlalchemy[asyncio]>=2.0,<3",
 ]
 
@@ -26,9 +26,9 @@ desktop-build = [
     "PyInstaller>=6.19,<7; sys_platform == 'win32'",
 ]
 dev = [
+    "httpx2",
     "mypy",
     "pytest",
-    "pyyaml>=6,<7",
     "ruff",
 ]
 
@@ -40,7 +40,7 @@ addopts = "-ra"
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 markers = [
-    "postgres: 需要隔离的 TEST_DATABASE_URL，使用新建的随机 schema",
+    "postgres: 仅使用专用 TEST_DATABASE_URL，并创建隔离测试 schema",
 ]
 
 [tool.ruff]
@@ -53,7 +53,7 @@ target-version = "py312"
 select = ["B", "E", "F", "I", "SIM", "UP"]
 
 [tool.mypy]
-files = ["src", "scripts"]
+files = ["api_main.py", "src", "scripts"]
 mypy_path = "src"
 python_version = "3.12"
 strict = true

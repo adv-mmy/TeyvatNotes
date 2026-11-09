@@ -9,8 +9,8 @@ from uuid import UUID
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.knowledge_ports import KnowledgeRepository
 from teyvatnotes.database import Database, create_database
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError, ImportReport
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.knowledge.output import emit_json
 from teyvatnotes.knowledge.snapshots import load_snapshot
 from teyvatnotes.knowledge.terminology import load_catalog
@@ -35,7 +35,7 @@ async def run_command(arguments: argparse.Namespace) -> dict[str, JsonValue]:
     if arguments.memory:
         repository = InMemoryKnowledgeRepository()
     else:
-        database_url = os.getenv("DATABASE_URL")
+        database_url = os.getenv("GUIDE_DATABASE_URL")
         if not database_url:
             raise GuideImportError("database_not_configured")
         database = create_database(database_url)

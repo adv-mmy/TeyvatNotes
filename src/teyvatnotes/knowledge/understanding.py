@@ -10,7 +10,7 @@ from teyvatnotes.application.question_understanding import (
     ExtractionPlan,
     ExtractionSegment,
 )
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 Offset = Annotated[int, Field(strict=True, ge=0, le=1000)]
 Scalar = Annotated[str, Field(strict=True, min_length=1, max_length=160)]

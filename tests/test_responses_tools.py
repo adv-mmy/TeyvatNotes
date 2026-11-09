@@ -11,7 +11,7 @@ import pytest
 
 from teyvatnotes.application.model_ports import ModelError, ModelMessage
 from teyvatnotes.application.tool_model_ports import ToolDefinition, ToolTurnRequest
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.models.responses import (
     ResponsesSettings,
 )

@@ -21,8 +21,8 @@ from teyvatnotes.application.guide_ingestion import (
 )
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.question_preparation import QuestionPreparationService
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import (
     EvidenceHit,
     EvidenceScope,

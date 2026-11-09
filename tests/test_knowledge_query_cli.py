@@ -63,7 +63,7 @@ def test_cli_question_preparation_and_missing_database_are_explicit(
     )
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "evidence_ready" and "answer" not in result
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("GUIDE_DATABASE_URL", raising=False)
     assert main(SEARCH) == 1
     assert json.loads(capsys.readouterr().out) == {"error": "database_not_configured"}
 

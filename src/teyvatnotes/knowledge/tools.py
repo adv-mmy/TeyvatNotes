@@ -13,8 +13,8 @@ from teyvatnotes.application.tool_model_ports import (
     ToolDefinition,
     ToolExecution,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import (
     EvidenceScope,
     EvidenceWindow,

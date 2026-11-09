@@ -1,6 +1,8 @@
 param(
     [string]$InnoCompiler,
-    [string]$Python
+    [string]$Python,
+    [string]$ServiceUrl = 'https://127.0.0.1:8443',
+    [string]$CaCertificate
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
@@ -30,15 +32,23 @@ $output = Join-Path $repo 'dist\desktop'
 [void][IO.Directory]::CreateDirectory($output)
 $entry = Join-Path $repo 'src\teyvatnotes\desktop\__main__.py'
 $data = Join-Path $repo 'src\teyvatnotes\knowledge\data'
-$library = Join-Path $stage 'desktop_guides.sqlite3'
 $installer = Join-Path $PSScriptRoot 'desktop_installer.iss'
+$clientConfig = Join-Path $stage 'client.toml'
 
 Push-Location -LiteralPath $repo
 try {
     $appVersion = & $Python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
     if ($LASTEXITCODE) { throw 'Unable to resolve the application version.' }
-    & $Python -m teyvatnotes.desktop.library $library
-    if ($LASTEXITCODE) { throw 'Unable to build the starter guide database.' }
+    $origin = & $Python -c 'import sys; from teyvatnotes.desktop.config import normalize_service_url; print(normalize_service_url(sys.argv[1]))' $ServiceUrl
+    if ($LASTEXITCODE) { throw 'Invalid HTTPS service URL.' }
+    [IO.File]::WriteAllText($clientConfig, "service_url = " + ($origin | ConvertTo-Json -Compress) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    $defines = @("/DClientConfigFile=$clientConfig")
+    if ($CaCertificate) {
+        $resolvedCa = (Resolve-Path -LiteralPath $CaCertificate).ProviderPath
+        & $Python -c 'from pathlib import Path; import sys; from teyvatnotes.desktop.config import validate_public_ca; validate_public_ca(Path(sys.argv[1]))' $resolvedCa
+        if ($LASTEXITCODE) { throw 'The optional CA must contain public certificates only.' }
+        $defines += "/DClientCaFile=$resolvedCa"
+    }
     $savedPath = $env:Path
     try {
         # Qt 依赖 Windows 的 ICU。开发机 PATH 上的第三方同名 DLL 会遮蔽系统版本。
@@ -46,7 +56,7 @@ try {
         & $Python -m PyInstaller --noconfirm --onedir --windowed --name TeyvatNotes `
             --specpath $stage --distpath $package --workpath (Join-Path $stage 'work') `
             --paths (Join-Path $repo 'src') --add-data "${data}:teyvatnotes/knowledge/data" `
-            --add-data "${library}:teyvatnotes/knowledge/data" --collect-data certifi `
+            --collect-data certifi `
             --copy-metadata PySide6-Essentials --copy-metadata shiboken6 $entry
         if ($LASTEXITCODE) { throw 'PyInstaller failed.' }
     }
@@ -57,7 +67,7 @@ try {
     if (Test-Path -LiteralPath (Join-Path $bundle '_internal\icuuc.dll')) {
         throw 'A bundled ICU DLL would hide the Windows ICU runtime.'
     }
-    & $InnoCompiler "/DAppVersion=$appVersion" "/DBundleDir=$bundle" "/O$installers" $installer
+    & $InnoCompiler "/DAppVersion=$appVersion" "/DBundleDir=$bundle" @defines "/O$installers" $installer
     if ($LASTEXITCODE) { throw 'Inno Setup failed.' }
     $name = 'TeyvatNotes-Setup.exe'
     Copy-Item -LiteralPath (Join-Path $installers $name) -Destination (Join-Path $output $name) -Force

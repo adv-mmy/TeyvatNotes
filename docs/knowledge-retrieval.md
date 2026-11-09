@@ -11,7 +11,7 @@
 - 问答准备先检查必要字段，不足时追问；无证据或上下文截断时说明缺口。
 - PostgreSQL 查询为只读，不自动迁移、不调用模型、不执行网络抓取、不写玩家会话。
 
-本页说明关键词检索与证据回读。`search_knowledge/read_evidence` 是只读应用端口，工具问答见 [只读工具循环](tool-agent.md)，向量检索见 [RAG 检索](rag-retrieval.md)。
+这里没有自然语言实体识别、俗称解析、分词、Embedding、向量检索、Agent 工具循环、模型答案或回答流。`search_knowledge/read_evidence` 是只读应用端口，不代表模型已经能够选择调用它们。第一阶段任务类型、Worker 和 HTTP/SSE 契约不变。
 
 ## 2. 先运行完全离线的演示
 
@@ -31,10 +31,10 @@ uv run python -m teyvatnotes.knowledge.query_cli search --keyword 装备 --versi
 
 ## 3. 使用实际 PostgreSQL 资料
 
-先准备经过人工审核、版本明确的快照，按 `guide-ingestion.md` 显式迁移并导入发布。业务连接来自 `DATABASE_URL`；不得把 `TEST_DATABASE_URL` 当正常数据源。
+先准备经过人工审核、版本明确的快照，按 `guide-ingestion.md` 显式迁移并导入发布。业务连接来自 `GUIDE_DATABASE_URL`；不得把 `TEST_DATABASE_URL` 当正常数据源。
 
 ```powershell
-# 仅当本地 .env 已配置业务 DATABASE_URL 时使用 --env-file。
+# 仅当本地 .env 已配置业务 GUIDE_DATABASE_URL 时使用 --env-file。
 uv run --env-file .env python -m teyvatnotes.knowledge.query_cli search --keyword "待查关键词" --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"
 # 替换为 search 返回的 evidence_id；读证据时同样提供查询范围。
 uv run --env-file .env python -m teyvatnotes.knowledge.query_cli read-evidence <evidence_id> --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"

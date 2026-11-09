@@ -212,7 +212,7 @@ def test_normal_cli_no_test_database_or_demo_fallback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("GUIDE_DATABASE_URL", raising=False)
     monkeypatch.setenv("TEST_DATABASE_URL", "postgresql+asyncpg://PRIVATE")
     assert main([str(ROOT / "samples/questions/quest.json")]) == 1
     assert json.loads(capsys.readouterr().out) == {

@@ -6,15 +6,19 @@ from uuid import UUID
 
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
 from teyvatnotes.application.rag_ports import RagRepository
-from teyvatnotes.application.rag_service import RagSearchService, read_context
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.application.rag_service import RagIndexService, RagSearchService, read_context
 from teyvatnotes.domain.guides import GuideImportError, GuideKind
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.domain.knowledge import (
     EvidenceScope,
     context_range,
     document_in_scope,
 )
 from teyvatnotes.domain.rag import RagQuery, RetrievalMode
+from teyvatnotes.knowledge.demo import create_demo_repository
+from teyvatnotes.knowledge.lexical_embedding import DemoLexicalEmbedding
+from teyvatnotes.repositories.knowledge_memory import InMemoryKnowledgeRepository
+from teyvatnotes.repositories.rag_memory import InMemoryRagRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +144,26 @@ FIXED_CASES = (
         conditions=QUEST_CONDITIONS,
     ),
 )
+
+
+async def create_indexed_demo() -> tuple[
+    InMemoryKnowledgeRepository, InMemoryRagRepository, RagSearchService
+]:
+    """索引两份长期教学快照；每次新进程内存独立，不写 PostgreSQL。"""
+    knowledge = await create_demo_repository()
+    repository = InMemoryRagRepository(knowledge)
+    embedding = DemoLexicalEmbedding()
+    indexer = RagIndexService(knowledge, repository, embedding)
+    for kind, entity, conditions in (
+        (GuideKind.CHARACTER, "示例角色甲", CHARACTER_CONDITIONS),
+        (GuideKind.QUEST, "示例任务甲", QUEST_CONDITIONS),
+    ):
+        candidates = await repository.list_candidates(
+            EvidenceScope("DEMO-ONLY", kind, entity, conditions, True)
+        )
+        for document_id in dict.fromkeys(hit.document.id for hit in candidates):
+            await indexer.index_document(document_id)
+    return knowledge, repository, RagSearchService(repository, embedding)
 
 
 def retrieval_metrics(returned: tuple[UUID, ...], relevant: frozenset[UUID]) -> tuple[float, float]:

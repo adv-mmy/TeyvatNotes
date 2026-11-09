@@ -1,5 +1,1 @@
-"""TeyvatNotes 原神攻略问答。"""
-
-from teyvatnotes.domain import JsonValue
-
-__all__ = ["JsonValue"]
+"""TeyvatNotes 共享攻略服务和桌面客户端。"""

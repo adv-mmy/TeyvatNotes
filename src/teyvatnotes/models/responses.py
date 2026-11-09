@@ -17,7 +17,7 @@ from teyvatnotes.application.model_ports import (
     ModelResponse,
     ModelUsage,
 )
-from teyvatnotes.domain import JsonValue
+from teyvatnotes.domain.json_types import JsonValue
 
 MAX_RESPONSE_BYTES = 262_144
 

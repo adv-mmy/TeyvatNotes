@@ -15,8 +15,8 @@ from teyvatnotes.application.question_understanding import (
     QuestionUnderstandingService,
     UnderstandingResult,
 )
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.knowledge.terminology import load_catalog
 from teyvatnotes.knowledge.understanding import JsonUnderstandingDecoder
 from teyvatnotes.knowledge.understanding_cases import (

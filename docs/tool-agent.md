@@ -1,6 +1,6 @@
 # 最小只读工具调用循环
 
-该 CLI 使用原生 Responses 工具调用和程序内的只读工具循环。单轮摘录式回答由 `answer_cli` 提供，多轮条件与历史由私有会话入口管理。
+对应学习建议 13.11 第 3 项。本轮手写工具循环，不引入 Agent 框架、MCP、Embedding、会话或公开攻略 HTTP。旧单轮 `answer_cli` 和 Task API/Worker 不变。
 
 ## 1. 运行
 

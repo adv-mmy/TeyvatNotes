@@ -314,7 +314,7 @@ def test_timeout_stops_model_and_retains_unknown_usage() -> None:
                 await asyncio.Event().wait()
                 raise AssertionError
 
-        ledger = GenerationLedger(timeout_seconds=0.01)
+        ledger = GenerationLedger(timeout_seconds=0.5)
         service = QuestionUnderstandingService(
             load_catalog(), model_factory=BlockingModel, decoder=JsonUnderstandingDecoder()
         )

@@ -23,8 +23,8 @@ from teyvatnotes.application.conversations import (
 from teyvatnotes.application.model_budget import GenerationLedger
 from teyvatnotes.application.model_ports import ModelError
 from teyvatnotes.application.question_preparation import QuestionRequest
-from teyvatnotes.domain import JsonValue
 from teyvatnotes.domain.guides import GuideKind
+from teyvatnotes.domain.json_types import JsonValue
 from teyvatnotes.repositories.conversation_codec import (
     conversation_from_data,
     conversation_to_data,
