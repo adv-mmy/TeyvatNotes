@@ -1,10 +1,10 @@
 # 通用 Responses 接入与单轮带引用问答
 
-更新：2026-10-04。对应学习建议 13.11 第 2 项的实现：直接 HTTP 模型接入、关键词证据准备、结构化答案及程序校验。不是工具调用循环、完整 RAG 或已验证的原神攻略产品。
+桌面提问通过[本机攻略服务](local-guide-service.md)发送。下文的 CLI 是维护者独立运行的工具，不经过服务的匿名鉴权或调用配额；后半部分的验收记录只描述当时的结果。
 
 ## 1. 本机配置
 
-配置文件为项目根目录 `D:1code1TeyvatNotes\.env`，不是 `.env.example`。保留已有数据库设置，追加：
+在项目根目录的服务端配置文件 `.guide-server.env` 中维护以下模型字段，保留原有的攻略库连接和 IP 哈希密钥。客户端不读取这些字段。
 
 ```dotenv
 LLM_API_STYLE=responses
@@ -15,19 +15,19 @@ LLM_TIMEOUT_SECONDS=60
 LLM_STRUCTURED_OUTPUTS=false
 ```
 
-`.env` 已被 Git 忽略；`.env.example` 只能保留占位符。程序不回显密钥。只读取 `LLM_*`，没有 `OPENASI_*` 或 `OPENAI_API_KEY` 别名、厂商/模型默认值或自动回退。上面的域名只是占位示例，必须替换。地址可为 API 基址或完整 `/responses` URL（可有自定义路径、HTTPS 端口）。当前只实现 Responses 协议；Chat Completions、Anthropic 等不同协议需要另写适配器，不能只改配置名。Python 模块本身不自动加载 dotenv，以下命令用 `uv run --env-file .env` 显式加载；服务端部署则注入环境变量。已经出现在聊天里的密钥应撤销并轮换，不能继续使用。
+`.guide-server.env` 已被 Git 忽略；`.env.example` 只能保留占位符。程序不回显密钥。只读取 `LLM_*`，没有 `OPENASI_*` 或 `OPENAI_API_KEY` 别名、厂商/模型默认值或自动回退。上面的域名只是占位示例，必须替换。地址可为 API 基址或完整 `/responses` URL（可有自定义路径、HTTPS 端口）。当前只实现 Responses 协议；Chat Completions、Anthropic 等不同协议需要另写适配器，不能只改配置名。Python 模块本身不自动加载 dotenv，以下命令用 `uv run --locked --env-file .guide-server.env` 显式加载；服务端部署则注入环境变量。已经出现在聊天里的密钥应撤销并轮换，不能继续使用。
 
 在项目目录，配置好新密钥后可主动执行一次真实请求（可能计费）：
 
 ```powershell
-uv run --env-file .env python -m teyvatnotes.models.probe
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.models.probe
 ```
 
 该命令只发送“你好”，最多允许 128 个输出 Token，不上传资料或本机文件；成功时输出服务端模型名称、用量和耗时，不回显密钥或原始响应。它不验证知识库、引用质量或所有可选 API 参数。
 
 正式攻略问答还需要独立设置业务 `GUIDE_DATABASE_URL`、显式执行 `alembic upgrade head`，并导入人工审核后的非虚构、明确版本、完整资料且显式 `--publish`。不能把 `TEST_DATABASE_URL` 直接作为业务库，也不能将演示样本改标为真实资料以绕过限制。
 
-## 2. 离线演示与正式入口
+## 2. 离线演示与维护者 CLI
 
 无密钥、无数据库、无费用的演示：
 
@@ -39,10 +39,10 @@ uv run python -m teyvatnotes.knowledge.answer_cli samples/questions/clarificatio
 
 `--demo` 只从临时内存中的纯虚构草稿摘录，模拟模型不访问网络、数据库或模型凭据。输出 `provider=offline_demo`、`demo_only=true`、`model_called=false`；`generation_attempts` 表示模拟生成尝试，不是付费请求数。虚构 URL 是样本身份，不代表可访问的真实来源。这不是 GPT 的回答或真实游戏质量验收。
 
-正式使用自己准备的问题文件：
+维护者可用准备好的问题文件独立验证回答（可能计费）：
 
 ```powershell
-uv run --env-file .env python -m teyvatnotes.knowledge.answer_cli <问题JSON路径>
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.knowledge.answer_cli <问题JSON路径>
 ```
 
 输入沿用 `knowledge/query_cli.py` 的问题格式。角色回答额外检查 `owned_equipment`；配队目标为“配队”时还需 `owned_characters`。例如 `"owned_equipment": ["已拥有的装备名"]`，`null`/省略表示未知，`[]` 表示明确没有。不要把资料的适用条件当作完整玩家库存；两个字段需分别确认。实体、版本、关键词仍是显式输入，不自动理解别名或分词。
@@ -72,7 +72,7 @@ HTTP 超时默认 60 秒、配置范围 1～120 秒，同时有覆盖连接及�
 
 默认以提示词要求 JSON 并在本地严格校验。`LLM_STRUCTURED_OUTPUTS=true` 才发送 [Responses 的 text.format JSON Schema 格式](https://developers.openai.com/api/docs/guides/structured-outputs)，不使用 Chat Completions 的 `response_format`；不兼容时直接报错，不再发第二次付费请求。`store=false` 是请求参数，不是第三方无保存/无训练的保证。
 
-私有会话的显式 `--extract-model` 也复用这个普通生成客户端和配置，使用独立的闭合提取 Schema；工具循环的原生函数调用适配器不受此开关影响。模型辅助提取需另计一次调用，不改变本文件中单轮回答入口的一次生成契约；联合预算与取消/竞争统计见[会话说明](conversations.md#显式模型辅助提取)。提取的第三方 strict 兼容尚未真实验证，不自动重试或降级。
+私有会话的显式 `--extract-model` 也复用这个普通生成客户端和配置，使用独立的闭合提取 Schema；工具循环的原生函数调用适配器不受此开关影响。模型辅助提取需另计一次调用，不改变本文件中单轮回答入口的一次生成契约；联合预算与取消/竞争统计见[会话说明](archive/conversations.md#显式模型辅助提取)。提取的第三方 strict 兼容尚未真实验证，不自动重试或降级。
 
 错误只输出稳定代码，不输出密钥、底层异常或服务端错误正文：
 
@@ -93,7 +93,7 @@ HTTP 超时默认 60 秒、配置范围 1～120 秒，同时有覆盖连接及�
 
 引用存在性不等于证据支持结论；显式资源列表子集检查无法识别模型在自然语言中隐瞒的资源需求或错误分类。分节顺序不等于游戏步骤在语义上正确。`claims.text/questions/gaps` 是模型生成文本，可能包含不受信任的链接；可信引用仅指程序生成的 `citations`。输出始终带事实/语义支持尚未验证警告。
 
-后续新增的独立工具循环入口见 [最小只读工具循环](tool-agent.md)，条件与答案持久化见 [私有会话](conversations.md)；本文件中的单轮入口仍保持一次生成，不保存会话。仍待实现：真实版本/角色/任务的审核样本、正式语义检索、50 条固定评测、跨 attempt 的费用预算与流式事件。Task API、Worker、SSE 和两种确定性任务没有修改；私有会话并未提供公开用户鉴权，不能把玩家回答接到现有公开读接口。
+后续新增的独立工具循环入口见 [最小只读工具循环](tool-agent.md)，条件与答案持久化见 [私有会话](archive/conversations.md)；本文件中的单轮入口仍保持一次生成，不保存会话。仍待实现：真实版本/角色/任务的审核样本、正式语义检索、50 条固定评测、跨 attempt 的费用预算与流式事件。Task API、Worker、SSE 和两种确定性任务没有修改；私有会话并未提供公开用户鉴权，不能把玩家回答接到现有公开读接口。
 
 通用配置改造使用多域名、多模型 MockTransport 验证，无本轮真实生成。下面第6～7节是改造前的历史 OpenASI/Terra/Sol 记录，其中旧变量名和常量约束不代表当前实现。当前源码为 `models/responses.py` 与 `models/responses_tools.py`；响应模型与本次配置值精确核对，不默许别名替换。正式输出的 `provider=responses_compatible` 是适配器类别，不是已验证的服务商身份；离线演示仍为 `offline_demo`。
 

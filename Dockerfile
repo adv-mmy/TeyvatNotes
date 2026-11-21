@@ -23,8 +23,10 @@ COPY migrations ./migrations
 COPY alembic.ini api_main.py ./
 
 RUN uv sync --frozen --no-dev \
+    && install -d -m 0700 -o 10001 -g 10001 /var/lib/teyvatnotes \
     && chown -R 10001:10001 /app
 
+ENV XDG_STATE_HOME=/var/lib/teyvatnotes
 USER 10001:10001
 
 EXPOSE 8000

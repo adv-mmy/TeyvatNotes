@@ -1,17 +1,22 @@
 """真实 PostgreSQL 上的公开攻略契约；全部外部能力为可控替身。"""
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from hmac import digest
+from pathlib import Path
 
 import httpx
 import pytest
 from sqlalchemy import func, select
 from test_guide_answering import FakeClient
+from test_guide_ingestion import article_snapshot
 from test_guide_postgres import isolated_database
 
 from teyvatnotes.api import create_app
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
+from teyvatnotes.application.model_ports import ModelRequest, ModelResponse
 from teyvatnotes.application.public_guides import (
     PublicGuideService,
     SourceArticle,
@@ -22,6 +27,7 @@ from teyvatnotes.config import GuideSettings
 from teyvatnotes.database.access import GuideQuotaRecord, GuideSessionRecord
 from teyvatnotes.database.knowledge import GuideDocumentRecord
 from teyvatnotes.knowledge.answers import JsonAnswerDecoder
+from teyvatnotes.knowledge.snapshots import parse_snapshot
 from teyvatnotes.repositories.guide_access import PostgresGuideAccess, QuotaExceeded
 from teyvatnotes.repositories.knowledge_postgres import PostgresKnowledgeRepository
 
@@ -77,7 +83,7 @@ async def _bearer(client: httpx.AsyncClient) -> dict[str, str]:
     return {"Authorization": "Bearer " + response.json()["access_token"]}
 
 
-def test_two_clients_share_published_evidence_and_no_legacy_routes() -> None:
+def test_two_clients_share_published_evidence_and_no_legacy_routes(tmp_path: Path) -> None:
     async def run() -> None:
         async with isolated_database() as (db, _):
             repo = PostgresKnowledgeRepository(db.session_factory)
@@ -85,7 +91,13 @@ def test_two_clients_share_published_evidence_and_no_legacy_routes() -> None:
             guides = PublicGuideService(
                 repo, GuideIngestionService(repo), decoder=JsonAnswerDecoder(), source=source
             )
-            app = create_app(SETTINGS, database=db, guides=guides, model_factory=lambda: model)
+            app = create_app(
+                SETTINGS,
+                database=db,
+                guides=guides,
+                model_factory=lambda: model,
+                diagnostic_dir=tmp_path,
+            )
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="https://test") as a,
@@ -244,5 +256,122 @@ def test_ip_and_global_quota_buckets_do_not_depend_on_token_rotation() -> None:
                     == 100
                 )
             await access.reserve("b" * 64, "b" * 64, now + timedelta(days=1))
+
+    asyncio.run(run())
+
+
+def test_local_mode_ignores_saturated_quotas_and_keeps_token_and_concurrency_gates(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        async with isolated_database() as (db, _):
+            now = datetime(2026, 11, 21, 14, tzinfo=UTC)
+            peer = "127.0.0.1"
+            ip = digest(SETTINGS.ip_hash_key, bytes([127, 0, 0, 1]), "sha256").hex()
+            old_token = await PostgresGuideAccess(db.session_factory).issue(ip, now)
+            token_hash = sha256(old_token.access_token.encode("ascii")).hexdigest()
+            saturated = {
+                ("issue_global", "0" * 64): 1000,
+                ("issue_ip", ip): 3,
+                ("model_global", "0" * 64): 100,
+                ("model_ip", ip): 20,
+                ("model_token", token_hash): 5,
+            }
+            async with db.session_factory.begin() as session:
+                for (bucket, subject), used in saturated.items():
+                    await session.merge(
+                        GuideQuotaRecord(day=now.date(), bucket=bucket, subject=subject, used=used)
+                    )
+            repo = PostgresKnowledgeRepository(db.session_factory)
+            await GuideIngestionService(repo).import_snapshot(
+                parse_snapshot(
+                    article_snapshot(
+                        guide_kind="character",
+                        game_version="7.1",
+                        entities=["钟离"],
+                        article_blocks=[
+                            {"kind": "paragraph", "text": "合成验证资料：钟离配队示例。"}
+                        ],
+                    )
+                ),
+                publish=True,
+            )
+            waiting, release = asyncio.Event(), asyncio.Event()
+
+            class BlockingModel(FakeClient):
+                async def generate(self, request: ModelRequest) -> ModelResponse:
+                    result = await super().generate(request)
+                    if self.calls >= 102:
+                        if self.calls >= 103:
+                            waiting.set()
+                        await release.wait()
+                    return result
+
+            model = BlockingModel()
+            app = create_app(
+                replace(SETTINGS, deployment_mode="local"),
+                database=db,
+                model_factory=lambda: model,
+                clock=lambda: now,
+                diagnostic_dir=tmp_path,
+            )
+            public = create_app(
+                SETTINGS, database=db, model_factory=lambda: model, clock=lambda: now
+            )
+            headers = {"Authorization": f"Bearer {old_token.access_token}"}
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=public, client=(peer, 50000)),
+                base_url="https://test",
+            ) as limited:
+                for endpoint, body, auth in (("sessions", {}, {}), ("answer", QUESTION, headers)):
+                    response = await limited.post(f"/v1/guides/{endpoint}", json=body, headers=auth)
+                    assert response.status_code == 429
+                    assert response.json()["code"] == "quota_exceeded"
+            assert model.calls == 0
+
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app, client=(peer, 50000)),
+                    base_url="https://test",
+                ) as client,
+            ):
+                fresh = [await _bearer(client) for _ in range(4)]
+                assert len({item["Authorization"] for item in fresh}) == 4
+
+                async def ask() -> httpx.Response:
+                    return await client.post("/v1/guides/answer", json=QUESTION, headers=headers)
+
+                for _ in range(101):  # 同一天、同一令牌、同一 IP；同时跨过三个上限。
+                    result = await ask()
+                    assert result.status_code == 200 and result.json()["status"] == "answer"
+                assert model.calls == 101
+
+                pending = [asyncio.create_task(ask()) for _ in range(2)]
+                try:
+                    await asyncio.wait_for(waiting.wait(), timeout=5)
+                    busy = await ask()
+                    assert busy.status_code == 429 and busy.json()["code"] == "guide_busy"
+                    assert model.calls == 103
+                finally:
+                    release.set()
+                    assert all(
+                        response.status_code == 200 for response in await asyncio.gather(*pending)
+                    )
+                now += timedelta(days=7)
+                expired = await ask()
+                assert (
+                    expired.status_code == 401
+                    and expired.json()["code"] == "authentication_required"
+                )
+                assert model.calls == 103
+
+            async with db.session_factory() as session:
+                rows = (await session.scalars(select(GuideQuotaRecord))).all()
+                assert len(rows) == len(saturated)
+                assert {(row.bucket, row.subject): row.used for row in rows} == saturated
+                assert await session.get(GuideSessionRecord, token_hash) is not None
+                assert await session.get(GuideSessionRecord, old_token.access_token) is None
 
     asyncio.run(run())

@@ -9,13 +9,19 @@ $certificate = (Resolve-Path -LiteralPath (Join-Path $TlsDirectory 'service-ca.p
 $privateKey = (Resolve-Path -LiteralPath (Join-Path $TlsDirectory 'service-key.pem')).ProviderPath
 $prefix = @('run', '--locked')
 if ($EnvFile) {
-    $prefix += @('--env-file', (Resolve-Path -LiteralPath $EnvFile).ProviderPath)
+    $envFilePath = (Resolve-Path -LiteralPath $EnvFile).ProviderPath.Replace('\', '/')
+    $prefix += @('--env-file', $envFilePath)
 }
+$previousMode = [Environment]::GetEnvironmentVariable('GUIDE_DEPLOYMENT_MODE', 'Process')
 Push-Location -LiteralPath $root
 try {
+    $env:GUIDE_DEPLOYMENT_MODE = 'local'
     & uv @prefix uvicorn api_main:app --host 127.0.0.1 --port $Port --workers 1 `
         --ssl-certfile $certificate --ssl-keyfile $privateKey `
         --no-proxy-headers --no-access-log --timeout-graceful-shutdown 10
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }
-finally { Pop-Location }
+finally {
+    [Environment]::SetEnvironmentVariable('GUIDE_DEPLOYMENT_MODE', $previousMode, 'Process')
+    Pop-Location
+}

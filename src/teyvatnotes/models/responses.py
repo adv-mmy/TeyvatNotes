@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from teyvatnotes.application.model_ports import (
+    MAX_MODEL_OUTPUT_TOKENS,
     ModelError,
     ModelMessage,
     ModelRequest,
@@ -108,7 +109,7 @@ def request_payload(request: ModelRequest, settings: ResponsesSettings) -> dict[
     if (
         not isinstance(request.max_output_tokens, int)
         or isinstance(request.max_output_tokens, bool)
-        or not 1 <= request.max_output_tokens <= 4096
+        or not 1 <= request.max_output_tokens <= MAX_MODEL_OUTPUT_TOKENS
         or not isinstance(request.messages, tuple)
         or not 1 <= len(request.messages) <= 20
         or any(
@@ -162,6 +163,9 @@ def parse_response(value: object, expected_model: str) -> ModelResponse:
         raise ModelError("invalid_model_response")
     status = value.get("status")
     if status == "incomplete":
+        details = value.get("incomplete_details")
+        if isinstance(details, dict) and details.get("reason") == "max_output_tokens":
+            raise ModelError("answer_output_limit_reached")
         raise ModelError("model_incomplete")
     if status != "completed":
         raise ModelError("invalid_model_response")

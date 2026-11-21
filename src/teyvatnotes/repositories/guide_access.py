@@ -55,19 +55,23 @@ async def _increment(
 
 
 class PostgresGuideAccess:
-    """数据库仅保存令牌哈希和经过服务端散列的网络标识。"""
+    """所有模式只保存令牌哈希；仅公网模式检查及更新日额度。"""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, sessions: async_sessionmaker[AsyncSession], *, daily_quotas: bool = True
+    ) -> None:
         self._sessions = sessions
+        self._daily_quotas = daily_quotas
 
     async def issue(self, ip_key: str, now: datetime) -> SessionToken:
         now = now.astimezone(UTC)
         token = token_urlsafe(32)
         expires = now + timedelta(days=7)
         async with self._sessions.begin() as session:
-            # 全局签发保护限制任意换 IP 创建记录；IP 限制仍为每天 3 个。
-            await _increment(session, now, "issue_global", _GLOBAL, 1000)
-            await _increment(session, now, "issue_ip", ip_key, 3)
+            if self._daily_quotas:
+                # 全局签发保护限制任意换 IP 创建记录；IP 限制仍为每天 3 个。
+                await _increment(session, now, "issue_global", _GLOBAL, 1000)
+                await _increment(session, now, "issue_ip", ip_key, 3)
             session.add(GuideSessionRecord(token_hash=_digest(token), expires_at=expires))
         return SessionToken(token, expires)
 
@@ -78,6 +82,8 @@ class PostgresGuideAccess:
             return digest if row is not None and row.expires_at > now else None
 
     async def reserve(self, principal: str, ip_key: str, now: datetime) -> None:
+        if not self._daily_quotas:
+            return
         now = now.astimezone(UTC)
         async with self._sessions.begin() as session:
             # 固定锁顺序；不跨越模型网络请求。

@@ -126,6 +126,15 @@ def test_env_reads_only_explicit_provider_and_rejects_invalid_settings(
     "body,code",
     [
         ({"status": "incomplete"}, "model_incomplete"),
+        (
+            {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}},
+            "answer_output_limit_reached",
+        ),
+        (
+            {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}},
+            "model_incomplete",
+        ),
+        ({"status": "incomplete", "incomplete_details": "max_output_tokens"}, "model_incomplete"),
         ({"status": "failed"}, "invalid_model_response"),
         (response_body(output=[]), "invalid_model_response"),
         (response_body(model="other"), "model_identity_mismatch"),
@@ -196,7 +205,7 @@ def test_schema_is_explicit_opt_in_no_compatibility_fallback() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("tokens", [True, 0, 4097])
+@pytest.mark.parametrize("tokens", [True, 0, 16_385])
 def test_invalid_request_has_no_http_call(tokens: int) -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         raise AssertionError("非法请求不发送")

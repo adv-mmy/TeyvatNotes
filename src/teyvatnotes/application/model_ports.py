@@ -5,6 +5,10 @@ from typing import Literal, Protocol
 
 from teyvatnotes.domain.json_types import JsonValue
 
+DEFAULT_ANSWER_OUTPUT_TOKENS = 8192
+MIN_ANSWER_OUTPUT_TOKENS = 256
+MAX_MODEL_OUTPUT_TOKENS = 16_384
+
 
 @dataclass(frozen=True, slots=True)
 class ModelMessage:

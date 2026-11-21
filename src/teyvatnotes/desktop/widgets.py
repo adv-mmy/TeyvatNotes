@@ -27,8 +27,10 @@ from teyvatnotes.desktop.config import (
 )
 from teyvatnotes.domain.guides import GuideKind
 from teyvatnotes.domain.json_types import JsonValue
+from teyvatnotes.guide_protocol import GUIDE_OUTPUT_ERRORS
 
 ERRORS = {
+    **GUIDE_OUTPUT_ERRORS,
     "client_config_required": "请先在设置中填写本地攻略服务的 HTTPS 地址。",
     "client_config_invalid": "地址必须是 HTTPS 源，不带路径、参数或凭据。",
     "client_config_unavailable": "无法读取客户端配置，请检查本机文件权限。",

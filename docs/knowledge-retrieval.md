@@ -1,22 +1,22 @@
 # 关键词检索、证据回读与问答准备
 
-日期：2026-10-03。本页描述第二阶段的无模型前置入口 `knowledge/query_cli.py`，对应建议文档第 13.8、13.9 节和第 13.11 节第 2 项的检索/引用部分。后续已新增独立的 OpenASI 接入与单轮回答 CLI，见 [模型与回答说明](model-answering.md)；旧准备入口仍不读取凭据或生成答案。模型实现通过离线测试，真实调用与真实攻略质量尚待验证。
+本页面向维护者，演示如何在命令行检索和回读证据。检索命令不调用模型；桌面用户通过[共享攻略服务](local-guide-service.md)提问。
 
 ## 1. 当前可运行功能
 
-2026-10-04 更新：体验服与正式服采用同一检索/回读和 RAG 范围规则；`content_nature` 作为来源元数据保留并进入模型证据与引用展示，不按该字段排除资料。正常范围仍是已发布、非虚构、完整且版本匹配的资料；demo 仍仅虚构草稿。旧数据库需要显式应用 `0006`，此轮真实数据库验证暂缓。
+正式检索只使用已发布、非虚构、完整且版本匹配的资料。体验服或正式服标签本身不影响准入；演示仅使用虚构草稿。
 
 - 显式关键词字面检索，按准确游戏版本、攻略类型、实体和玩家已确认条件过滤。
 - 以数据库已存在的文本块 ID 回读上下文，输出来源、文档版本、段落/图片位置或视频分 P 和时间链接。
 - 问答准备先检查必要字段，不足时追问；无证据或上下文截断时说明缺口。
 - PostgreSQL 查询为只读，不自动迁移、不调用模型、不执行网络抓取、不写玩家会话。
 
-这里没有自然语言实体识别、俗称解析、分词、Embedding、向量检索、Agent 工具循环、模型答案或回答流。`search_knowledge/read_evidence` 是只读应用端口，不代表模型已经能够选择调用它们。第一阶段任务类型、Worker 和 HTTP/SSE 契约不变。
+这些命令只负责关键词检索和证据回读，不负责生成答案。服务端如何使用证据见[共享攻略服务架构](architecture.md)。
 
 ## 2. 先运行完全离线的演示
 
 ```powershell
-cd D:1code1TeyvatNotes
+cd D:\code\TeyvatNotes
 uv run python -m scripts.guide_retrieval_demo
 uv run python -m teyvatnotes.knowledge.query_cli prepare-question samples/questions/quest.json --demo
 uv run python -m teyvatnotes.knowledge.query_cli prepare-question samples/questions/clarification.json --demo
@@ -31,14 +31,14 @@ uv run python -m teyvatnotes.knowledge.query_cli search --keyword 装备 --versi
 
 ## 3. 使用实际 PostgreSQL 资料
 
-先准备经过人工审核、版本明确的快照，按 `guide-ingestion.md` 显式迁移并导入发布。业务连接来自 `GUIDE_DATABASE_URL`；不得把 `TEST_DATABASE_URL` 当正常数据源。
+按[本机服务说明](local-guide-service.md)初始化新库，再按[入库规范](guide-ingestion.md)导入并发布已审核快照。业务连接来自 `GUIDE_DATABASE_URL`，不得使用测试库。
 
 ```powershell
-# 仅当本地 .env 已配置业务 GUIDE_DATABASE_URL 时使用 --env-file。
-uv run --env-file .env python -m teyvatnotes.knowledge.query_cli search --keyword "待查关键词" --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"
+# 在项目根目录运行；.guide-server.env 中的 GUIDE_DATABASE_URL 必须指向专用攻略库。
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.knowledge.query_cli search --keyword "待查关键词" --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"
 # 替换为 search 返回的 evidence_id；读证据时同样提供查询范围。
-uv run --env-file .env python -m teyvatnotes.knowledge.query_cli read-evidence <evidence_id> --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"
-uv run --env-file .env python -m teyvatnotes.knowledge.query_cli prepare-question <question.json>
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.knowledge.query_cli read-evidence <evidence_id> --version "准确版本" --kind quest --entity "资料中的任务名" --condition "前置任务=已完成"
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.knowledge.query_cli prepare-question <question.json>
 ```
 
 `read-evidence` 不接受用户提供的来源 URL；引用由程序从数据库已有来源与定位信息生成。不存在、错误版本、错误实体或条件不满足的 ID 一律返回 `evidence_not_found`，不透露被排除资料的内容。

@@ -6,16 +6,36 @@
 
 需要 Python 3.12+、uv 和 PostgreSQL。先创建一个**专用空数据库**，不要指向旧项目库或测试库。将 [.env.example](.env.example) 复制成未纳入 Git 的 `.guide-server.env`，填写 `GUIDE_DATABASE_URL`、至少 32 字节且固定不变的 `GUIDE_IP_HASH_KEY`，以及服务端的通用 `LLM_*` 模型配置。
 
-在项目目录运行（PowerShell 7）：
+首次在项目目录完成准备（PowerShell 7）：
 
 ```powershell
 uv sync --locked
 uv run --locked --env-file .guide-server.env alembic upgrade head
 .\scripts\create_local_tls.ps1
+```
+
+### 启动与停止服务器
+
+完成准备后，每次启动运行：
+
+```powershell
 .\scripts\start_local.ps1 -EnvFile .guide-server.env
 ```
 
-服务只监听 `https://127.0.0.1:8443`。证书不写入系统信任库；只把 `build\local-tls\service-ca.pem` 提供给客户端，**不要分发服务端私钥**。本机 Compose 方式与部署边界见[架构说明](docs/architecture.md)。
+**停止服务器：** 在运行上述命令的终端按 `Ctrl+C`，等待服务退出。再次执行启动命令即可重启；停止攻略服务不会关闭独立运行的 PostgreSQL。
+
+服务只监听 `https://127.0.0.1:8443`。证书不写入系统信任库；只把 `build\local-tls\service-ca.pem` 提供给客户端，**不要分发服务端私钥**。
+
+本机模式没有每日领取令牌或问答次数上限，但仍限制同时处理的模型请求；模型服务商的限额和计费不变。
+
+若选择 Docker Compose，先按[本机操作说明](docs/local-guide-service.md)配置容器连接串和数据库密码，再使用以下命令；本机脚本与 Compose 启动方式二选一：
+
+```powershell
+# 后台启动服务与数据库
+docker compose --env-file .guide-server.env up --build -d
+# 停止本项目服务与数据库，保留容器和数据卷
+docker compose --env-file .guide-server.env stop
+```
 
 ## 准备攻略与使用桌面端
 

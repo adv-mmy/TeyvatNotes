@@ -482,10 +482,14 @@ class WorkbenchWindow(QMainWindow):
                 label("还需要确认几个条件\n" + _texts(reply.get("questions")), "notice", wrap=True)
             )
         elif status == "insufficient_evidence":
+            gaps = _texts(reply.get("gaps"))
+            conflicts = _texts(reply.get("conflicts"))
+            explanation = "\n".join(
+                filter(None, [gaps, f"资料冲突：{conflicts}" if conflicts else ""])
+            )
             self._messages.addWidget(
                 label(
-                    "现有资料不足\n"
-                    + (_texts(reply.get("gaps")) or _gap_text(reply.get("reason"))),
+                    "现有资料不足\n" + (explanation or _gap_text(reply.get("reason"))),
                     "notice",
                     wrap=True,
                 )

@@ -16,7 +16,7 @@ from teyvatnotes.application.guide_answering import (
 )
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.knowledge_read_ports import KnowledgeReader
-from teyvatnotes.application.model_ports import ModelClient
+from teyvatnotes.application.model_ports import DEFAULT_ANSWER_OUTPUT_TOKENS, ModelClient
 from teyvatnotes.application.question_preparation import (
     QuestionPreparation,
     QuestionPreparationService,
@@ -174,8 +174,10 @@ class PublicGuideService:
         decoder: AnswerDecoder,
         source: AuthorizedGuideSource | None = None,
         catalog: TerminologyCatalog | None = None,
+        max_output_tokens: int = DEFAULT_ANSWER_OUTPUT_TOKENS,
     ) -> None:
         self._local = QuestionPreparationService(reader)
+        self._max_output_tokens = max_output_tokens
         self._ingestion, self._decoder = ingestion_service, decoder
         self._source, self._catalog = source, catalog
         self._flights: dict[SupplementScope, _Flight] = {}
@@ -188,7 +190,9 @@ class PublicGuideService:
         """由调用方提供按需创建的受预算控制模型；前置失败不创建模型。"""
 
         preparation = _PublicPreparation(self)
-        service = GuideAnswerService(preparation, model_factory, self._decoder)
+        service = GuideAnswerService(
+            preparation, model_factory, self._decoder, max_output_tokens=self._max_output_tokens
+        )
         result = await service.answer(request)
         return replace(result, lookup_path=preparation.lookup_path)
 

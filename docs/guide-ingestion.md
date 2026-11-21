@@ -60,7 +60,7 @@ B 站输入包含 `segments`，每项有 `start/end/text/section`。时间必须
 
 常见阻断代码：`version_unknown/fixture_source/source_incomplete/no_text_evidence/visual_evidence_missing`。
 
-2026-10-04 按用户要求，体验服和正式服不作准入区分。`content_nature=released/preview` 仍记录来源声明，不作为阻断项；版本、非虚构身份、完整性、视觉缺口和显式审核发布规则不变。处理策略升级为 `offline-v2`，旧检查点不可覆盖，重新导入生成新文档版本。数据库 `0006` 仅替换发布元数据 CHECK；需使用者显式升级，不自动迁移业务库。回滚旧 CHECK 时，已有已发布 preview 会使回滚失败，不能为回滚改标签、删资料或降为草稿。此更新当轮暂缓真实数据库验证；2026-10-05在新建隔离验证库补验升级及发布/检索契约通过，没有回滚或升级业务库，见 [补验记录](postgres-wiki-acceptance.md)。
+2026-10-04 按用户要求，体验服和正式服不作准入区分。`content_nature=released/preview` 仍记录来源声明，不作为阻断项；版本、非虚构身份、完整性、视觉缺口和显式审核发布规则不变。处理策略升级为 `offline-v2`，旧检查点不可覆盖，重新导入生成新文档版本。数据库 `0006` 仅替换发布元数据 CHECK；需使用者显式升级，不自动迁移业务库。回滚旧 CHECK 时，已有已发布 preview 会使回滚失败，不能为回滚改标签、删资料或降为草稿。此更新当轮暂缓真实数据库验证；2026-10-05在新建隔离验证库补验升级及发布/检索契约通过，没有回滚或升级业务库，见 [补验记录](archive/postgres-wiki-acceptance.md)。
 
 未知发布时间、只保存图片引用属于警告；图片含关键步骤时额外产生视觉缺口阻断。空字幕不触发自动 ASR，保留缺口等待后续实现。
 

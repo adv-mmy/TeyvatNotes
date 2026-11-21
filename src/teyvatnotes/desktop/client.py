@@ -20,9 +20,11 @@ from teyvatnotes.desktop.config import (
     tls_context,
 )
 from teyvatnotes.domain.json_types import JsonValue
+from teyvatnotes.guide_protocol import GUIDE_OUTPUT_ERRORS
 
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}", re.ASCII)
 _REMOTE_ERRORS = {
+    *GUIDE_OUTPUT_ERRORS,
     "authentication_required",
     "quota_exceeded",
     "guide_busy",
@@ -32,7 +34,6 @@ _REMOTE_ERRORS = {
     "request_timeout",
     "validation_error",
     "request_too_large",
-    "answer_too_large",
     "source_busy",
     "source_timeout",
     "source_unavailable",

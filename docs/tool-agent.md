@@ -1,13 +1,13 @@
 # 最小只读工具调用循环
 
-对应学习建议 13.11 第 3 项。本轮手写工具循环，不引入 Agent 框架、MCP、Embedding、会话或公开攻略 HTTP。旧单轮 `answer_cli` 和 Task API/Worker 不变。
+本页介绍维护者用于验证工具调用的独立 CLI，不是桌面问答的执行流程。桌面端使用[共享攻略服务](local-guide-service.md)，每轮最多发出一次模型请求；下文的多轮预算只适用于这个实验工具。
 
 ## 1. 运行
 
 在项目目录执行，无网络、无数据库、无模型费用：
 
 ```powershell
-Set-Location D:1code1TeyvatNotes
+Set-Location D:\code\TeyvatNotes
 uv run python -m teyvatnotes.knowledge.agent_cli samples/questions/character.json --demo
 uv run python -m teyvatnotes.knowledge.agent_cli samples/questions/quest.json --demo
 uv run python -m teyvatnotes.knowledge.agent_cli samples/questions/clarification.json --demo
@@ -15,13 +15,13 @@ uv run python -m teyvatnotes.knowledge.agent_cli samples/questions/clarification
 
 前两项为固定 `search → read → 摘录` 模拟，走真实工具校验、循环和引用检查；第三项条件不足，先追问且不生成。`provider=offline_demo`、`demo_only=true`、`model_called=false`；`generation_attempts` 是模拟端口尝试，不是付费请求数。虚构资料不是可用的原神攻略，不能把固定模拟演示当作真实模型选择工具的证明。
 
-正式调用（可能计费，最多四次生成）：
+维护者独立试验（可能计费，最多四次生成，不经过服务端匿名配额）：
 
 ```powershell
-uv run --env-file .env python -m teyvatnotes.knowledge.agent_cli <问题JSON路径>
+uv run --locked --env-file .guide-server.env python -m teyvatnotes.knowledge.agent_cli <问题JSON路径>
 ```
 
-沿用 [模型配置](model-answering.md) 的 `LLM_*`，自行指定平台 HTTPS 地址和模型 ID；`LLM_API_STYLE=responses` 是当前支持的协议。不存在厂商/模型默认值或旧变量别名。使用业务 `DATABASE_URL`，不使用 `TEST_DATABASE_URL`，不自动建表、不回退内存。先导入人工审核、非虚构、完整、明确版本的资料并显式发布，再准备同版本的提问文件。不得把永久虚构样本改标为真实资料发布到业务库。
+沿用 [模型配置](model-answering.md) 的 `LLM_*`，自行指定平台 HTTPS 地址和模型 ID；`LLM_API_STYLE=responses` 是当前支持的协议。不存在厂商/模型默认值或旧变量别名。使用业务 `GUIDE_DATABASE_URL`，不使用 `TEST_DATABASE_URL`，不自动建表、不回退内存。先导入人工审核、非虚构、完整、明确版本的资料并显式发布，再准备同版本的提问文件。不得把永久虚构样本改标为真实资料发布到业务库。
 
 ## 2. 工具契约
 
@@ -75,7 +75,7 @@ Token 阈值不是付费硬上限：只有已报告用量可累计，检查发�
 
 仍需人工检查证据是否支持结论、真实游戏版本/事实和正文隐藏的装备需求；确定性的 ID 和显式资源检查不等于语义可靠性。可选结构化输出开关仅用于旧单轮入口；工具循环的最终文本通过提示要求 JSON 和本地校验，不发送 `text.format`。原生工具和无状态加密 reasoning 在 OpenASI 上尚未付费实测，旧“你好”基础成功不覆盖这些兼容性。
 
-后续独立扩展已提供 [RAG 检索底座](rag-retrieval.md)、[私有会话条件继承](conversations.md) 和 [50 题离线虚构流程评测与可靠性检查](evaluation.md)。会话每轮包装一个全新的工具用例，旧单问题 CLI 的行为和不持久化边界不变；可选回答事件仅为进程内元数据，不含文本增量。仍待完成：真实资料审核与网站采集、正式语义 Embedding、真实固定答案质量评测、任务步骤恢复/跨 attempt 费用控制和文本流事件。本轮不提交或推送 Git。
+后续独立扩展已提供 [RAG 检索底座](archive/rag-retrieval.md)、[私有会话条件继承](archive/conversations.md) 和 [50 题离线虚构流程评测与可靠性检查](evaluation.md)。会话每轮包装一个全新的工具用例，旧单问题 CLI 的行为和不持久化边界不变；可选回答事件仅为进程内元数据，不含文本增量。仍待完成：真实资料审核与网站采集、正式语义 Embedding、真实固定答案质量评测、任务步骤恢复/跨 attempt 费用控制和文本流事件。本轮不提交或推送 Git。
 
 ## 5. 本轮实际验证
 

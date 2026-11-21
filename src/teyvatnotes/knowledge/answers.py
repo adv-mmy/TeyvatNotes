@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from teyvatnotes.application.guide_answering import (
     AnswerClaim,
     AnswerResult,
+    AnswerStructureError,
     ClaimKind,
     ClaimSection,
     GeneratedAnswer,
@@ -59,17 +60,56 @@ class AnswerSchema(BaseModel):
 
     @model_validator(mode="after")
     def coherent_status(self) -> "AnswerSchema":
-        """拒绝一边追问/声明不足一边给出攻略，以及没有缺口说明的不足结果。"""
+        """只报告首个冲突；日志值仅来自固定规则、已校验枚举和有界的条数。"""
+        rule = None
         if self.status == "answer":
-            if not self.claims or self.questions or self.conflicts:
-                raise ValueError("invalid_answer_status")
+            if not self.claims:
+                rule = "answer_requires_claims"
+            elif self.questions:
+                rule = "answer_forbids_questions"
+            elif self.conflicts:
+                rule = "answer_forbids_conflicts"
         elif self.claims:
-            raise ValueError("claims_without_answer")
-        if self.status == "needs_clarification" and not self.questions:
-            raise ValueError("questions_required")
-        if self.status == "insufficient_evidence" and not (self.gaps or self.conflicts):
-            raise ValueError("gaps_required")
+            rule = "non_answer_forbids_claims"
+        elif self.status == "needs_clarification" and not self.questions:
+            rule = "clarification_requires_questions"
+        elif self.status == "insufficient_evidence" and not (self.gaps or self.conflicts):
+            rule = "insufficient_requires_gaps_or_conflicts"
+        if rule is not None:
+            raise AnswerStructureError(
+                f"status_conflict rule={rule} answer_status={self.status} "
+                f"claims_count={len(self.claims)} questions_count={len(self.questions)} "
+                f"gaps_count={len(self.gaps)} conflicts_count={len(self.conflicts)}"
+            )
         return self
+
+
+def _validation_detail(error: ValidationError) -> str:
+    """仅报告首处错误；不记录 msg、ctx、input 或模型自定的键名。"""
+    first = error.errors(include_url=False, include_input=False, include_context=False)[0]
+    kind = first["type"]
+    if kind == "json_invalid":
+        return kind
+    if kind == "extra_forbidden":
+        return "unexpected_field"
+    if kind == "missing":
+        category = "missing_field"
+    elif kind in {"model_type", "list_type", "string_type"}:
+        category = "invalid_type"
+    else:
+        category = "invalid_value"
+    # loc 也可能来自上游，不能直接拼接。只输出模型定义的字段和有界的数组下标。
+    path = ""
+    for part in first["loc"]:
+        if isinstance(part, str) and (
+            part in AnswerSchema.model_fields or part in ClaimSchema.model_fields
+        ):
+            path += ("." if path else "") + part
+        elif type(part) is int and 0 <= part < 30:
+            path += f"[{part}]"
+        else:
+            return category
+    return f"{category}:{path}" if path else category
 
 
 class JsonAnswerDecoder:
@@ -80,11 +120,14 @@ class JsonAnswerDecoder:
 
     def decode(self, text: str) -> GeneratedAnswer:
         if len(text) > 32_000:
-            raise ModelError("invalid_answer_structure")
+            raise AnswerStructureError("answer_text_too_long")
         try:
             value = AnswerSchema.model_validate_json(text)
-        except (ValidationError, ValueError):
-            raise ModelError("invalid_answer_structure") from None
+        except ValidationError as exc:
+            raise AnswerStructureError(_validation_detail(exc)) from None
+        except ValueError:
+            # 不保留底层异常消息（如无法解码的字符串）。
+            raise AnswerStructureError("schema_invalid") from None
         return GeneratedAnswer(
             value.status,
             tuple(

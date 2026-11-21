@@ -1,6 +1,6 @@
 # 私有攻略会话与玩家条件
 
-> 历史记录：此页旧命令和部署入口不适用于当前产品。现行操作见[本机攻略服务与迁移](local-guide-service.md)。
+> 历史记录：此页旧命令和部署入口不适用于当前产品。现行操作见[本机攻略服务与迁移](../local-guide-service.md)。
 
 独立 CLI 保存已确认的结构化玩家条件，支持追问、替换装备和重新生成建议。自然语言规则、显式模型辅助提取与 JSON 输入复用同一会话用例；不改公开 Task API、Worker、SSE 或旧单轮入口。不引入 Agent 框架，也不宣称具备通用自由文本自动记忆。
 
@@ -18,7 +18,7 @@ uv run python -m teyvatnotes.knowledge.conversation_cli demo
 
 1. 使用业务 `DATABASE_URL`，先备份并核对目标，再由使用者显式执行 `uv run --env-file .env alembic upgrade head`。0005 只新增 `guide_conversations`、索引和约束，不重建任务或知识表。CLI 不自动迁移，不使用 `TEST_DATABASE_URL` 或内存回退。不要通过 downgrade 或删表来解决问题。
 2. 导入并人工审核明确版本、非虚构的真实资料，然后显式发布；永久示例不能改标为真实资料投入业务库。
-3. 使用原有通用 `LLM_*` 配置，见 [模型配置](model-answering.md)。JSON/规则创建、读取和关闭会话不读取模型凭据；显式 `--extract-model` 会先调用一次提取服务，创建仍不生成答案。答案生成仍等证据就绪才调用。提取和回答都可能计费，开发验证不自动发付费请求。
+3. 使用原有通用 `LLM_*` 配置，见 [模型配置](../model-answering.md)。JSON/规则创建、读取和关闭会话不读取模型凭据；显式 `--extract-model` 会先调用一次提取服务，创建仍不生成答案。答案生成仍等证据就绪才调用。提取和回答都可能计费，开发验证不自动发付费请求。
 4. 为本机私有使用者生成并持久保存一个 UUID：
 
 ```powershell
@@ -29,7 +29,7 @@ python -c "import uuid; print(uuid.uuid4())"
 
 ## 命令与条件更新
 
-初始 JSON 的 `question` 必填，其余字段沿用 [问题准备](knowledge-retrieval.md) 的定义。可以缺条件，以便下一轮返回追问。示例字段需换成真实已审核范围：
+初始 JSON 的 `question` 必填，其余字段沿用 [问题准备](../knowledge-retrieval.md) 的定义。可以缺条件，以便下一轮返回追问。示例字段需换成真实已审核范围：
 
 ```json
 {
@@ -112,7 +112,7 @@ uv run --env-file .env python -m teyvatnotes.knowledge.conversation_cli ask <ID>
 
 自然语言 `create/ask` 的预检、理解、追问短路和 CAS 领取统一由现有 `ConversationService` 编排；理解器通过延迟工厂在预检通过后创建。独立 `understand` 仍直接调用理解用例，不要求会话或数据库。CLI 负责配置、输入输出和连接清理，命令与 JSON 输出格式不变。
 
-固定理解回归可运行 `uv run python -m teyvatnotes.knowledge.evaluation_cli understanding`，不读取模型配置或连接数据库。它比较规则结果与人工固定候选回放，不测试真实模型能力；评分口径见 [理解评测](evaluation.md#理解合同回归)。
+固定理解回归可运行 `uv run python -m teyvatnotes.knowledge.evaluation_cli understanding`，不读取模型配置或连接数据库。它比较规则结果与人工固定候选回放，不测试真实模型能力；评分口径见 [理解评测](../evaluation.md#理解合同回归)。
 
 ### 显式模型辅助提取
 

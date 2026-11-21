@@ -10,6 +10,7 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
@@ -19,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
 
+from teyvatnotes.api.error_log import GuideErrorFile, error_log_directory
 from teyvatnotes.application.guide_ingestion import GuideIngestionService
 from teyvatnotes.application.model_ports import (
     ModelClient,
@@ -30,6 +32,7 @@ from teyvatnotes.application.public_guides import PublicGuideService
 from teyvatnotes.config import GuideSettings
 from teyvatnotes.database.session import Database, create_database
 from teyvatnotes.domain.guides import GuideImportError
+from teyvatnotes.guide_protocol import GUIDE_OUTPUT_ERRORS
 from teyvatnotes.knowledge.answers import JsonAnswerDecoder, answer_to_json
 from teyvatnotes.knowledge.questions import MAX_QUESTION_BYTES, parse_question
 from teyvatnotes.models.responses import configured_client
@@ -186,6 +189,7 @@ def create_app(
     access: GuideAccess | None = None,
     model_factory: Callable[[], ModelClient] = configured_client,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    diagnostic_dir: Path | None = None,
 ) -> FastAPI:
     """生产路径只有 PostgreSQL；测试可显式注入两套隔离端口。"""
     resolved = settings or GuideSettings.from_env()
@@ -196,19 +200,32 @@ def create_app(
         assert database is not None
         repository = PostgresKnowledgeRepository(database.session_factory)
         guides = PublicGuideService(
-            repository, GuideIngestionService(repository), decoder=JsonAnswerDecoder()
+            repository,
+            GuideIngestionService(repository),
+            decoder=JsonAnswerDecoder(),
+            max_output_tokens=resolved.answer_max_output_tokens,
         )
     if access is None:
         assert database is not None
-        access = PostgresGuideAccess(database.session_factory)
+        access = PostgresGuideAccess(
+            database.session_factory, daily_quotas=resolved.deployment_mode == "public"
+        )
     service, authorizer, db = guides, access, database
     model_gate, request_gate = asyncio.Semaphore(2), asyncio.Semaphore(16)
+    error_file: GuideErrorFile | None = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        nonlocal error_file
         try:
+            error_file = GuideErrorFile(diagnostic_dir or error_log_directory())
+            logger.info("本机攻略错误诊断文件：%s", error_file.path)
+            logger.info("攻略服务部署模式：%s", resolved.deployment_mode)
             yield
         finally:
+            if error_file is not None:
+                error_file.close()
+                error_file = None
             try:
                 await service.aclose()
             finally:
@@ -241,6 +258,8 @@ def create_app(
         request.state.request_id = uuid4().hex
         request.state.lookup_path = None
         request.state.error_code = None
+        request.state.validation_detail = None
+        request.state.failed_model_output = None
         started = asyncio.get_running_loop().time()
         try:
             if request_gate.locked():
@@ -260,14 +279,36 @@ def create_app(
             response = error_response(request, ApiError(500, "internal_error"))
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["Cache-Control"] = "no-store"
+        elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
         logger.info(
-            "guide_http request_id=%s path=%s status=%d error_code=%s elapsed_ms=%d",
+            "guide_http request_id=%s path=%s status=%d error_code=%s "
+            "elapsed_ms=%d validation_detail=%s",
             request.state.request_id,
             request.state.lookup_path,
             response.status_code,
             request.state.error_code,
-            round((asyncio.get_running_loop().time() - started) * 1000),
+            elapsed_ms,
+            request.state.validation_detail,
         )
+        if (
+            error_file is not None
+            and response.status_code >= 400
+            and request.url.path == "/v1/guides/answer"
+        ):
+            try:
+                await asyncio.to_thread(
+                    error_file.write,
+                    time=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                    request_id=request.state.request_id,
+                    path=request.state.lookup_path,
+                    status=response.status_code,
+                    error_code=request.state.error_code,
+                    elapsed_ms=elapsed_ms,
+                    validation_detail=request.state.validation_detail,
+                    model_output=request.state.failed_model_output,
+                )
+            except OSError:
+                logger.error("guide_error_log_unavailable request_id=%s", request.state.request_id)
         return response
 
     @app.exception_handler(HTTPException)
@@ -324,6 +365,10 @@ def create_app(
         request.state.lookup_path = result.lookup_path
         if result.status == "error":
             reason = result.reason
+            if result.response is not None:
+                request.state.failed_model_output = result.response.text
+            if reason == "invalid_answer_structure":
+                request.state.validation_detail = result.validation_detail
             if reason == "quota_exceeded":
                 raise ApiError(429, reason, wrapper.retry_after if wrapper is not None else None)
             if reason in {"guide_busy", "source_busy"}:
@@ -338,11 +383,15 @@ def create_app(
                 raise ApiError(502, reason)
             if reason in {"invalid_model_configuration", "model_key_not_configured"}:
                 raise ApiError(503, "model_unavailable")
+            if reason is not None and reason in GUIDE_OUTPUT_ERRORS:
+                raise ApiError(502, reason)
             raise ApiError(502, "model_unavailable")
         raw = answer_to_json(result, question)
         payload = {key: raw[key] for key in _REPLY_FIELDS}
         response = JSONResponse(payload)
         if len(response.body) > _MAX_REPLY_BYTES:
+            if result.response is not None:
+                request.state.failed_model_output = result.response.text
             raise ApiError(502, "answer_too_large")
         return response
 
