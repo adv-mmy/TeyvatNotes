@@ -89,6 +89,26 @@ async function events(root: string, id: string) {
 }
 
 test(
+	"V2 装配从仓库术语资源读取角色别名，缺版本时仍不调用模型",
+	options,
+	async (t) => {
+		const root = await isolated(t);
+		const client = cli(t, root, "v2-local-terminology");
+		const id = await create(client);
+		client.send("奥萝塔怎么配队");
+		await client.receive(/需要补充条件：请补充以下条件：版本：明确版本号/u);
+		await client.exit();
+		const rows = await events(root, id);
+		assert.deepEqual(rows[1].clarification.fields, ["gameVersion"]);
+		assert.equal(rows[1].clarification.scope.entityId, "奥黛塔");
+		assert.deepEqual(
+			client.diagnostics().map(({ modelCalls }) => modelCalls),
+			[0],
+		);
+	},
+);
+
+test(
 	"V2 补齐范围前零模型调用，模型失败后重新打开可显式继续原问题",
 	options,
 	async (t) => {

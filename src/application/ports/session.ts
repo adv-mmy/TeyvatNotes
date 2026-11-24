@@ -3,7 +3,9 @@ import type { JsonObject } from "./agent.js";
 
 export interface CitationSnapshot {
 	readonly source: string;
+	readonly url?: string;
 	readonly version: string;
+	readonly documentVersionId?: string;
 	readonly location: string;
 	readonly excerpt: string;
 }
@@ -41,6 +43,7 @@ export interface PendingClarification {
 	readonly text: string;
 	readonly scope?: ScopeDraft;
 	readonly fields?: readonly ScopeField[];
+	readonly equipmentId?: string;
 }
 
 export interface ConfirmedConditionUpdate {

@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { TurnLimits } from "../application/turn-budget.js";
+import type { TerminologyEntry } from "../domain/query-scope.js";
 
 export interface Config {
 	readonly sessionDirectory: string;
@@ -28,6 +30,78 @@ function integer(
 
 export const maxConfiguredContextTokens = 128_000;
 export const maxConfiguredOutputTokens = 16_384;
+
+export class TerminologyError extends Error {
+	constructor(
+		readonly code: "TERMINOLOGY_UNAVAILABLE" | "TERMINOLOGY_INVALID",
+	) {
+		super(code);
+	}
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonempty(value: unknown): value is string {
+	return typeof value === "string" && value.trim() !== "";
+}
+
+export function parseTerminology(value: unknown): readonly TerminologyEntry[] {
+	const invalid = () => new TerminologyError("TERMINOLOGY_INVALID");
+	if (
+		!record(value) ||
+		!nonempty(value.revision) ||
+		!Array.isArray(value.terms)
+	)
+		throw invalid();
+	const seen = new Set<string>();
+	const terms: TerminologyEntry[] = [];
+	for (const item of value.terms as unknown[]) {
+		if (
+			!record(item) ||
+			!nonempty(item.name) ||
+			(item.category !== "character" &&
+				item.category !== "weapon" &&
+				item.category !== "artifact") ||
+			!Array.isArray(item.aliases) ||
+			!item.aliases.every(nonempty)
+		)
+			throw invalid();
+		const name = item.name.trim();
+		const key = `${item.category}:${name.normalize("NFKC").toLowerCase()}`;
+		if (seen.has(key)) throw invalid();
+		seen.add(key);
+		terms.push({
+			category: item.category,
+			name,
+			aliases: item.aliases.map((alias) => alias.trim()),
+		});
+	}
+	if (!terms.some((term) => term.category === "character")) throw invalid();
+	return terms;
+}
+
+export async function readTerminology(
+	location = new URL(
+		"../../../resources/terminology/terminology.json",
+		import.meta.url,
+	),
+): Promise<readonly TerminologyEntry[]> {
+	let raw: string;
+	try {
+		raw = await readFile(location, "utf8");
+	} catch {
+		throw new TerminologyError("TERMINOLOGY_UNAVAILABLE");
+	}
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		throw new TerminologyError("TERMINOLOGY_INVALID");
+	}
+	return parseTerminology(value);
+}
 
 export function readConfig(env: NodeJS.ProcessEnv): Config {
 	const output = integer(

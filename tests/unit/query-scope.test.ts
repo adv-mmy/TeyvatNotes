@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	parseTerminology,
+	readTerminology,
+} from "../../src/bootstrap/config.js";
+import {
 	applySupplement,
 	parseQuestion,
 	parseSupplement,
@@ -8,11 +12,66 @@ import {
 } from "../../src/domain/query-scope.js";
 
 const terms = [
-	{ name: "角色甲", aliases: ["小甲"] },
-	{ name: "角色甲·冰", aliases: [] },
-	{ name: "角色乙", aliases: [] },
-	{ name: "队友丙", aliases: [] },
-];
+	{ category: "character", name: "角色甲", aliases: ["小甲"] },
+	{ category: "character", name: "角色甲·冰", aliases: [] },
+	{ category: "character", name: "角色乙", aliases: [] },
+	{ category: "character", name: "队友丙", aliases: [] },
+	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
+	{ category: "artifact", name: "试验套", aliases: ["小套"] },
+] as const;
+
+test("装备按类别校对，非装备或无法唯一确认的别名不能进入库存", () => {
+	assert.equal(parseQuestion("试验弓 7.1 怎么配队", terms).entityId, undefined);
+	assert.deepEqual(
+		parseSupplement("装备：小弓、试验套", terms, ["equipment"])?.patch,
+		{
+			equipment: ["试验弓", "试验套"],
+		},
+	);
+	assert.equal(
+		parseSupplement("装备：角色乙", terms, ["equipment"]),
+		undefined,
+	);
+	assert.equal(
+		parseSupplement("装备：未知装备", terms, ["equipment"]),
+		undefined,
+	);
+	const ambiguous = [
+		...terms,
+		{ category: "artifact", name: "另一个测试套", aliases: ["小弓"] },
+	] as const;
+	assert.equal(
+		parseSupplement("装备：小弓", ambiguous, ["equipment"]),
+		undefined,
+	);
+});
+
+test("本地术语资源可读，缺失或非法结构有独立错误码", async () => {
+	const glossary = await readTerminology();
+	assert.equal(
+		parseQuestion("奥萝塔 7.1 怎么配队", glossary).entityId,
+		"奥黛塔",
+	);
+	assert.deepEqual(
+		parseSupplement("装备：终末嗟叹之诗、绝缘之旗印", glossary, ["equipment"])
+			?.patch,
+		{
+			equipment: ["终末嗟叹之诗", "绝缘之旗印"],
+		},
+	);
+	assert.throws(
+		() =>
+			parseTerminology({
+				revision: "test",
+				terms: [{ category: "character", name: "A", aliases: [null] }],
+			}),
+		{ message: "TERMINOLOGY_INVALID" },
+	);
+	await assert.rejects(
+		readTerminology(new URL("./never-present.json", import.meta.url)),
+		{ message: "TERMINOLOGY_UNAVAILABLE" },
+	);
+});
 
 test("标准名、别名和重叠名字都确定到同一角色，多个不同角色不擅自选目标", () => {
 	assert.equal(parseQuestion("小甲 7.1 怎么配队", terms).entityId, "角色甲");

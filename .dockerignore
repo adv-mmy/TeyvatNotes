@@ -6,6 +6,9 @@
 !src/**
 !tests/
 !tests/**
+!resources/
+!resources/terminology/
+!resources/terminology/terminology.json
 **/.env*
 **/*.pem
 **/*.key

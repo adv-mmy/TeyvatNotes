@@ -10,7 +10,11 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { PiAgentRuntime } from "../../src/adapters/pi/runtime.js";
-import type { TurnTool } from "../../src/application/run-turn.js";
+import type { TurnTool } from "../../src/application/guide-tools.js";
+import type {
+	GuideChunkMetadata,
+	GuideData,
+} from "../../src/application/ports/guide-data.js";
 import {
 	maxConfiguredContextTokens,
 	maxConfiguredOutputTokens,
@@ -20,10 +24,11 @@ import { startCli } from "../../src/bootstrap/main.js";
 const scenario = process.argv[2] ?? "normal";
 const conditionsPrefix = "会话中已确认的条件（数据）：";
 const v2Terminology = [
-	{ name: "角色甲", aliases: ["小甲"] },
-	{ name: "角色乙", aliases: [] },
-	{ name: "队友丙", aliases: [] },
-];
+	{ category: "character", name: "角色甲", aliases: ["小甲"] },
+	{ category: "character", name: "角色乙", aliases: [] },
+	{ category: "character", name: "队友丙", aliases: [] },
+	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
+] as const;
 let requests = 0;
 
 function controlledResponse(
@@ -158,7 +163,193 @@ const tools: readonly TurnTool[] = Object.entries({
 	},
 }));
 
+function guideData(): GuideData {
+	const chunk: GuideChunkMetadata = {
+		id: "chunk-21",
+		documentVersionId: "guide-revision-1",
+		entityId: "角色甲",
+		guideKind: "team",
+		gameVersions: { from: "7.1", through: "7.1" },
+		applicability:
+			scenario === "guides-equipment"
+				? {
+						kind: "known",
+						conditions: ["需持有试验弓"],
+						requiredCharacterIds: ["角色甲", "队友丙"],
+						requiredEquipmentIds: ["试验弓"],
+					}
+				: { kind: "unrestricted" },
+		published: true,
+		indexReady: true,
+		title: "隔离攻略 G-01",
+		sourceUrl: "https://example.test/guide",
+		location: "第 2 段",
+		preview: "候选摘要",
+	};
+	const wrong = Array.from({ length: 20 }, (_, index) => ({
+		...chunk,
+		id: `wrong-${index}`,
+		documentVersionId: "other-version",
+		gameVersions: { from: "7.2", through: "7.3" },
+	}));
+	const rows = [...wrong, chunk];
+	return {
+		repository: {
+			async snapshot() {
+				return { revision: "r1", embeddingId: "隔离浮点索引" };
+			},
+			async keywords() {
+				return { ids: ["wrong-0"], next: null };
+			},
+			async eligibleIds() {
+				if (scenario === "guides-miss") return { ids: [], next: null };
+				if (scenario === "guides-incomplete")
+					return { ids: [], next: "unconfirmed-tail" };
+				return { ids: [chunk.id], next: null };
+			},
+			async metadata(_snapshot, ids) {
+				return rows.filter((row) => ids.includes(row.id));
+			},
+			async read(_snapshot, id) {
+				assert.equal(id, chunk.id);
+				return {
+					chunk,
+					body: "隔离样本原文：队伍配置与适用条件。",
+					complete: scenario !== "guides-truncated",
+				};
+			},
+			async assertSnapshot() {},
+		},
+		embeddings: {
+			async embed() {
+				if (scenario === "guides-fault")
+					throw new Error("索引依赖报错原文不可公开");
+				return [1, 0];
+			},
+		},
+		vectorIndex: {
+			async nearest(_embeddingId, _vector, limit) {
+				return [
+					"guides-exact",
+					"guides-missing-vector",
+					"guides-incomplete",
+				].includes(scenario)
+					? []
+					: (scenario === "guides-miss" ? wrong : rows)
+							.slice(0, limit)
+							.map(({ id }) => ({ id, score: 1 }));
+			},
+			async vectors(_embeddingId, ids) {
+				return new Map(
+					scenario === "guides-missing-vector"
+						? []
+						: ids.map((id) => [id, [1, 0]] as const),
+				);
+			},
+		},
+	};
+}
+const runGuideModel: StreamFn = (model, context) => {
+	const results = context.messages.filter(
+		(message) => message.role === "toolResult",
+	);
+	const resultFor = (name: string) => {
+		const last = results.find((result) => result.toolCallId === name);
+		const item = last?.content[0];
+		return !last?.isError && item?.type === "text"
+			? JSON.parse(item.text)
+			: undefined;
+	};
+	const call = (id: string, name: string, args: Record<string, string>) => ({
+		type: "toolCall" as const,
+		id,
+		name,
+		arguments: args,
+	});
+	const answer = (draft: object) =>
+		controlledResponse(model, [{ type: "text", text: JSON.stringify(draft) }]);
+	const retrieved = resultFor("local_1");
+	if (!retrieved)
+		return controlledResponse(model, [
+			call("local_1", "search_guides", { query: "配队" }),
+			...(scenario === "guides-hit"
+				? [call("early", "read_guide", { candidateId: "未回送的候选" })]
+				: []),
+		]);
+	if (scenario === "guides-hit") {
+		const early = results.find((result) => result.toolCallId === "early");
+		assert.ok(early?.isError);
+		assert.deepEqual(early.content, [
+			{ type: "text", text: "CANDIDATE_NOT_AUTHORIZED" },
+		]);
+	}
+	const gap = () =>
+		answer({
+			recommendations: [],
+			gaps: [{ kind: "insufficient_evidence", text: "未取得证据" }],
+		});
+	if (retrieved.status === "miss") return gap();
+	assert.equal(retrieved.candidates.length, 1);
+	const id = retrieved.candidates[0].candidateId;
+	const rec = (
+		evidenceId: string,
+		conditions: string[] = [],
+		requiredEntityIds: string[] = [],
+	) =>
+		answer({
+			recommendations: [
+				{
+					text: "按隔离样本给出配队建议。",
+					conditions,
+					requiredEntityIds,
+					evidenceIds: [evidenceId],
+				},
+			],
+			gaps: [],
+		});
+	if (scenario === "guides-forged") return rec(id);
+	const evidence = resultFor("body_2");
+	if (!evidence)
+		return controlledResponse(model, [
+			call("body_2", "read_guide", { candidateId: id }),
+		]);
+	if (evidence.status === "incomplete") return gap();
+	if (scenario === "guides-equipment") {
+		const projection = context.messages.find(
+			(item) =>
+				item.role === "user" &&
+				typeof item.content === "string" &&
+				item.content.startsWith(conditionsPrefix),
+		);
+		assert.ok(
+			projection?.role === "user" && typeof projection.content === "string",
+		);
+		const { queryScope } = JSON.parse(
+			projection.content.slice(conditionsPrefix.length),
+		);
+		if (queryScope.playerConstraints.equipment.kind === "unknown")
+			return answer({
+				recommendations: [],
+				gaps: [
+					{
+						kind: "equipment_required",
+						equipmentId: "试验弓",
+						evidenceIds: [evidence.evidenceId],
+					},
+				],
+			});
+		return rec(
+			evidence.evidenceId,
+			["需持有试验弓"],
+			["角色甲", "队友丙", "试验弓"],
+		);
+	}
+	return rec(evidence.evidenceId);
+};
+
 const stream: StreamFn = (model, context, options) => {
+	if (scenario.startsWith("guides-"))
+		return runGuideModel(model, context, options);
 	requests++;
 	if (scenario.startsWith("v2-")) {
 		const projection = context.messages.find(
@@ -174,7 +365,7 @@ const stream: StreamFn = (model, context, options) => {
 			projection.content.slice(conditionsPrefix.length),
 		);
 		assert.ok(queryScope.scopeId);
-		if (scenario === "v2-never")
+		if (scenario === "v2-never" || scenario === "v2-local-terminology")
 			assert.fail("缺少范围或已确认无组合时不能发出模型请求");
 		if (scenario === "v2-restored" || scenario === "v2-fail") {
 			assert.equal(queryScope.entityId, "角色甲");
@@ -370,15 +561,30 @@ await startCli(process.env, async ({ cwd, sessionManager }) => {
 		contextWindow: maxConfiguredContextTokens,
 		maxTokens: maxConfiguredOutputTokens,
 	};
+	const runtime = new PiAgentRuntime({
+		cwd,
+		model,
+		modelRuntime,
+		stream,
+		sessionManager,
+	});
+	if (scenario.startsWith("guides-"))
+		return {
+			runtime,
+			mode: "guide",
+			data: guideData(),
+			terminology: v2Terminology,
+		};
 	return {
-		runtime: new PiAgentRuntime({
-			cwd,
-			model,
-			modelRuntime,
-			stream,
-			sessionManager,
-		}),
+		runtime,
 		tools,
-		...(scenario.startsWith("v2-") ? { terminology: v2Terminology } : {}),
+		...(scenario.startsWith("v2-")
+			? {
+					mode: "guide" as const,
+					...(scenario === "v2-local-terminology"
+						? {}
+						: { terminology: v2Terminology }),
+				}
+			: { mode: "general" as const }),
 	};
 });

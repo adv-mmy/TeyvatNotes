@@ -16,6 +16,8 @@ const messages: Readonly<Record<string, string>> = {
 	SESSION_CORRUPT: "会话记录损坏。只显示可恢复的历史，不覆盖原记录。",
 	SESSION_FAILED: "未能读取或持久化会话。请重新打开后核对历史。",
 	MODEL_NOT_CONFIGURED: "当前未配置正式问答模型，仍可查看本地会话历史。",
+	TERMINOLOGY_UNAVAILABLE: "未能读取本地术语表，仍可查看本地会话历史。",
+	TERMINOLOGY_INVALID: "本地术语表格式无效，仍可查看本地会话历史。",
 	BUDGET_EXHAUSTED: "本轮达到调用次数或累计 Token 上限。",
 	CONTEXT_WINDOW_EXCEEDED: "本次请求与预留输出超出上下文窗口。",
 	MODEL_TIMEOUT: "模型调用超时。",
@@ -26,6 +28,9 @@ const messages: Readonly<Record<string, string>> = {
 	MODEL_OUTPUT_LIMIT: "回答达到输出上限，未生成完整答复。",
 	INVALID_ANSWER_STRUCTURE: "回答不符合格式，未展示。",
 	INVALID_CITATION: "回答引用了未经本轮回读的证据，未展示。",
+	INVALID_ANSWER_CONDITIONS: "回答与已确认条件或证据前提不符，未展示。",
+	RETRIEVAL_INCOMPLETE: "攻略检索尚未查完，请调整查询或稍后再试。",
+	RETRIEVAL_UNAVAILABLE: "攻略检索或正文读取暂不可用。",
 };
 
 function safe(text: string) {
@@ -37,12 +42,23 @@ function safe(text: string) {
 	}).join("");
 }
 
+export type QuestionAvailability =
+	| { readonly kind: "ready"; readonly turn: RunTurn }
+	| {
+			readonly kind: "unavailable";
+			readonly code:
+				| "MODEL_NOT_CONFIGURED"
+				| "TERMINOLOGY_INVALID"
+				| "TERMINOLOGY_UNAVAILABLE";
+	  };
+
 export async function runCli(
 	store: SessionStore,
-	turn: RunTurn | undefined,
+	questions: QuestionAvailability,
 	input: NodeJS.ReadableStream = process.stdin,
 	output: NodeJS.WritableStream = process.stdout,
 ): Promise<void> {
+	const turn = questions.kind === "ready" ? questions.turn : undefined;
 	const print = (line: string) => {
 		output.write(`${safe(line)}\n`);
 	};
@@ -71,7 +87,7 @@ export async function runCli(
 				print(outcome.text);
 				for (const cite of outcome.citations)
 					print(
-						`引用：${cite.source}｜${cite.version}｜${cite.location}\n${cite.excerpt}`,
+						`引用：${cite.source}｜${cite.version}｜${cite.location}\n${cite.excerpt}${cite.url ? `\n原文：${cite.url}` : ""}`,
 					);
 				break;
 			case "needs_clarification":
@@ -143,12 +159,12 @@ export async function runCli(
 			print("请先使用 /new 或 /open <会话 ID>。");
 		} else if (!("session" in selected)) {
 			error(selected.code);
-		} else if (!turn) {
-			error("MODEL_NOT_CONFIGURED");
+		} else if (questions.kind === "unavailable") {
+			error(questions.code);
 		} else {
 			cancellation = new AbortController();
 			try {
-				const result = await turn.submit(
+				const result = await questions.turn.submit(
 					selected.session,
 					line,
 					cancellation.signal,
@@ -184,6 +200,11 @@ export async function runCli(
 	print(
 		turn ? "TeyvatNotes" : "TeyvatNotes：问答未配置，可使用本地会话和历史。",
 	);
+	if (
+		questions.kind === "unavailable" &&
+		questions.code !== "MODEL_NOT_CONFIGURED"
+	)
+		error(questions.code);
 	print("命令：/new、/open <会话 ID>、/history、/exit。");
 	try {
 		await new Promise<void>((resolve) => {

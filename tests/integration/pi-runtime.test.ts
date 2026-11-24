@@ -13,13 +13,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { PiAgentRuntime } from "../../src/adapters/pi/runtime.js";
+import { registeredTurnTools } from "../../src/application/guide-tools.js";
 import type {
 	AgentRunHost,
 	ToolBatch,
 	ToolDefinition,
 	ToolResult,
 } from "../../src/application/ports/agent.js";
-import { registeredTurnTools } from "../../src/application/run-turn.js";
 import { TurnBudget } from "../../src/application/turn-budget.js";
 import { readConfig } from "../../src/bootstrap/config.js";
 

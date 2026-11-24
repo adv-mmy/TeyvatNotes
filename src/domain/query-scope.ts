@@ -1,4 +1,7 @@
-export interface CharacterTerm {
+export type TermCategory = "character" | "weapon" | "artifact";
+
+export interface TerminologyEntry {
+	readonly category: TermCategory;
 	readonly name: string;
 	readonly aliases: readonly string[];
 }
@@ -46,6 +49,32 @@ export interface QueryScope {
 	};
 }
 
+export type FrozenQueryScope = Readonly<QueryScope & { scopeId: string }>;
+
+export function versionApplies(
+	version: string,
+	range: { from: string; through: string },
+): boolean {
+	if (
+		![version, range.from, range.through].every((value) =>
+			versionPattern.test(value),
+		)
+	)
+		return false;
+	const compare = (a: string, b: string) => {
+		const left = a.split(".").map(Number);
+		const right = b.split(".").map(Number);
+		for (let i = 0; i < 3; i++) {
+			const difference = (left[i] ?? 0) - (right[i] ?? 0);
+			if (difference) return difference;
+		}
+		return 0;
+	};
+	return (
+		compare(range.from, version) <= 0 && compare(version, range.through) <= 0
+	);
+}
+
 export type ScopeResolution =
 	| { readonly kind: "missing"; readonly fields: readonly ScopeField[] }
 	| {
@@ -60,28 +89,31 @@ function normalize(text: string): string {
 	return text.normalize("NFKC").trim().toLowerCase();
 }
 
-function matchingCharacters(
+function matchingNames(
 	value: string,
-	terms: readonly CharacterTerm[],
+	terms: readonly TerminologyEntry[],
+	category: TermCategory,
 	exact: boolean,
 ): string[] {
 	const input = normalize(value);
-	const candidates = terms.flatMap(({ name, aliases }) =>
-		[name, ...aliases]
-			.map(normalize)
-			.filter(Boolean)
-			.flatMap((label) => {
-				if (exact) return input === label ? [{ name, label, start: 0 }] : [];
-				const hits: { name: string; label: string; start: number }[] = [];
-				for (
-					let start = input.indexOf(label);
-					start >= 0;
-					start = input.indexOf(label, start + label.length)
-				)
-					hits.push({ name, label, start });
-				return hits;
-			}),
-	);
+	const candidates = terms
+		.filter((term) => term.category === category)
+		.flatMap(({ name, aliases }) =>
+			[name, ...aliases]
+				.map(normalize)
+				.filter(Boolean)
+				.flatMap((label) => {
+					if (exact) return input === label ? [{ name, label, start: 0 }] : [];
+					const hits: { name: string; label: string; start: number }[] = [];
+					for (
+						let start = input.indexOf(label);
+						start >= 0;
+						start = input.indexOf(label, start + label.length)
+					)
+						hits.push({ name, label, start });
+					return hits;
+				}),
+		);
 	// 长名字优先仅在同一文本位置生效；互不相交的名字仍视为歧义。
 	return [
 		...new Set(
@@ -114,10 +146,10 @@ function teamMode(input: string): TeamMode | undefined {
 
 export function parseQuestion(
 	prompt: string,
-	terms: readonly CharacterTerm[],
+	terms: readonly TerminologyEntry[],
 ): ScopeDraft {
 	const input = normalize(prompt);
-	const entityId = one(matchingCharacters(input, terms, false));
+	const entityId = one(matchingNames(input, terms, "character", false));
 	const versions = [
 		...new Set(
 			[...input.matchAll(/(?<![\d.])\d{1,3}\.\d{1,3}(?:\.\d{1,3})?(?![\d.])/gu)]
@@ -154,7 +186,7 @@ type SupplementResult =
 /** 只接受可明确解释的条件；未知专名、冲突或整个输入未识别时拒绝草稿。 */
 export function parseSupplement(
 	text: string,
-	terms: readonly CharacterTerm[],
+	terms: readonly TerminologyEntry[],
 	fields: readonly ScopeField[],
 ): SupplementResult {
 	const parts = text
@@ -196,7 +228,7 @@ export function parseSupplement(
 		if (!field || !fields.includes(field) || seen.has(field)) return undefined;
 		seen.add(field);
 		if (field === "entityId") {
-			const canonical = one(matchingCharacters(value, terms, true));
+			const canonical = one(matchingNames(value, terms, "character", true));
 			if (!canonical) return undefined;
 			patch = { ...patch, entityId: canonical };
 			changes.push(`角色：${canonical}`);
@@ -228,10 +260,16 @@ export function parseSupplement(
 				? []
 				: value.split(/[、,，]/u).map((name) => name.trim());
 			if (parts.some((name) => !name)) return undefined;
-			const canonical =
-				field === "teammates"
-					? parts.map((name) => one(matchingCharacters(name, terms, true)))
-					: parts;
+			const canonical = parts.map((name) =>
+				one(
+					field === "teammates"
+						? matchingNames(name, terms, "character", true)
+						: [
+								...matchingNames(name, terms, "weapon", true),
+								...matchingNames(name, terms, "artifact", true),
+							],
+				),
+			);
 			if (canonical.some((name) => name === undefined)) return undefined;
 			const items = [
 				...new Set(

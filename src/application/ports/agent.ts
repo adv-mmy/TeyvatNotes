@@ -19,7 +19,10 @@ export interface ToolCall {
 	readonly arguments: JsonObject;
 }
 
-export type ToolRejection = "TOOL_NOT_ALLOWED" | "INVALID_TOOL_ARGUMENT";
+export type ToolRejection =
+	| "TOOL_NOT_ALLOWED"
+	| "INVALID_TOOL_ARGUMENT"
+	| "CANDIDATE_NOT_AUTHORIZED";
 
 /** 同一条模型回复形成一批。rejected 仅供记账，不能执行。 */
 export interface ToolBatch {
@@ -42,6 +45,7 @@ export type ToolResult =
 
 export interface AgentRunInput {
 	readonly prompt: string;
+	readonly answerInstructions?: string;
 	readonly tools: readonly ToolDefinition[];
 	readonly turnId?: string;
 	readonly priorTurns?: readonly {

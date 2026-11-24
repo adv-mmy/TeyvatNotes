@@ -1,0 +1,373 @@
+import { rankGuides } from "../domain/guide-ranking.js";
+import { type QueryScope, versionApplies } from "../domain/query-scope.js";
+import {
+	type GuideChunkMetadata,
+	type GuideData,
+	type GuideFilter,
+	type GuidePage,
+	type GuideSnapshot,
+	GuideSnapshotChanged,
+	type GuideWindow,
+} from "./ports/guide-data.js";
+
+export interface RetrievalLimits {
+	readonly pageSize: number;
+	readonly maxPages: number;
+	readonly maxScanned: number;
+	readonly maxCandidates: number;
+	readonly minVectorScore: number;
+}
+
+export const defaultRetrievalLimits: RetrievalLimits = {
+	pageSize: 20,
+	maxPages: 4,
+	maxScanned: 160,
+	maxCandidates: 8,
+	minVectorScore: 0,
+};
+
+export interface AuthorizedCandidate {
+	readonly chunk: GuideChunkMetadata;
+	readonly snapshot: GuideSnapshot;
+}
+export type RetrievalError = "RETRIEVAL_INCOMPLETE" | "RETRIEVAL_UNAVAILABLE";
+export type GuideSearchOutcome =
+	| {
+			readonly kind: "hit";
+			readonly candidates: readonly AuthorizedCandidate[];
+	  }
+	| { readonly kind: "miss" }
+	| { readonly kind: "error"; readonly code: RetrievalError };
+export type GuideReadOutcome =
+	| { readonly kind: "complete"; readonly window: GuideWindow }
+	| { readonly kind: "incomplete" }
+	| {
+			readonly kind: "error";
+			readonly code: RetrievalError | "CANDIDATE_NOT_AUTHORIZED";
+	  };
+
+function filterOf(scope: QueryScope): GuideFilter {
+	return {
+		entityId: scope.entityId,
+		gameVersion: scope.gameVersion,
+		guideKind: scope.guideKind,
+	};
+}
+
+function validUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		return url.protocol === "https:" && !url.username && !url.password;
+	} catch {
+		return false;
+	}
+}
+
+function matches(scope: QueryScope, item: GuideChunkMetadata): boolean {
+	if (
+		!item.published ||
+		!item.indexReady ||
+		item.entityId !== scope.entityId ||
+		item.guideKind !== scope.guideKind ||
+		!versionApplies(scope.gameVersion, item.gameVersions) ||
+		item.applicability.kind === "unknown" ||
+		!item.id.trim() ||
+		!item.documentVersionId.trim() ||
+		!item.title.trim() ||
+		!item.location.trim() ||
+		!validUrl(item.sourceUrl)
+	)
+		return false;
+	if (item.applicability.kind === "known") {
+		if (
+			!item.applicability.conditions.length ||
+			item.applicability.conditions.some((value) => !value.trim())
+		)
+			return false;
+		if (
+			scope.playerConstraints.targetHolding === "not_owned" &&
+			item.applicability.requiredCharacterIds.includes(scope.entityId)
+		)
+			return false;
+	}
+	return true;
+}
+
+function errorCode(error: unknown): RetrievalError {
+	return error instanceof GuideSnapshotChanged
+		? "RETRIEVAL_INCOMPLETE"
+		: "RETRIEVAL_UNAVAILABLE";
+}
+
+interface Branch {
+	readonly ranked: readonly string[];
+	readonly exhausted: boolean;
+}
+function assertVector(vector: readonly number[], dimension?: number): void {
+	if (
+		!vector.length ||
+		(dimension !== undefined && dimension !== vector.length) ||
+		!vector.every(Number.isFinite) ||
+		!Number.isFinite(Math.hypot(...vector)) ||
+		Math.hypot(...vector) === 0
+	)
+		throw new Error("INVALID_VECTOR");
+}
+
+function cosine(vector: readonly number[], other: readonly number[]): number {
+	assertVector(other, vector.length);
+	const a = Math.hypot(...vector);
+	const b = Math.hypot(...other);
+	return vector.reduce(
+		(sum, value, index) => sum + (value / a) * ((other[index] ?? 0) / b),
+		0,
+	);
+}
+
+export class GuideRetrieval {
+	constructor(
+		private readonly data: GuideData,
+		private readonly limits: RetrievalLimits = defaultRetrievalLimits,
+	) {
+		for (const n of [
+			limits.pageSize,
+			limits.maxPages,
+			limits.maxScanned,
+			limits.maxCandidates,
+		])
+			if (!Number.isSafeInteger(n) || n < 1)
+				throw new RangeError("无效的检索上限");
+		if (
+			!Number.isFinite(limits.minVectorScore) ||
+			limits.minVectorScore < -1 ||
+			limits.minVectorScore > 1
+		)
+			throw new RangeError("无效的向量相似度门槛");
+	}
+
+	async searchGuides(
+		scope: QueryScope,
+		query: string,
+		signal: AbortSignal,
+	): Promise<GuideSearchOutcome> {
+		const filter = filterOf(scope);
+		const branches = new AbortController();
+		const branchSignal = AbortSignal.any([signal, branches.signal]);
+		try {
+			signal.throwIfAborted();
+			const snapshot = await this.data.repository.snapshot(filter, signal);
+			const chunks = new Map<string, GuideChunkMetadata>();
+			const eligible = async (
+				ids: readonly string[],
+				strict = false,
+			): Promise<string[]> => {
+				branchSignal.throwIfAborted();
+				if (!ids.length) return [];
+				const unique = new Set(ids);
+				const values = await this.data.repository.metadata(
+					snapshot,
+					[...unique],
+					branchSignal,
+				);
+				branchSignal.throwIfAborted();
+				const received = new Set<string>();
+				const qualified = new Set<string>();
+				for (const item of values) {
+					if (!unique.has(item.id) || received.has(item.id))
+						throw new Error("INVALID_METADATA");
+					received.add(item.id);
+					if (matches(scope, item)) {
+						chunks.set(item.id, item);
+						qualified.add(item.id);
+					}
+				}
+				if (strict && received.size !== unique.size)
+					throw new Error("MISSING_METADATA");
+				return [...unique].filter((id) => qualified.has(id));
+			};
+			const [keywords, semantic] = await Promise.all([
+				this.keyword(filter, snapshot, query, eligible, branchSignal),
+				this.semantic(filter, snapshot, query, eligible, branchSignal),
+			]);
+			signal.throwIfAborted();
+			await this.data.repository.assertSnapshot(filter, snapshot, signal);
+			signal.throwIfAborted();
+			const ranked = rankGuides([keywords.ranked, semantic.ranked]).slice(
+				0,
+				this.limits.maxCandidates,
+			);
+			const candidates = ranked.flatMap(({ id }) => {
+				const chunk = chunks.get(id);
+				return chunk ? [{ chunk, snapshot }] : [];
+			});
+			if (candidates.length) return { kind: "hit", candidates };
+			return keywords.exhausted && semantic.exhausted
+				? { kind: "miss" }
+				: { kind: "error", code: "RETRIEVAL_INCOMPLETE" };
+		} catch (error) {
+			signal.throwIfAborted();
+			return { kind: "error", code: errorCode(error) };
+		} finally {
+			branches.abort();
+		}
+	}
+
+	async readGuide(
+		scope: QueryScope,
+		candidate: AuthorizedCandidate,
+		signal: AbortSignal,
+	): Promise<GuideReadOutcome> {
+		try {
+			signal.throwIfAborted();
+			const filter = filterOf(scope);
+			if (!matches(scope, candidate.chunk))
+				return { kind: "error", code: "CANDIDATE_NOT_AUTHORIZED" };
+			const row = await this.data.repository.read(
+				candidate.snapshot,
+				candidate.chunk.id,
+				signal,
+			);
+			signal.throwIfAborted();
+			if (!row) return { kind: "error", code: "RETRIEVAL_UNAVAILABLE" };
+			if (
+				row.chunk.id !== candidate.chunk.id ||
+				row.chunk.documentVersionId !== candidate.chunk.documentVersionId ||
+				!matches(scope, row.chunk)
+			)
+				return { kind: "error", code: "CANDIDATE_NOT_AUTHORIZED" };
+			await this.data.repository.assertSnapshot(
+				filter,
+				candidate.snapshot,
+				signal,
+			);
+			signal.throwIfAborted();
+			return row.complete && row.body.trim()
+				? { kind: "complete", window: row }
+				: { kind: "incomplete" };
+		} catch (error) {
+			signal.throwIfAborted();
+			return { kind: "error", code: errorCode(error) };
+		}
+	}
+
+	private async keyword(
+		filter: GuideFilter,
+		snapshot: GuideSnapshot,
+		query: string,
+		eligible: (ids: readonly string[], strict?: boolean) => Promise<string[]>,
+		signal: AbortSignal,
+	): Promise<Branch> {
+		return this.walk(
+			(cursor, limit) =>
+				this.data.repository.keywords(
+					filter,
+					snapshot,
+					query,
+					cursor,
+					limit,
+					signal,
+				),
+			(ids) => eligible(ids, true),
+			signal,
+		);
+	}
+
+	private async semantic(
+		filter: GuideFilter,
+		snapshot: GuideSnapshot,
+		query: string,
+		eligible: (ids: readonly string[], strict?: boolean) => Promise<string[]>,
+		signal: AbortSignal,
+	): Promise<Branch> {
+		const { vectorIndex, embeddings, repository } = this.data;
+		const { embeddingId } = snapshot;
+		const { pageSize, maxScanned, maxPages, minVectorScore } = this.limits;
+		signal.throwIfAborted();
+		const vector = await embeddings.embed(query, embeddingId, signal);
+		assertVector(vector);
+		let size = Math.min(pageSize, maxScanned);
+		const seen = new Set<string>();
+		for (let page = 0; page < maxPages; page++) {
+			signal.throwIfAborted();
+			const nearest = await vectorIndex.nearest(
+				embeddingId,
+				vector,
+				size,
+				signal,
+			);
+			if (
+				nearest.length > size ||
+				nearest.some((item) => !item.id || !Number.isFinite(item.score))
+			)
+				throw new Error("INVALID_NEAREST_RESULT");
+			const hits = await eligible(
+				nearest
+					.filter(({ id, score }) => !seen.has(id) && score >= minVectorScore)
+					.map(({ id }) => id),
+			);
+			for (const { id } of nearest) seen.add(id);
+			if (hits.length) return { ranked: hits, exhausted: false };
+			if (size === maxScanned) break;
+			size = Math.min(size * 2, maxScanned);
+		}
+		// ANN 的空结果或短页都不证明查完。以权威分块清单补判相似度。
+		const scores = new Map<string, number>();
+		const coverage = await this.walk(
+			(cursor, limit) =>
+				repository.eligibleIds(filter, snapshot, cursor, limit, signal),
+			async (ids) => {
+				if (!ids.length) return [];
+				const qualified = await eligible(ids, true);
+				signal.throwIfAborted();
+				const vectors = await vectorIndex.vectors(embeddingId, ids, signal);
+				for (const id of ids) {
+					const stored = vectors.get(id);
+					if (!stored) throw new Error("MISSING_INDEX_VECTOR");
+					const score = cosine(vector, stored);
+					if (qualified.includes(id) && score >= minVectorScore)
+						scores.set(id, score);
+				}
+				return [];
+			},
+			signal,
+			false,
+		);
+		return {
+			exhausted: coverage.exhausted,
+			ranked: [...scores]
+				.sort(([a, x], [b, y]) => y - x || (a < b ? -1 : a > b ? 1 : 0))
+				.map(([id]) => id),
+		};
+	}
+
+	private async walk(
+		load: (cursor: string | null, limit: number) => Promise<GuidePage>,
+		select: (ids: readonly string[]) => Promise<string[]>,
+		signal: AbortSignal,
+		stopAtHit = true,
+	): Promise<Branch> {
+		const { pageSize, maxScanned, maxPages } = this.limits;
+		const ids = new Set<string>();
+		const cursors = new Set<string>();
+		let cursor: string | null = null;
+		let scanned = 0;
+		for (let page = 0; page < maxPages && scanned < maxScanned; page++) {
+			signal.throwIfAborted();
+			const limit = Math.min(pageSize, maxScanned - scanned);
+			const result = await load(cursor, limit);
+			if (result.ids.length > limit || result.ids.some((id) => !id))
+				throw new Error("INVALID_PAGE");
+			scanned += result.ids.length;
+			const fresh = [...new Set(result.ids)].filter((id) => !ids.has(id));
+			for (const id of fresh) ids.add(id);
+			const ranked = await select(fresh);
+			if (ranked.length && stopAtHit)
+				return { ranked, exhausted: result.next === null };
+			if (result.next === null) return { ranked, exhausted: true };
+			if (cursors.has(result.next)) return { ranked: [], exhausted: false };
+			cursors.add(result.next);
+			cursor = result.next;
+		}
+		return { ranked: [], exhausted: false };
+	}
+}

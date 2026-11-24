@@ -57,6 +57,16 @@ function nonempty(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
 }
 
+function safeReference(value: unknown): boolean {
+	if (!nonempty(value)) return false;
+	try {
+		const url = new URL(value);
+		return url.protocol === "https:" && !url.username && !url.password;
+	} catch {
+		return false;
+	}
+}
+
 function validOutcome(value: unknown): value is TurnOutcome {
 	if (!object(value)) return false;
 	switch (value.status) {
@@ -70,6 +80,9 @@ function validOutcome(value: unknown): value is TurnOutcome {
 						object(item) &&
 						nonempty(item.source) &&
 						nonempty(item.version) &&
+						(item.url === undefined || safeReference(item.url)) &&
+						(item.documentVersionId === undefined ||
+							nonempty(item.documentVersionId)) &&
 						nonempty(item.location) &&
 						nonempty(item.excerpt),
 				)
@@ -108,6 +121,7 @@ function validClarification(value: unknown): value is PendingClarification {
 		nonempty(value.text) &&
 		(value.state === "waiting" || value.state === "ready") &&
 		(value.scope === undefined || isScopeDraft(value.scope)) &&
+		(value.equipmentId === undefined || nonempty(value.equipmentId)) &&
 		(value.fields === undefined ||
 			(Array.isArray(value.fields) &&
 				value.fields.every(

@@ -1,6 +1,5 @@
 import {
 	applySupplement,
-	type CharacterTerm,
 	type Holding,
 	type PlayerInventory,
 	parseQuestion,
@@ -9,6 +8,7 @@ import {
 	resolveScope,
 	type ScopeDraft,
 	type ScopeField,
+	type TerminologyEntry,
 } from "../domain/query-scope.js";
 import type { JsonObject } from "./ports/agent.js";
 import type {
@@ -27,6 +27,7 @@ export interface DialogueTurn {
 	readonly kind: "run";
 	readonly prompt: string;
 	readonly scope?: QueryScope;
+	readonly scopeDraft?: ScopeDraft;
 	readonly preflight?: {
 		readonly status: "needs_clarification" | "insufficient_evidence";
 		readonly text: string;
@@ -59,7 +60,7 @@ const questions: Readonly<Record<ScopeField, string>> = {
 	teamMode: "模式：通用 / 按库存",
 	holding: "目标角色持有：持有 / 不持有",
 	teammates: "队友：名字列表，或「无」",
-	equipment: "装备：名称列表，或「无」",
+	equipment: "装备：武器或圣遗物的标准名、已登记别名，或「无」",
 };
 
 function playerFrom(history: SessionHistory): PlayerInventory {
@@ -88,7 +89,7 @@ function notice(text: string): Notice {
 export class Clarification {
 	private readonly drafts = new WeakMap<WritableSession, Draft>();
 
-	constructor(private readonly terms?: readonly CharacterTerm[]) {}
+	constructor(private readonly terms?: readonly TerminologyEntry[]) {}
 
 	current(session: WritableSession): string | undefined {
 		const pending = session.history().clarification;
@@ -223,8 +224,19 @@ export class Clarification {
 		turn: DialogueTurn,
 		turnId: string,
 		outcome: TurnOutcome,
+		equipmentId?: string,
 	): PendingClarification | null | undefined {
 		if (outcome.status === "needs_clarification") {
+			if (equipmentId && turn.scopeDraft)
+				return {
+					questionTurnId: turn.continuing?.questionTurnId ?? turnId,
+					prompt: turn.continuing?.prompt ?? turn.prompt,
+					text: outcome.text,
+					state: "waiting",
+					scope: { ...turn.scopeDraft, equipmentRequired: true },
+					fields: ["equipment"],
+					equipmentId,
+				};
 			if (turn.waiting)
 				return {
 					...turn.waiting,
@@ -272,7 +284,7 @@ export class Clarification {
 		} as const;
 		switch (result.kind) {
 			case "ready":
-				return { ...turn, scope: result.scope };
+				return { ...turn, scope: result.scope, scopeDraft: scope };
 			case "no_team":
 				return {
 					...turn,
