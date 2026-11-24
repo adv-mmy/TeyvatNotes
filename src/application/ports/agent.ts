@@ -87,6 +87,8 @@ export type AgentRunResult =
 export interface AgentRunHost {
 	prepareModelRequest(draft: ModelRequestDraft): Promise<PreparedModelRequest>;
 	executeToolBatch(batch: ToolBatch): Promise<readonly ToolResult[]>;
+	/** 运行时确认该批结果已进入循环上下文后、下一次请求检查前通知应用。 */
+	toolResultsDelivered?(callIds: readonly string[]): void;
 	recordModelUsage?(tokens: number): void;
 }
 

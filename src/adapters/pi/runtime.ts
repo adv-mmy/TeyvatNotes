@@ -299,6 +299,7 @@ export class PiAgentRuntime implements AgentRuntime {
 				customTools,
 			});
 			const abort = () => void session.abort().catch(() => undefined);
+			let awaitingDelivery: readonly string[] | undefined;
 			try {
 				signal.addEventListener("abort", abort, { once: true });
 				if (signal.aborted) return { status: "cancelled" };
@@ -316,6 +317,21 @@ export class PiAgentRuntime implements AgentRuntime {
 					if (failure) return failureStream(selected, failure);
 					try {
 						const normalized = normalizeRejectedResults(original, results);
+						if (awaitingDelivery) {
+							const delivered = new Set(
+								normalized.messages.flatMap((message) =>
+									message.role === "toolResult" ? [message.toolCallId] : [],
+								),
+							);
+							if (!awaitingDelivery.every((id) => delivered.has(id)))
+								return reject("INVALID_TOOL_RESULT");
+							try {
+								host.toolResultsDelivered?.(awaitingDelivery);
+							} catch {
+								return reject("INVALID_TOOL_RESULT");
+							}
+							awaitingDelivery = undefined;
+						}
 						const start = normalized.messages.findIndex(
 							(message) => message.role !== "system",
 						);
@@ -432,6 +448,7 @@ export class PiAgentRuntime implements AgentRuntime {
 						const verified = verifiedResults(batch, applied);
 						if (!verified) return reject("INVALID_TOOL_RESULT");
 						for (const [id, result] of verified) results.set(id, result);
+						awaitingDelivery = proposed.map((call) => call.id);
 						return response;
 					} catch {
 						return requestSignal.aborted

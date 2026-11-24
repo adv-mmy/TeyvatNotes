@@ -4,7 +4,11 @@ import { pathToFileURL } from "node:url";
 import { PiSessionStore } from "../adapters/pi/session-store.js";
 import { Clarification } from "../application/clarification.js";
 import type { AgentRuntime } from "../application/ports/agent.js";
-import { RunTurn, type TurnTool } from "../application/run-turn.js";
+import {
+	RunTurn,
+	registeredTurnTools,
+	type TurnTool,
+} from "../application/run-turn.js";
 import { runCli } from "../cli/runner.js";
 import type { CharacterTerm } from "../domain/query-scope.js";
 import { readConfig } from "./config.js";
@@ -34,7 +38,7 @@ export async function startCli(
 		? new RunTurn(
 				questions.runtime,
 				config.limits,
-				questions.tools,
+				registeredTurnTools(questions.tools),
 				(info) => {
 					if (env.TEYVAT_DIAGNOSTICS === "1")
 						process.stderr.write(`${JSON.stringify(info)}\n`);

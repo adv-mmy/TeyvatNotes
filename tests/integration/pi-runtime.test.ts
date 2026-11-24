@@ -19,6 +19,9 @@ import type {
 	ToolDefinition,
 	ToolResult,
 } from "../../src/application/ports/agent.js";
+import { registeredTurnTools } from "../../src/application/run-turn.js";
+import { TurnBudget } from "../../src/application/turn-budget.js";
+import { readConfig } from "../../src/bootstrap/config.js";
 
 const tools = ["probe", "read_candidate", "report_gap"].map(
 	(name): ToolDefinition => ({
@@ -186,6 +189,7 @@ test("同批授权只检查一次：未登记工具、非法参数与尚未授�
 	let actualRequests = 0;
 	const executed: string[] = [];
 	const batches: ToolBatch[] = [];
+	const receipts: string[][] = [];
 	const runtime = await setup((model, context) => {
 		actualRequests++;
 		if (actualRequests === 1) {
@@ -214,10 +218,12 @@ test("同批授权只检查一次：未登记工具、非法参数与尚未授�
 	});
 	const host: AgentRunHost = {
 		async prepareModelRequest() {
+			assert.equal(receipts.length, actualRequests);
 			return { allowed: true };
 		},
 		async executeToolBatch(batch) {
 			batches.push(batch);
+			assert.equal(receipts.length, 0, "执行批次时 SDK 尚未回送该批结果");
 			assert.deepEqual(
 				batch.rejected.map(({ id, code }) => [id, code]),
 				[
@@ -234,6 +240,9 @@ test("同批授权只检查一次：未登记工具、非法参数与尚未授�
 				})
 				.reverse(); // 结果必须按 ID 配对，而不是按应用返回顺序。
 		},
+		toolResultsDelivered(ids) {
+			receipts.push([...ids]);
+		},
 	};
 	assert.deepEqual(await runtime.run(ask, host, freshSignal()), {
 		status: "completed",
@@ -242,6 +251,96 @@ test("同批授权只检查一次：未登记工具、非法参数与尚未授�
 	assert.deepEqual(executed, ["probe"]);
 	assert.equal(batches.length, 1);
 	assert.equal(actualRequests, 2);
+	assert.deepEqual(receipts, [
+		["probe", "early_read", "not_allowed", "bad_args"],
+	]);
+});
+
+test("工具环境仅在完整回送后发布证据，关闭后不接受迟到结果", async () => {
+	const signal = freshSignal();
+	const budget = new TurnBudget(readConfig({}).limits, signal);
+	const definition = tools[0];
+	assert.ok(definition);
+	const create = registeredTurnTools([
+		{
+			definition,
+			authorize: () => true,
+			execute: async () => ({
+				content: { evidenceId: "e1" },
+				evidence: {
+					id: "e1",
+					citation: {
+						source: "测试资料",
+						version: "7.1",
+						location: "test:1",
+						excerpt: "引用示例",
+					},
+				},
+			}),
+		},
+	]);
+	const environment = create({ turnId: "turn1", budget });
+	const call = {
+		id: "read1",
+		name: definition.name,
+		arguments: { value: "topic" },
+	};
+	const batch: ToolBatch = { calls: [call], rejected: [], signal };
+	try {
+		assert.equal((await environment.executeBatch(batch)).length, 1);
+		assert.equal(environment.evidenceView().citations.size, 0);
+		assert.throws(() => environment.confirmDelivery(["other"]), {
+			message: "TOOL_FAILED",
+		});
+		assert.equal(environment.evidenceView().citations.size, 0);
+		environment.confirmDelivery(["read1"]);
+		const view = environment.evidenceView();
+		assert.equal(view.citations.size, 1);
+		await environment.executeBatch({
+			...batch,
+			calls: [{ ...call, id: "read2" }],
+		});
+		environment.close();
+		assert.throws(() => environment.confirmDelivery(["read2"]), {
+			message: "TOOL_FAILED",
+		});
+		assert.equal(environment.evidenceView().citations.size, 0);
+		assert.equal(view.citations.size, 1);
+		const next = create({ turnId: "turn2", budget });
+		assert.equal(next.evidenceView().citations.size, 0);
+		next.close();
+	} finally {
+		environment.close();
+		budget.close();
+	}
+});
+
+test("工具完成前取消本轮时，Pi 不发送批次回送确认，也不开新请求", async () => {
+	const controller = new AbortController();
+	let requests = 0;
+	let executions = 0;
+	let receipts = 0;
+	const runtime = await setup((model) => {
+		requests++;
+		return answer(model, [use("probe_1", "probe", "topic")]);
+	});
+	const host: AgentRunHost = {
+		async prepareModelRequest() {
+			return { allowed: true };
+		},
+		async executeToolBatch() {
+			executions++;
+			controller.abort();
+			return [{ id: "probe_1", ok: true, content: "取消时到达的结果" }];
+		},
+		toolResultsDelivered() {
+			receipts++;
+		},
+	};
+	assert.deepEqual(await runtime.run(ask, host, controller.signal), {
+		status: "cancelled",
+	});
+	assert.deepEqual([requests, executions, receipts], [1, 1, 0]);
 });
 
 const unexpectedTool: AgentRunHost["executeToolBatch"] = async () => {
