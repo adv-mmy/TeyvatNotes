@@ -1,0 +1,12 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!tests/
+!tests/**
+**/.env*
+**/*.pem
+**/*.key
+**/secrets/

@@ -1,0 +1,13 @@
+name: teyvatnotes
+
+services:
+  teyvatnotes:
+    build: .
+    stdin_open: true
+    tty: true
+    network_mode: none
+    volumes:
+      - session_data:/data/sessions
+
+volumes:
+  session_data:
