@@ -21,6 +21,9 @@ export class TurnBudget {
 	private rejected = 0;
 	private estimatedTokens = 0;
 	private actualTokens = 0;
+	private accountedTokens = 0;
+	// Pi 逐次等待模型结果；没有返回有效用量时，保留该次请求的预留。
+	private pendingEstimate: number | undefined;
 
 	constructor(
 		readonly limits: TurnLimits,
@@ -47,12 +50,13 @@ export class TurnBudget {
 			return { allowed: false, code: "CONTEXT_WINDOW_EXCEEDED" };
 		if (
 			this.models >= this.limits.modelCalls ||
-			Math.max(this.actualTokens, this.estimatedTokens) + estimate >
-				this.limits.cumulativeTokens
+			this.accountedTokens + estimate > this.limits.cumulativeTokens
 		)
 			return { allowed: false, code: "BUDGET_EXHAUSTED" };
 		this.models++;
 		this.estimatedTokens += estimate;
+		this.accountedTokens += estimate;
+		this.pendingEstimate = estimate;
 		return {
 			allowed: true,
 			maxOutputTokens: this.limits.maxOutputTokens,
@@ -60,9 +64,15 @@ export class TurnBudget {
 		};
 	}
 
-	recordUsage(tokens: number): void {
-		if (Number.isSafeInteger(tokens) && tokens >= 0)
+	recordUsage(tokens: number): boolean {
+		const estimate = this.pendingEstimate;
+		this.pendingEstimate = undefined;
+		if (Number.isSafeInteger(tokens) && tokens >= 0) {
 			this.actualTokens += tokens;
+			// 逐次结算：其他请求的低用量不能抵消本次超出预留的部分。
+			this.accountedTokens += Math.max(0, tokens - (estimate ?? 0));
+		}
+		return this.accountedTokens <= this.limits.cumulativeTokens;
 	}
 
 	startTool(): AbortSignal | undefined {
@@ -83,6 +93,7 @@ export class TurnBudget {
 			rejectedTools: this.rejected,
 			estimatedTokens: this.estimatedTokens,
 			actualTokens: this.actualTokens,
+			accountedTokens: this.accountedTokens,
 		};
 	}
 }

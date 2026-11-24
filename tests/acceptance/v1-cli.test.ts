@@ -16,6 +16,7 @@ import { type TestContext, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { PiSessionStore } from "../../src/adapters/pi/session-store.js";
+import { TurnBudget } from "../../src/application/turn-budget.js";
 import { readConfig } from "../../src/bootstrap/config.js";
 
 const linuxOnly = { skip: process.platform !== "linux", timeout: 30_000 };
@@ -41,12 +42,12 @@ async function rootFor(t: TestContext) {
 function start(
 	t: TestContext,
 	directory: string,
-	scenario?: string,
+	scenario = "normal",
 	env: NodeJS.ProcessEnv = {},
 ) {
 	const child = spawn(
 		process.execPath,
-		scenario ? [fixture, scenario] : [entry],
+		scenario === "default-entry" ? [entry] : [fixture, scenario],
 		{
 			env: {
 				...process.env,
@@ -128,6 +129,30 @@ function diagnostics(client: ReturnType<typeof start>) {
 		.filter((line) => line.startsWith("{"))
 		.map((line) => JSON.parse(line));
 }
+
+test("默认入口不装配模拟问答，仍可打开和查看已有会话", linuxOnly, async (t) => {
+	const root = await rootFor(t);
+	const controlled = start(t, root);
+	const id = await create(controlled);
+	controlled.send("隔离验收生成的历史");
+	await controlled.wait(/引用：TeyvatNotes 隔离测试样本/);
+	await controlled.exit();
+	const original = await journal(root, id);
+
+	const normal = start(t, root, "default-entry");
+	await normal.wait(/问答未配置，可使用本地会话和历史/);
+	normal.send(`/open ${id}`);
+	await normal.wait(/已打开会话/);
+	normal.send("/history");
+	await normal.wait(/问题：隔离验收生成的历史/);
+	await normal.wait(/引用：TeyvatNotes 隔离测试样本/);
+	normal.send("不能触发模拟回复");
+	await normal.wait(/MODEL_NOT_CONFIGURED/);
+	await normal.exit();
+	assert.doesNotMatch(normal.output(), /正在调用模型|正在执行工具/);
+	assert.equal(diagnostics(normal).length, 0);
+	assert.deepEqual(await journal(root, id), original);
+});
 
 test(
 	"真实 CLI 离线运行两个分支，先提交后展示；重开只看已提交历史",
@@ -499,6 +524,116 @@ for (const [scenario, env, expected, models, tools] of [
 		},
 	);
 }
+
+test("累计 Token 逐次结算，低于预留的请求不抵消另一笔超额", () => {
+	const limits = readConfig({
+		TEYVAT_MAX_OUTPUT_TOKENS: "1",
+		TEYVAT_CUMULATIVE_TOKENS: "650",
+	}).limits;
+	const signal = new AbortController().signal;
+	const budget = new TurnBudget(limits, signal);
+	try {
+		assert.equal(
+			budget.prepare({ serializedContext: "x".repeat(121), signal }).allowed,
+			true,
+		);
+		assert.equal(budget.recordUsage(100), true);
+		assert.equal(
+			budget.prepare({ serializedContext: "x".repeat(71), signal }).allowed,
+			true,
+		);
+		assert.equal(budget.recordUsage(280), true);
+		assert.deepEqual(
+			budget.prepare({ serializedContext: "x".repeat(71), signal }),
+			{
+				allowed: false,
+				code: "BUDGET_EXHAUSTED",
+			},
+		);
+		assert.deepEqual(budget.summary(), {
+			modelCalls: 2,
+			toolCalls: 0,
+			rejectedTools: 0,
+			estimatedTokens: 450,
+			actualTokens: 380,
+			accountedTokens: 530,
+		});
+	} finally {
+		budget.close();
+	}
+});
+
+for (const scenario of [
+	"last-model-token-overage",
+	"tool-model-token-overage",
+]) {
+	test(
+		`模型实际用量超额后不接收正文或开启工具：${scenario}`,
+		linuxOnly,
+		async (t) => {
+			const root = await rootFor(t);
+			const client = start(t, root, scenario, {
+				TEYVAT_CUMULATIVE_TOKENS: "20000",
+			});
+			const id = await create(client);
+			client.send("验证模型回报超额用量");
+			await client.wait(/BUDGET_EXHAUSTED/);
+			await client.exit();
+			assert.doesNotMatch(client.output(), /超额正文不应展示|正在执行工具/);
+			const [row] = diagnostics(client);
+			assert.deepEqual(
+				[row.modelCalls, row.toolCalls, row.actualTokens],
+				[1, 0, 20_001],
+			);
+			assert.deepEqual((await journal(root, id))[1].outcome, {
+				status: "failed",
+				code: "BUDGET_EXHAUSTED",
+			});
+		},
+	);
+}
+
+test("会话提交和恢复均拒绝空引用的成功记录", linuxOnly, async (t) => {
+	const root = await rootFor(t);
+	const store = new PiSessionStore(root, process.cwd());
+	const session = await store.create();
+	const id = session.sessionId;
+	const turnId = await session.begin("验证存储引用校验");
+	const outcome = {
+		status: "answered",
+		text: "不能恢复为成功",
+		citations: [],
+	} as const;
+	try {
+		await assert.rejects(session.commit({ turnId, outcome }), {
+			message: "SESSION_FAILED",
+		});
+	} finally {
+		await session.close();
+	}
+	assert.equal((await journal(root, id)).length, 1);
+	const path = join(root, id, "turns.jsonl");
+	const event = {
+		type: "turn_committed",
+		sessionId: id,
+		at: new Date().toISOString(),
+		turnId,
+		outcome,
+		pi: null,
+	};
+	await appendFile(path, `${JSON.stringify(event)}\n`);
+	const raw = await readFile(path);
+	const recovered = await store.open(id);
+	if (recovered.mode === "write") {
+		await recovered.session.close();
+		assert.fail("空引用成功记录不应通过会话恢复校验");
+	}
+	assert.equal(recovered.code, "SESSION_CORRUPT");
+	assert.deepEqual(recovered.history?.turns[0]?.outcome, {
+		status: "interrupted",
+	});
+	assert.deepEqual(await readFile(path), raw);
+});
 
 test("Ctrl+C 取消进行中的轮次；运行中的新问题不排队", linuxOnly, async (t) => {
 	const root = await rootFor(t);

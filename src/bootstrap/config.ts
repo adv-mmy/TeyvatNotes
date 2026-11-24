@@ -26,8 +26,8 @@ function integer(
 	return value;
 }
 
-export const controlledContextWindow = 128_000;
-export const controlledOutputWindow = 16_384;
+export const maxConfiguredContextTokens = 128_000;
+export const maxConfiguredOutputTokens = 16_384;
 
 export function readConfig(env: NodeJS.ProcessEnv): Config {
 	const output = integer(
@@ -35,7 +35,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 		"TEYVAT_MAX_OUTPUT_TOKENS",
 		8192,
 		1,
-		controlledOutputWindow,
+		maxConfiguredOutputTokens,
 	);
 	return {
 		sessionDirectory: resolve(env.TEYVAT_SESSION_DIR ?? "/data/sessions"),
@@ -50,7 +50,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 				"TEYVAT_CONTEXT_TOKENS",
 				65_536,
 				1,
-				controlledContextWindow,
+				maxConfiguredContextTokens,
 			),
 			cumulativeTokens: integer(
 				env,

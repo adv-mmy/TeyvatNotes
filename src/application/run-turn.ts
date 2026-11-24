@@ -2,6 +2,7 @@ import {
 	type AgentRuntime,
 	type JsonObject,
 	type JsonValue,
+	type ToolCall,
 	type ToolDefinition,
 	type ToolResult,
 	untilAborted,
@@ -15,66 +16,34 @@ import type {
 } from "./ports/session.js";
 import { TurnBudget, type TurnLimits } from "./turn-budget.js";
 
-const tools: readonly ToolDefinition[] = Object.entries({
-	probe: "在受控资料集检索 sample 或 missing",
-	read_candidate: "回读上一批探查返回的候选",
-	report_gap: "确认上一批探查返回的缺口",
-}).map(([name, description]) => ({
-	name,
-	description,
-	parameters: {
-		type: "object",
-		properties: { value: { type: "string", minLength: 1, maxLength: 64 } },
-		required: ["value"],
-		additionalProperties: false,
-	},
-}));
-
-const sample: CitationSnapshot = {
-	source: "TeyvatNotes 隔离测试样本",
-	version: "V1",
-	location: "fixture:sample/1",
-	excerpt: "这是仅用于验证回读和引用的模拟资料。",
-};
-
-type Action = "probe" | "read_candidate" | "report_gap";
-
-export interface TurnInput {
-	readonly prompt: string;
-	readonly confirmedConditions?: JsonObject;
+export interface TurnInput extends DialogueTurn {
 	readonly onProgress?: (stage: "model" | "tool") => void;
 }
-type ResolvedTool = {
+export interface TurnToolObservation {
+	readonly call: ToolCall;
 	readonly content: JsonValue;
-	readonly decision?: "sample" | "missing";
-	readonly citation?: CitationSnapshot;
-	readonly gap?: true;
-};
+}
 
-export type ControlledToolExecutor = (
-	action: Action,
-	value: string,
-	signal: AbortSignal,
-) => Promise<ResolvedTool>;
-
-export const executeControlledTool: ControlledToolExecutor = async (
-	action,
-	value,
-	signal,
-) => {
-	signal.throwIfAborted();
-	if (action === "probe") {
-		const decision = value === "sample" ? "sample" : "missing";
-		return { content: { decision }, decision };
-	}
-	if (action === "read_candidate")
-		return { content: { evidenceId: "sample_1", ...sample }, citation: sample };
-	return { content: { gap: true }, gap: true };
-};
+export interface TurnTool {
+	readonly definition: ToolDefinition;
+	/** 本批产生的结果不参与本批授权。 */
+	authorize(call: ToolCall, previous: readonly TurnToolObservation[]): boolean;
+	execute(
+		call: ToolCall,
+		signal: AbortSignal,
+	): Promise<{
+		readonly content: JsonValue;
+		readonly evidence?: {
+			readonly id: string;
+			readonly citation: CitationSnapshot;
+		};
+		readonly gap?: true;
+	}>;
+}
 
 function validateAnswer(
 	text: string,
-	citation: CitationSnapshot | undefined,
+	evidence: ReadonlyMap<string, CitationSnapshot>,
 	gap: boolean,
 ): TurnOutcome {
 	let decoded: unknown;
@@ -96,12 +65,17 @@ function validateAnswer(
 		return { status: "failed", code: "INVALID_ANSWER_STRUCTURE" };
 	if (value.status === "answered" && Array.isArray(value.evidenceIds)) {
 		if (
-			value.evidenceIds.length !== 1 ||
-			value.evidenceIds[0] !== "sample_1" ||
-			!citation
+			!value.evidenceIds.length ||
+			new Set(value.evidenceIds).size !== value.evidenceIds.length
 		)
 			return { status: "failed", code: "INVALID_CITATION" };
-		return { status: "answered", text: value.text, citations: [citation] };
+		const citations: CitationSnapshot[] = [];
+		for (const id of value.evidenceIds) {
+			const citation = typeof id === "string" ? evidence.get(id) : undefined;
+			if (!citation) return { status: "failed", code: "INVALID_CITATION" };
+			citations.push(citation);
+		}
+		return { status: "answered", text: value.text, citations };
 	}
 	if (value.status === "needs_clarification" && !("evidenceIds" in value))
 		return { status: "needs_clarification", text: value.text };
@@ -123,11 +97,15 @@ function trustedHistory(history: SessionHistory) {
 	);
 }
 
+function scopeContext(scope: QueryScope, turnId: string): JsonObject {
+	return { queryScope: { scopeId: turnId, ...scope } };
+}
+
 export class RunTurn {
 	constructor(
 		private readonly runtime: AgentRuntime,
 		private readonly limits: TurnLimits,
-		private readonly tool: ControlledToolExecutor = executeControlledTool,
+		private readonly tools: readonly TurnTool[],
 		private readonly diagnose: (
 			info: ReturnType<TurnBudget["summary"]> & {
 				sessionId: string;
@@ -137,7 +115,32 @@ export class RunTurn {
 				elapsedMs: number;
 			},
 		) => void = () => {},
+		private readonly clarification = new Clarification(),
 	) {}
+
+	pendingClarification(session: WritableSession) {
+		return this.clarification.current(session);
+	}
+
+	discardDraft(session: WritableSession) {
+		return this.clarification.discardDraft(session);
+	}
+
+	async submit(
+		session: WritableSession,
+		line: string,
+		signal: AbortSignal,
+		onProgress: TurnInput["onProgress"],
+	) {
+		const input = await this.clarification.prepare(session, line);
+		if (input.kind === "notice") return input;
+		const turn = await this.runTurn(
+			session,
+			{ ...input, ...(onProgress ? { onProgress } : {}) },
+			signal,
+		);
+		return { kind: "committed", turn } as const;
+	}
 
 	async runTurn(
 		session: WritableSession,
@@ -154,15 +157,19 @@ export class RunTurn {
 
 	private async execute(
 		session: WritableSession,
-		{ prompt, confirmedConditions, onProgress }: TurnInput,
+		input: TurnInput,
 		signal: AbortSignal,
 		budget: TurnBudget,
 	): Promise<CommittedTurn> {
+		const { prompt, confirmation, preflight, scope, onProgress } = input;
 		const started = performance.now();
 		const turnId = await session.begin(prompt);
 		let outcome: TurnOutcome = { status: "failed", code: "RUNTIME_FAILED" };
-		let decision: "sample" | "missing" | undefined;
-		let citation: CitationSnapshot | undefined;
+		const registered = new Map(
+			this.tools.map((tool) => [tool.definition.name, tool]),
+		);
+		const evidence = new Map<string, CitationSnapshot>();
+		const observations: TurnToolObservation[] = [];
 		let gap = false;
 		let terminal:
 			| "BUDGET_EXHAUSTED"
@@ -170,92 +177,101 @@ export class RunTurn {
 			| "TOOL_FAILED"
 			| undefined;
 		try {
-			if (confirmedConditions && !budget.signal.aborted)
+			if (confirmation && !budget.signal.aborted)
 				await session.appendConfirmedConditions({
 					turnId,
-					conditions: confirmedConditions,
+					...confirmation,
 				});
-			const history = session.history();
-			const result = await this.runtime.run(
-				{
-					prompt,
-					tools,
-					turnId,
-					priorTurns: trustedHistory(history),
-					conditions: history.conditions,
-				},
-				{
-					prepareModelRequest: async (draft) => {
-						const prepared = budget.prepare(draft);
-						if (prepared.allowed) onProgress?.("model");
-						return prepared;
+			if (preflight) outcome = preflight;
+			else if (!budget.signal.aborted) {
+				const history = session.history();
+				const result = await this.runtime.run(
+					{
+						prompt,
+						tools: this.tools.map((tool) => tool.definition),
+						turnId,
+						priorTurns: scope ? [] : trustedHistory(history),
+						conditions: scope
+							? scopeContext(scope, turnId)
+							: history.conditions,
 					},
-					recordModelUsage: (tokens) => budget.recordUsage(tokens),
-					executeToolBatch: async (batch) => {
-						// 本批的 probe 结果不得给同一批的 read 或 report 授权。
-						const authorized = decision;
-						const results: ToolResult[] = [];
-						budget.recordRejection(batch.rejected.length);
-						for (const call of batch.calls) {
-							batch.signal.throwIfAborted();
-							const value = call.arguments.value;
-							const allowed =
-								typeof value === "string" &&
-								((call.name === "probe" &&
-									(value === "sample" || value === "missing")) ||
-									(call.name === "read_candidate" &&
-										authorized === "sample" &&
-										value === authorized) ||
-									(call.name === "report_gap" &&
-										authorized === "missing" &&
-										value === authorized));
-							if (!allowed || typeof value !== "string") {
-								budget.recordRejection();
+					{
+						prepareModelRequest: async (draft) => {
+							const prepared = budget.prepare(draft);
+							if (prepared.allowed) onProgress?.("model");
+							return prepared;
+						},
+						recordModelUsage: (tokens) => {
+							if (!budget.recordUsage(tokens)) terminal ??= "BUDGET_EXHAUSTED";
+						},
+						executeToolBatch: async (batch) => {
+							if (terminal) throw new Error(terminal);
+							const previous = observations.slice();
+							const results: ToolResult[] = [];
+							budget.recordRejection(batch.rejected.length);
+							for (const call of batch.calls) {
+								batch.signal.throwIfAborted();
+								const tool = registered.get(call.name);
+								if (!tool?.authorize(call, previous)) {
+									budget.recordRejection();
+									results.push({
+										id: call.id,
+										ok: false,
+										code: "TOOL_NOT_ALLOWED",
+									});
+									continue;
+								}
+								const timeout = budget.startTool();
+								if (!timeout) {
+									terminal = "BUDGET_EXHAUSTED";
+									throw new Error(terminal);
+								}
+								const toolSignal = AbortSignal.any([
+									batch.signal,
+									budget.signal,
+									timeout,
+								]);
+								onProgress?.("tool");
+								const resolved = await untilAborted(
+									() => tool.execute(call, toolSignal),
+									toolSignal,
+								).catch((error: unknown) => {
+									terminal = timeout.aborted ? "TOOL_TIMEOUT" : "TOOL_FAILED";
+									throw error;
+								});
+								toolSignal.throwIfAborted();
+								observations.push({ call, content: resolved.content });
+								if (resolved.evidence) {
+									evidence.set(
+										resolved.evidence.id,
+										resolved.evidence.citation,
+									);
+								}
+								if (resolved.gap) gap = true;
 								results.push({
 									id: call.id,
-									ok: false,
-									code: "TOOL_NOT_ALLOWED",
+									ok: true,
+									content: resolved.content,
 								});
-								continue;
 							}
-							const timeout = budget.startTool();
-							if (!timeout) {
-								terminal = "BUDGET_EXHAUSTED";
-								throw new Error(terminal);
-							}
-							const toolSignal = AbortSignal.any([
-								batch.signal,
-								budget.signal,
-								timeout,
-							]);
-							onProgress?.("tool");
-							const resolved = await untilAborted(
-								() => this.tool(call.name as Action, value, toolSignal),
-								toolSignal,
-							).catch((error: unknown) => {
-								terminal = timeout.aborted ? "TOOL_TIMEOUT" : "TOOL_FAILED";
-								throw error;
-							});
-							toolSignal.throwIfAborted();
-							if (resolved.decision) decision = resolved.decision;
-							if (resolved.citation) citation = resolved.citation;
-							if (resolved.gap) gap = true;
-							results.push({
-								id: call.id,
-								ok: true,
-								content: resolved.content,
-							});
-						}
-						return results;
+							return results;
+						},
 					},
-				},
-				budget.signal,
-			);
-			if (terminal) outcome = { status: "failed", code: terminal };
-			else if (result.status === "failed")
-				outcome = { status: "failed", code: result.code };
-			else if (result.status === "cancelled") outcome = { status: "cancelled" };
-			else outcome = validateAnswer(result.text, citation, gap);
+					budget.signal,
+				);
+				if (terminal) outcome = { status: "failed", code: terminal };
+				else if (result.status === "failed")
+					outcome = { status: "failed", code: result.code };
+				else if (result.status === "cancelled")
+					outcome = { status: "cancelled" };
+				else {
+					const validated = validateAnswer(result.text, evidence, gap);
+					outcome =
+						scope && validated.status === "needs_clarification"
+							? { status: "failed", code: "INVALID_ANSWER_STRUCTURE" }
+							: validated;
+				}
+			}
 		} catch {
 			if (terminal) outcome = { status: "failed", code: terminal };
 		}
@@ -265,7 +281,12 @@ export class RunTurn {
 		// 不因中止打断提交动作。没有成功提交时，调用者不会收到模型正文。
 		let committed: CommittedTurn;
 		try {
-			committed = await session.commit({ turnId, outcome });
+			const clarification = this.clarification.finish(input, turnId, outcome);
+			committed = await session.commit({
+				turnId,
+				outcome,
+				...(clarification !== undefined ? { clarification } : {}),
+			});
 		} catch (error) {
 			this.diagnose({
 				...budget.summary(),
@@ -288,3 +309,6 @@ export class RunTurn {
 		return committed;
 	}
 }
+
+import type { QueryScope } from "../domain/query-scope.js";
+import { Clarification, type DialogueTurn } from "./clarification.js";

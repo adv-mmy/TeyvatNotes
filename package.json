@@ -11,7 +11,7 @@
     "check": "biome check src tests",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node --test dist/tests/integration/pi-runtime.test.js dist/tests/acceptance/v1-cli.test.js"
+    "test": "npm run build && node --test \"dist/tests/**/*.test.js\""
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.6.0",

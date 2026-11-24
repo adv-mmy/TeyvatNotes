@@ -1,3 +1,4 @@
+import type { ScopeDraft, ScopeField } from "../../domain/query-scope.js";
 import type { JsonObject } from "./agent.js";
 
 export interface CitationSnapshot {
@@ -30,16 +31,28 @@ export interface SessionHistory {
 	readonly sessionId: string;
 	readonly conditions: JsonObject;
 	readonly turns: readonly CommittedTurn[];
+	readonly clarification?: PendingClarification | null;
+}
+
+export interface PendingClarification {
+	readonly questionTurnId: string;
+	readonly prompt: string;
+	readonly state: "waiting" | "ready";
+	readonly text: string;
+	readonly scope?: ScopeDraft;
+	readonly fields?: readonly ScopeField[];
 }
 
 export interface ConfirmedConditionUpdate {
 	readonly turnId: string;
 	readonly conditions: JsonObject;
+	readonly clarification?: PendingClarification;
 }
 
 export interface VerifiedTurn {
 	readonly turnId: string;
 	readonly outcome: TurnOutcome;
+	readonly clarification?: PendingClarification | null;
 }
 
 export interface WritableSession {
@@ -47,6 +60,7 @@ export interface WritableSession {
 	history(): SessionHistory;
 	begin(prompt: string): Promise<string>;
 	appendConfirmedConditions(change: ConfirmedConditionUpdate): Promise<void>;
+	abandonClarification(questionTurnId: string): Promise<void>;
 	commit(result: VerifiedTurn): Promise<CommittedTurn>;
 	close(): Promise<void>;
 }

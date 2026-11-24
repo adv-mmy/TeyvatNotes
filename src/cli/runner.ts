@@ -15,6 +15,7 @@ const messages: Readonly<Record<string, string>> = {
 		"会话已被另一个进程打开。只能查看已提交历史，请在对方退出后重新打开。",
 	SESSION_CORRUPT: "会话记录损坏。只显示可恢复的历史，不覆盖原记录。",
 	SESSION_FAILED: "未能读取或持久化会话。请重新打开后核对历史。",
+	MODEL_NOT_CONFIGURED: "当前未配置正式问答模型，仍可查看本地会话历史。",
 	BUDGET_EXHAUSTED: "本轮达到调用次数或累计 Token 上限。",
 	CONTEXT_WINDOW_EXCEEDED: "本次请求与预留输出超出上下文窗口。",
 	MODEL_TIMEOUT: "模型调用超时。",
@@ -38,7 +39,7 @@ function safe(text: string) {
 
 export async function runCli(
 	store: SessionStore,
-	turn: RunTurn,
+	turn: RunTurn | undefined,
 	input: NodeJS.ReadableStream = process.stdin,
 	output: NodeJS.WritableStream = process.stdout,
 ): Promise<void> {
@@ -62,7 +63,6 @@ export async function runCli(
 		| undefined;
 	let running: Promise<void> | undefined;
 	let cancellation: AbortController | undefined;
-	let conditionDraft: string | undefined;
 	let closing = false;
 
 	function show(outcome: TurnOutcome, allowReply = false) {
@@ -96,12 +96,6 @@ export async function runCli(
 	async function closeSession() {
 		if (selected && "session" in selected) await selected.session.close();
 		selected = undefined;
-		conditionDraft = undefined;
-	}
-
-	function showPendingClarification(session: WritableSession) {
-		const outcome = session.history().turns.at(-1)?.outcome;
-		if (outcome?.status === "needs_clarification") show(outcome, true);
 	}
 
 	async function handle(line: string) {
@@ -116,7 +110,8 @@ export async function runCli(
 			if (state.mode === "write") {
 				selected = { session: state.session };
 				print(`已打开会话 ${state.session.sessionId}`);
-				showPendingClarification(state.session);
+				const pending = turn?.pendingClarification(state.session);
+				if (pending) print(pending);
 			} else {
 				selected = {
 					id: state.sessionId,
@@ -148,48 +143,20 @@ export async function runCli(
 			print("请先使用 /new 或 /open <会话 ID>。");
 		} else if (!("session" in selected)) {
 			error(selected.code);
+		} else if (!turn) {
+			error("MODEL_NOT_CONFIGURED");
 		} else {
-			let prompt = line;
-			let confirmedConditions: { clarification: string } | undefined;
-			if (
-				selected.session.history().turns.at(-1)?.outcome.status ===
-				"needs_clarification"
-			) {
-				if (line === "取消") {
-					conditionDraft = undefined;
-					print("已放弃待确认的条件。可重新输入。");
-					return;
-				}
-				if (line !== "确认") {
-					conditionDraft = line;
-					print(
-						"补充条件待确认。输入「确认」保存并继续，输入「取消」放弃，或重新输入替换。",
-					);
-					return;
-				}
-				if (!conditionDraft) {
-					print("没有待确认的条件。请先输入要补充的条件。");
-					return;
-				}
-				prompt = conditionDraft;
-				confirmedConditions = { clarification: conditionDraft };
-				conditionDraft = undefined;
-			}
 			cancellation = new AbortController();
 			try {
-				const result = await turn.runTurn(
+				const result = await turn.submit(
 					selected.session,
-					{
-						prompt,
-						...(confirmedConditions ? { confirmedConditions } : {}),
-						onProgress: (stage) =>
-							print(
-								stage === "model" ? "正在调用受控模型…" : "正在执行受控工具…",
-							),
-					},
+					line,
 					cancellation.signal,
+					(stage) =>
+						print(stage === "model" ? "正在调用模型…" : "正在执行工具…"),
 				);
-				show(result.outcome, true);
+				if (result.kind === "notice") print(result.text);
+				else show(result.turn.outcome, true);
 			} finally {
 				cancellation = undefined;
 			}
@@ -197,11 +164,16 @@ export async function runCli(
 	}
 
 	function interrupt() {
-		if (cancellation) cancellation.abort();
-		else if (conditionDraft) {
-			conditionDraft = undefined;
-			print("已放弃待确认的条件。可重新输入。");
-		} else if (!running) {
+		if (cancellation) {
+			cancellation.abort();
+			return;
+		}
+		const discarded =
+			selected && "session" in selected
+				? turn?.discardDraft(selected.session)
+				: undefined;
+		if (discarded) print(discarded);
+		else if (!running) {
 			closing = true;
 			rl.close();
 		}
@@ -209,7 +181,9 @@ export async function runCli(
 
 	process.on("SIGINT", interrupt);
 	rl.on("SIGINT", interrupt);
-	print("TeyvatNotes V1：离线受控模型与工具，不提供真实攻略。");
+	print(
+		turn ? "TeyvatNotes" : "TeyvatNotes：问答未配置，可使用本地会话和历史。",
+	);
 	print("命令：/new、/open <会话 ID>、/history、/exit。");
 	try {
 		await new Promise<void>((resolve) => {

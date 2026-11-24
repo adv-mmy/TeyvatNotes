@@ -8,6 +8,7 @@ import {
 	type CommittedTurn,
 	type ConfirmedConditionUpdate,
 	type OpenSession,
+	type PendingClarification,
 	SessionError,
 	type SessionHistory,
 	type SessionStore,
@@ -15,6 +16,7 @@ import {
 	type VerifiedTurn,
 	type WritableSession,
 } from "../../application/ports/session.js";
+import { isScopeDraft } from "../../domain/query-scope.js";
 
 const uuid =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -23,11 +25,13 @@ type PendingTurn = { turnId: string; prompt: string; piFile: string };
 type PiTrace = { file: string; entryIds: readonly string[] };
 type JournalEvent =
 	| ({ type: "turn_started" } & PendingTurn)
-	| { type: "conditions_confirmed"; turnId: string; conditions: JsonObject }
+	| ({ type: "conditions_confirmed" } & ConfirmedConditionUpdate)
+	| { type: "clarification_abandoned"; turnId: string }
 	| {
 			type: "turn_committed";
 			turnId: string;
 			outcome: TurnOutcome;
+			clarification?: PendingClarification | null;
 			pi: PiTrace | null;
 	  };
 
@@ -60,6 +64,7 @@ function validOutcome(value: unknown): value is TurnOutcome {
 			return (
 				nonempty(value.text) &&
 				Array.isArray(value.citations) &&
+				value.citations.length > 0 &&
 				value.citations.every(
 					(item: unknown) =>
 						object(item) &&
@@ -84,9 +89,38 @@ function validOutcome(value: unknown): value is TurnOutcome {
 	}
 }
 
+const scopeFields = new Set([
+	"entityId",
+	"gameVersion",
+	"goal",
+	"teamMode",
+	"holding",
+	"teammates",
+	"equipment",
+]);
+
+function validClarification(value: unknown): value is PendingClarification {
+	return (
+		object(value) &&
+		typeof value.questionTurnId === "string" &&
+		uuid.test(value.questionTurnId) &&
+		nonempty(value.prompt) &&
+		nonempty(value.text) &&
+		(value.state === "waiting" || value.state === "ready") &&
+		(value.scope === undefined || isScopeDraft(value.scope)) &&
+		(value.fields === undefined ||
+			(Array.isArray(value.fields) &&
+				value.fields.every(
+					(field: unknown) =>
+						typeof field === "string" && scopeFields.has(field),
+				)))
+	);
+}
+
 function parseJournal(sessionId: string, raw: string) {
 	let active: PendingTurn | undefined;
 	let conditions: JsonObject = {};
+	let clarification: PendingClarification | null | undefined;
 	const turns: CommittedTurn[] = [];
 	const seen = new Set<string>();
 	const lines = raw.split("\n");
@@ -123,14 +157,36 @@ function parseJournal(sessionId: string, raw: string) {
 				item.type === "conditions_confirmed" &&
 				active?.turnId === item.turnId
 			) {
-				if (!object(item.conditions)) throw new Error();
+				if (
+					!object(item.conditions) ||
+					(item.clarification !== undefined &&
+						(!validClarification(item.clarification) ||
+							item.clarification.questionTurnId !==
+								clarification?.questionTurnId))
+				)
+					throw new Error();
 				conditions = { ...conditions, ...(item.conditions as JsonObject) };
+				if (item.clarification !== undefined)
+					clarification = item.clarification;
+			} else if (
+				item.type === "clarification_abandoned" &&
+				!active &&
+				clarification?.questionTurnId === item.turnId
+			) {
+				clarification = null;
 			} else if (
 				item.type === "turn_committed" &&
 				active?.turnId === item.turnId
 			) {
 				if (
 					!validOutcome(item.outcome) ||
+					(item.clarification !== undefined &&
+						item.clarification !== null &&
+						(!validClarification(item.clarification) ||
+							item.outcome.status !== "needs_clarification" ||
+							(item.clarification.questionTurnId !== item.turnId &&
+								item.clarification.questionTurnId !==
+									clarification?.questionTurnId))) ||
 					(item.pi !== null &&
 						(!object(item.pi) ||
 							item.pi.file !== active.piFile ||
@@ -138,6 +194,8 @@ function parseJournal(sessionId: string, raw: string) {
 							!item.pi.entryIds.every((id: unknown) => typeof id === "string")))
 				)
 					throw new Error();
+				if (item.clarification !== undefined)
+					clarification = item.clarification;
 				turns.push({
 					turnId: active.turnId,
 					prompt: active.prompt,
@@ -150,7 +208,16 @@ function parseJournal(sessionId: string, raw: string) {
 			break;
 		}
 	}
-	return { history: { sessionId, conditions, turns }, active, damaged };
+	return {
+		history: {
+			sessionId,
+			conditions,
+			turns,
+			...(clarification !== undefined ? { clarification } : {}),
+		},
+		active,
+		damaged,
+	};
 }
 
 async function readText(path: string): Promise<string> {
@@ -308,28 +375,74 @@ class ActiveSession implements WritableSession {
 	async appendConfirmedConditions({
 		turnId,
 		conditions,
+		clarification,
 	}: ConfirmedConditionUpdate) {
-		if (this.active?.turnId !== turnId)
+		if (
+			this.active?.turnId !== turnId ||
+			(clarification &&
+				(!validClarification(clarification) ||
+					clarification.questionTurnId !==
+						this.view.clarification?.questionTurnId))
+		)
 			throw new SessionError("SESSION_FAILED");
 		const confirmed = structuredClone(conditions);
+		const progress = clarification
+			? { clarification: structuredClone(clarification) }
+			: {};
 		await this.write(async () => {
 			await append(this.directory, this.sessionId, {
 				type: "conditions_confirmed",
 				turnId,
 				conditions: confirmed,
+				...progress,
 			});
 			this.view = {
 				...this.view,
 				conditions: { ...this.view.conditions, ...confirmed },
+				...progress,
 			};
 		});
 	}
 
-	async commit({ turnId, outcome }: VerifiedTurn): Promise<CommittedTurn> {
+	async abandonClarification(questionTurnId: string): Promise<void> {
+		if (
+			this.active ||
+			this.view.clarification?.questionTurnId !== questionTurnId
+		)
+			throw new SessionError("SESSION_FAILED");
+		await this.write(async () => {
+			await append(this.directory, this.sessionId, {
+				type: "clarification_abandoned",
+				turnId: questionTurnId,
+			});
+			const view = { ...this.view, clarification: null };
+			await publish(this.directory, view);
+			this.view = view;
+		});
+	}
+
+	async commit({
+		turnId,
+		outcome,
+		clarification,
+	}: VerifiedTurn): Promise<CommittedTurn> {
 		const active = this.active;
-		if (active?.turnId !== turnId || !validOutcome(outcome))
+		if (
+			active?.turnId !== turnId ||
+			!validOutcome(outcome) ||
+			(clarification &&
+				(!validClarification(clarification) ||
+					outcome.status !== "needs_clarification" ||
+					(clarification.questionTurnId !== turnId &&
+						clarification.questionTurnId !==
+							this.view.clarification?.questionTurnId)))
+		)
 			throw new SessionError("SESSION_FAILED");
 		const verified = structuredClone(outcome);
+		const progress =
+			clarification === undefined
+				? {}
+				: { clarification: structuredClone(clarification) };
 		return await this.write(async () => {
 			const pi = await this.finishPi(turnId);
 			await append(this.directory, this.sessionId, {
@@ -337,11 +450,13 @@ class ActiveSession implements WritableSession {
 				turnId,
 				outcome: verified,
 				pi,
+				...progress,
 			});
 			const committed = { turnId, prompt: active.prompt, outcome: verified };
 			const view = {
 				...this.view,
 				turns: [...this.view.turns, committed],
+				...progress,
 			};
 			this.active = undefined;
 			await publish(this.directory, view);
@@ -463,6 +578,9 @@ export class PiSessionStore implements SessionStore {
 				snapshot.sessionId !== sessionId ||
 				!object(snapshot.conditions) ||
 				!Array.isArray(snapshot.turns) ||
+				(snapshot.clarification !== undefined &&
+					snapshot.clarification !== null &&
+					!validClarification(snapshot.clarification)) ||
 				!snapshot.turns.every(
 					(item) =>
 						object(item) &&
