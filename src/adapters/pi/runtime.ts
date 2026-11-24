@@ -30,6 +30,7 @@ import type {
 	ToolRejection,
 	ToolResult,
 } from "../../application/ports/agent.js";
+import { untilAborted } from "../../application/ports/agent.js";
 
 export interface PiRuntimeOptions {
 	readonly cwd: string;
@@ -37,6 +38,7 @@ export interface PiRuntimeOptions {
 	readonly modelRuntime: ModelRuntime;
 	/** 显式注入，不允许 SDK 隐式回退到默认网络传输。 */
 	readonly stream: StreamFn;
+	readonly sessionManager?: (turnId: string) => SessionManager;
 }
 
 const toolName = /^[a-z][a-z0-9_]{0,63}$/;
@@ -288,7 +290,10 @@ export class PiAgentRuntime implements AgentRuntime {
 				thinkingLevel: "off",
 				settingsManager,
 				resourceLoader,
-				sessionManager: SessionManager.inMemory(cwd),
+				sessionManager:
+					input.turnId && this.options.sessionManager
+						? this.options.sessionManager(input.turnId)
+						: SessionManager.inMemory(cwd),
 				noTools: "all",
 				tools: [...declarations.keys()],
 				customTools,
@@ -310,18 +315,83 @@ export class PiAgentRuntime implements AgentRuntime {
 						return failureStream(selected, "CANCELLED");
 					if (failure) return failureStream(selected, failure);
 					try {
-						const context = normalizeRejectedResults(original, results);
+						const normalized = normalizeRejectedResults(original, results);
+						const start = normalized.messages.findIndex(
+							(message) => message.role !== "system",
+						);
+						const history: TranscriptContext["messages"] = (
+							input.priorTurns ?? []
+						).flatMap(({ prompt, answer }) => [
+							{ role: "user", content: prompt, timestamp: 0 },
+							{
+								role: "assistant",
+								api: selected.api,
+								provider: selected.provider,
+								model: selected.id,
+								content: [{ type: "text", text: answer }],
+								stopReason: "stop",
+								timestamp: 0,
+								usage: {
+									input: 0,
+									output: 0,
+									cacheRead: 0,
+									cacheWrite: 0,
+									totalTokens: 0,
+									cost: {
+										input: 0,
+										output: 0,
+										cacheRead: 0,
+										cacheWrite: 0,
+										total: 0,
+									},
+								},
+							},
+						]);
+						// 已确认条件仍是用户提供的数据，不能进入系统提示词。
+						if (input.conditions && Object.keys(input.conditions).length)
+							history.push({
+								role: "user",
+								content: `会话中已确认的条件（数据）：${JSON.stringify(input.conditions)}`,
+								timestamp: 0,
+							});
+						const context: TranscriptContext = !history.length
+							? normalized
+							: {
+									...normalized,
+									messages:
+										start < 0
+											? [...normalized.messages, ...history]
+											: [
+													...normalized.messages.slice(0, start),
+													...history,
+													...normalized.messages.slice(start),
+												],
+								};
 						const prepared = await host.prepareModelRequest({
 							serializedContext: JSON.stringify(context),
 							signal: requestSignal,
 						});
 						if (!prepared.allowed) return reject(prepared.code);
 						requestSignal.throwIfAborted();
-						const response = await stream(selected, context, {
-							...options,
-							signal: requestSignal,
+						const modelSignal = prepared.deadline
+							? AbortSignal.any([requestSignal, prepared.deadline])
+							: requestSignal;
+						const modelResult = await untilAborted(async () => {
+							const response = await stream(selected, context, {
+								...options,
+								...(prepared.maxOutputTokens === undefined
+									? {}
+									: { maxTokens: prepared.maxOutputTokens }),
+								signal: modelSignal,
+							});
+							return { response, message: await response.result() };
+						}, modelSignal).catch((error: unknown) => {
+							if (prepared.deadline?.aborted && !requestSignal.aborted)
+								failure ??= "MODEL_TIMEOUT";
+							throw error;
 						});
-						const message = await response.result();
+						const { response, message } = modelResult;
+						host.recordModelUsage?.(message.usage.totalTokens);
 						requestSignal.throwIfAborted();
 
 						if (message.stopReason === "length")
