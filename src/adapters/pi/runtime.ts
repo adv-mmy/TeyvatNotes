@@ -3,13 +3,16 @@ import {
 	type Api,
 	type AssistantMessage,
 	createAssistantMessageEventStream,
+	InMemoryCredentialStore,
+	InMemoryModelsStore,
 	type Model,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { streamSimple as responses } from "@earendil-works/pi-ai/api/openai-responses";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
-	type ModelRuntime,
+	ModelRuntime,
 	type ToolDefinition as PiToolDefinition,
 	SessionManager,
 	SettingsManager,
@@ -42,7 +45,113 @@ export interface PiRuntimeOptions {
 }
 
 const toolName = /^[a-z][a-z0-9_]{0,63}$/;
-const callId = /^[a-zA-Z0-9_-]{1,128}$/;
+const callId = /^([a-zA-Z0-9_-]{1,128})(?:\|[a-zA-Z0-9_-]{1,128})?$/;
+
+export async function createResponsesRuntime(
+	options: Pick<PiRuntimeOptions, "cwd" | "sessionManager"> & {
+		key: string;
+		baseUrl: string;
+		model: string;
+		contextWindow: number;
+		maxTokens: number;
+	},
+) {
+	const modelRuntime = await ModelRuntime.create({
+		credentials: new InMemoryCredentialStore(),
+		modelsStore: new InMemoryModelsStore(),
+		modelsPath: null,
+		refreshOnCreate: false,
+		allowModelNetwork: false,
+	});
+	await modelRuntime.setRuntimeApiKey("deepseek", options.key);
+	const model: Model<"openai-responses"> = {
+		api: "openai-responses",
+		provider: "deepseek",
+		id: options.model,
+		name: options.model,
+		baseUrl: options.baseUrl,
+		input: ["text"],
+		reasoning: false,
+		contextWindow: options.contextWindow,
+		maxTokens: options.maxTokens,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	};
+	return new PiAgentRuntime({
+		cwd: options.cwd,
+		...(options.sessionManager
+			? { sessionManager: options.sessionManager }
+			: {}),
+		model,
+		modelRuntime,
+		stream: (_selected, context, step) => {
+			// Pi 会清洗非 OpenAI 供应商的工具 ID。给序列化器短且唯一的
+			// 占位 ID，发送前逐个还原，避免长 ID 被截短或并行结果串位。
+			const tokens = new Map<string, string>();
+			const wireIds = new Map<string, string>();
+			const messages = context.messages.map((message) => {
+				if (message.role === "assistant")
+					return {
+						...message,
+						content: message.content.map((block) => {
+							if (block.type !== "toolCall") return block;
+							const id = callId.exec(block.id)?.[1];
+							if (!id || tokens.has(block.id))
+								throw new Error("INVALID_TOOL_RESULT");
+							const token = `tn_${tokens.size}`;
+							tokens.set(block.id, token);
+							wireIds.set(token, id);
+							return { ...block, id: token };
+						}),
+					};
+				if (message.role !== "toolResult") return message;
+				const token = tokens.get(message.toolCallId);
+				if (!token) throw new Error("INVALID_TOOL_RESULT");
+				return { ...message, toolCallId: token };
+			});
+			return responses(
+				model,
+				{ ...context, messages },
+				{
+					apiKey: options.key,
+					cacheRetention: "none",
+					maxRetries: 0,
+					...(step?.signal ? { signal: step.signal } : {}),
+					...(step?.maxTokens ? { maxTokens: step.maxTokens } : {}),
+					onPayload: (raw) => {
+						if (!isRecord(raw) || !Array.isArray(raw.input))
+							throw new Error("INVALID_MODEL_REQUEST");
+						const input = raw.input.map((item: unknown) => {
+							if (
+								!isRecord(item) ||
+								(item.type !== "function_call" &&
+									item.type !== "function_call_output")
+							)
+								return item;
+							const id =
+								typeof item.call_id === "string" && wireIds.get(item.call_id);
+							if (!id) throw new Error("INVALID_TOOL_RESULT");
+							return { ...item, call_id: id };
+						});
+						return {
+							...raw,
+							input,
+							max_output_tokens: Math.min(
+								Number(raw.max_output_tokens ?? options.maxTokens),
+								step?.maxTokens ?? options.maxTokens,
+							),
+						};
+					},
+					fetch: (input, init) =>
+						globalThis.fetch(input, { ...init, redirect: "error" }),
+				},
+			);
+		},
+	});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 const reservedTools = new Set([
 	"bash",
 	"codemode",
@@ -432,10 +541,11 @@ export class PiAgentRuntime implements AgentRuntime {
 						if (!proposed.length || message.stopReason !== "toolUse")
 							return reject("INVALID_MODEL_RESPONSE");
 						for (const call of proposed) {
-							if (!callId.test(call.id) || !toolName.test(call.name))
+							const wireId = callId.exec(call.id)?.[1];
+							if (!wireId || !toolName.test(call.name))
 								return reject("INVALID_MODEL_RESPONSE");
-							if (seenIds.has(call.id)) return reject("DUPLICATE_TOOL_CALL");
-							seenIds.add(call.id);
+							if (seenIds.has(wireId)) return reject("DUPLICATE_TOOL_CALL");
+							seenIds.add(wireId);
 						}
 
 						// 一条完整的回复只交应用一次。Pi 后续逐个取该批的结果，

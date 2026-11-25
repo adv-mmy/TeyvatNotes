@@ -4,8 +4,12 @@ export interface TurnLimits {
 	readonly turnMs: number;
 	readonly modelMs: number;
 	readonly toolMs: number;
+	readonly searchMs?: number;
+	readonly fetchMs?: number;
 	readonly modelCalls: number;
 	readonly toolCalls: number;
+	readonly searchCalls?: number;
+	readonly fetchCalls?: number;
 	readonly contextTokens: number;
 	readonly cumulativeTokens: number;
 	readonly maxOutputTokens: number;
@@ -18,6 +22,8 @@ export class TurnBudget {
 	private readonly timer: NodeJS.Timeout;
 	private models = 0;
 	private tools = 0;
+	private searches = 0;
+	private fetches = 0;
 	private rejected = 0;
 	private estimatedTokens = 0;
 	private actualTokens = 0;
@@ -75,9 +81,13 @@ export class TurnBudget {
 		return this.accountedTokens <= this.limits.cumulativeTokens;
 	}
 
+	get hasToolCapacity(): boolean {
+		return this.tools < this.limits.toolCalls;
+	}
+
 	startTool(): AbortSignal | undefined {
 		this.signal.throwIfAborted();
-		if (this.tools >= this.limits.toolCalls) return undefined;
+		if (!this.hasToolCapacity) return undefined;
 		this.tools++;
 		return AbortSignal.timeout(this.limits.toolMs);
 	}
@@ -85,11 +95,27 @@ export class TurnBudget {
 	recordRejection(count = 1): void {
 		this.rejected += count;
 	}
+	startSource(operation: "search" | "fetch"): AbortSignal | undefined {
+		this.signal.throwIfAborted();
+		if (operation === "search") {
+			if (this.searches >= (this.limits.searchCalls ?? 1)) return undefined;
+			this.searches++;
+		} else {
+			if (this.fetches >= (this.limits.fetchCalls ?? 3)) return undefined;
+			this.fetches++;
+		}
+		return AbortSignal.timeout(
+			(operation === "search" ? this.limits.searchMs : this.limits.fetchMs) ??
+				this.limits.toolMs,
+		);
+	}
 
 	summary() {
 		return {
 			modelCalls: this.models,
 			toolCalls: this.tools,
+			searchCalls: this.searches,
+			fetchCalls: this.fetches,
 			rejectedTools: this.rejected,
 			estimatedTokens: this.estimatedTokens,
 			actualTokens: this.actualTokens,

@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import type { IngestErrorCode } from "../application/ingest-guide.js";
 import {
 	SessionError,
 	type SessionHistory,
@@ -9,6 +10,8 @@ import {
 import type { RunTurn } from "../application/run-turn.js";
 
 const messages: Readonly<Record<string, string>> = {
+	WEB_SOURCE_UNAVAILABLE: "联网资料源不可用，本轮未重试。",
+	INDEX_NOT_READY: "补查资料的索引未就绪，未发布为可引用攻略。",
 	SESSION_ID_INVALID: "会话 ID 无效。",
 	SESSION_NOT_FOUND: "未找到会话。",
 	SESSION_BUSY:
@@ -16,6 +19,10 @@ const messages: Readonly<Record<string, string>> = {
 	SESSION_CORRUPT: "会话记录损坏。只显示可恢复的历史，不覆盖原记录。",
 	SESSION_FAILED: "未能读取或持久化会话。请重新打开后核对历史。",
 	MODEL_NOT_CONFIGURED: "当前未配置正式问答模型，仍可查看本地会话历史。",
+	MODEL_CONFIGURATION_INVALID:
+		"回答模型配置无效，请检查 HTTPS 地址、模型 ID 和密钥文件。仍可查看历史。",
+	GUIDE_STORAGE_UNAVAILABLE:
+		"攻略存储配置不可用，请检查数据库密钥及服务配置。仍可查看历史。",
 	TERMINOLOGY_UNAVAILABLE: "未能读取本地术语表，仍可查看本地会话历史。",
 	TERMINOLOGY_INVALID: "本地术语表格式无效，仍可查看本地会话历史。",
 	BUDGET_EXHAUSTED: "本轮达到调用次数或累计 Token 上限。",
@@ -42,12 +49,69 @@ function safe(text: string) {
 	}).join("");
 }
 
+export type MaintenanceCommand =
+	| { readonly kind: "migrate" }
+	| {
+			readonly kind: "import";
+			readonly file: string;
+			readonly publish: boolean;
+	  }
+	| { readonly kind: "publish"; readonly id: string };
+
+export function parseMaintenance(
+	args: readonly string[],
+): MaintenanceCommand | undefined {
+	if (args.length === 2 && args[0] === "db" && args[1] === "migrate")
+		return { kind: "migrate" };
+	if (
+		args[0] === "guides" &&
+		args[1] === "import" &&
+		args[2] &&
+		(args.length === 3 || (args.length === 4 && args[3] === "--publish"))
+	)
+		return { kind: "import", file: args[2], publish: args[3] === "--publish" };
+	if (
+		args[0] === "guides" &&
+		args[1] === "publish" &&
+		args.length === 3 &&
+		args[2] &&
+		/^[a-f0-9]{64}$/u.test(args[2])
+	)
+		return { kind: "publish", id: args[2] };
+}
+
+export function maintenanceMessage(
+	code:
+		| IngestErrorCode
+		| "MIGRATION_CHECKSUM_MISMATCH"
+		| "MAINTENANCE_TIMEOUT"
+		| "MAINTENANCE_USAGE",
+) {
+	const errors = {
+		GUIDE_INVALID: "攻略文件无法读取、格式无效或缺少可分块正文。",
+		GUIDE_METADATA_INCOMPLETE:
+			"请明确提供攻略类型、来源、标准角色、适用版本和适用条件。",
+		GUIDE_NOT_FOUND: "未找到此文档版本或当前 Embedding 配置下的索引记录。",
+		INDEX_NOT_READY:
+			"攻略索引未就绪，未执行发布。请检查 Ollama 模型和 ChromaDB，再显式导入。",
+		GUIDE_STORAGE_UNAVAILABLE:
+			"无法访问或初始化 PostgreSQL 攻略库。请检查配置、依赖和迁移状态。",
+		MIGRATION_CHECKSUM_MISMATCH: "已执行迁移的校验和不匹配，未改动数据库。",
+		MAINTENANCE_TIMEOUT: "维护命令已超时或中断，请检查结果后再显式执行。",
+		MAINTENANCE_USAGE:
+			"用法：teyvatnotes db migrate | guides import <文件.md 或 .json> [--publish] | guides publish <文档版本 ID>",
+	};
+	return `${code}：${errors[code]}`;
+}
+
 export type QuestionAvailability =
 	| { readonly kind: "ready"; readonly turn: RunTurn }
 	| {
 			readonly kind: "unavailable";
 			readonly code:
 				| "MODEL_NOT_CONFIGURED"
+				| "MODEL_CONFIGURATION_INVALID"
+				| "GUIDE_STORAGE_UNAVAILABLE"
 				| "TERMINOLOGY_INVALID"
 				| "TERMINOLOGY_UNAVAILABLE";
 	  };

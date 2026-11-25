@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type {
+	GuideChunkMetadata,
+	GuideData,
+} from "../../src/application/ports/guide-data.js";
+import {
+	defaultRetrievalLimits,
+	GuideRetrieval,
+} from "../../src/application/retrieve-guides.js";
 import {
 	type GuideEvidence,
 	type GuideEvidenceView,
@@ -24,6 +32,125 @@ const scope: FrozenQueryScope = {
 		equipment: { kind: "unknown" },
 	},
 };
+
+function pagedRetrieval(
+	expanding: "keyword" | "vector",
+	failOnSecondPage = false,
+) {
+	const chunks = new Map<string, GuideChunkMetadata>(
+		["first", "second"].map((id) => [
+			id,
+			{
+				id,
+				documentVersionId: id,
+				entityId: scope.entityId,
+				guideKind: "team",
+				gameVersions: { from: scope.gameVersion, through: scope.gameVersion },
+				applicability: { kind: "unrestricted" },
+				published: true,
+				indexReady: true,
+				title: id,
+				sourceUrl: "https://example.test/guide",
+				location: "第 1 段",
+				preview: id,
+			},
+		]),
+	);
+	const keywordCursors: (string | null)[] = [];
+	const vectorLimits: number[] = [];
+	const data: GuideData = {
+		repository: {
+			async snapshot() {
+				return { revision: "r1", embeddingId: "isolated" };
+			},
+			async keywords(_filter, _snapshot, _query, cursor) {
+				keywordCursors.push(cursor);
+				if (cursor === "p2") {
+					if (failOnSecondPage) throw new Error("分页依赖失败");
+					return { ids: ["first", "second"], next: null };
+				}
+				return { ids: ["first"], next: expanding === "keyword" ? "p2" : null };
+			},
+			async eligibleIds() {
+				assert.fail("已有合格候选不需要进行全量覆盖补判");
+			},
+			async metadata(_snapshot, ids) {
+				return ids.flatMap((id) => {
+					const entry = chunks.get(id);
+					return entry ? [entry] : [];
+				});
+			},
+			async read() {
+				assert.fail("召回阶段不能读取正文");
+			},
+			async assertSnapshot() {},
+		},
+		embeddings: {
+			async embed() {
+				return [1, 0];
+			},
+		},
+		vectorIndex: {
+			async nearest(_id, _vector, limit) {
+				vectorLimits.push(limit);
+				return [
+					{ id: "first", score: 0.9 },
+					...(expanding === "vector" && limit > 2
+						? [{ id: "second", score: 0.8 }]
+						: []),
+				];
+			},
+			async vectors() {
+				assert.fail("已有合格候选不需要按 ID 补判向量");
+			},
+		},
+	};
+	return {
+		retrieval: new GuideRetrieval(data, {
+			...defaultRetrievalLimits,
+			pageSize: 2,
+			maxPages: 2,
+			maxScanned: 4,
+			maxCandidates: 2,
+		}),
+		keywordCursors,
+		vectorLimits,
+	};
+}
+
+for (const lane of ["keyword", "vector"] as const) {
+	test(`${lane} 首次已有合格候选但未达到目标数时继续检索`, async () => {
+		const { retrieval, keywordCursors, vectorLimits } = pagedRetrieval(lane);
+		const result = await retrieval.searchGuides(
+			scope,
+			"配队",
+			new AbortController().signal,
+		);
+		assert.equal(result.kind, "hit");
+		if (result.kind !== "hit") return;
+		assert.deepEqual(
+			result.candidates.map(({ chunk }) => chunk.id),
+			["first", "second"],
+		);
+		assert.deepEqual(
+			keywordCursors,
+			lane === "keyword" ? [null, "p2"] : [null],
+		);
+		assert.deepEqual(vectorLimits, [2, 4]);
+	});
+}
+
+test("已部分命中时后续关键词页故障，仍报告依赖故障而非命中或未命中", async () => {
+	const { retrieval } = pagedRetrieval("keyword", true);
+	assert.deepEqual(
+		await retrieval.searchGuides(scope, "配队", new AbortController().signal),
+		{
+			kind: "error",
+			code: "RETRIEVAL_UNAVAILABLE",
+		},
+	);
+});
+
 const reference: GuideEvidence = {
 	evidenceId: "e1",
 	turnId: "t1",

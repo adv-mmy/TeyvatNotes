@@ -55,24 +55,23 @@ export function versionApplies(
 	version: string,
 	range: { from: string; through: string },
 ): boolean {
-	if (
-		![version, range.from, range.through].every((value) =>
-			versionPattern.test(value),
-		)
-	)
-		return false;
-	const compare = (a: string, b: string) => {
-		const left = a.split(".").map(Number);
-		const right = b.split(".").map(Number);
-		for (let i = 0; i < 3; i++) {
-			const difference = (left[i] ?? 0) - (right[i] ?? 0);
-			if (difference) return difference;
-		}
-		return 0;
-	};
+	const value = gameVersionKey(version);
+	const from = gameVersionKey(range.from);
+	const through = gameVersionKey(range.through);
 	return (
-		compare(range.from, version) <= 0 && compare(version, range.through) <= 0
+		value !== undefined &&
+		from !== undefined &&
+		through !== undefined &&
+		from <= value &&
+		value <= through
 	);
+}
+
+/** 三段数字比较，7.10 大于 7.2，7.1 等价于 7.1.0。 */
+export function gameVersionKey(value: string): number | undefined {
+	if (!versionPattern.test(value)) return undefined;
+	const [major = 0, minor = 0, patch = 0] = value.split(".").map(Number);
+	return (major * 1000 + minor) * 1000 + patch;
 }
 
 export type ScopeResolution =
@@ -134,6 +133,18 @@ function matchingNames(
 
 function one<T>(values: readonly T[]): T | undefined {
 	return values.length === 1 ? values[0] : undefined;
+}
+
+export function resolveTerm(
+	value: string,
+	terms: readonly TerminologyEntry[],
+	categories: readonly TermCategory[],
+): string | undefined {
+	return one(
+		categories.flatMap((category) =>
+			matchingNames(value, terms, category, true),
+		),
+	);
 }
 
 function teamMode(input: string): TeamMode | undefined {

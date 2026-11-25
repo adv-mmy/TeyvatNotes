@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { EmbeddingConfig } from "../application/ports/guide-data.js";
+import {
+	type SourcePermit,
+	validPermit,
+} from "../application/ports/guide-source.js";
 import type { TurnLimits } from "../application/turn-budget.js";
 import type { TerminologyEntry } from "../domain/query-scope.js";
 
@@ -30,6 +36,55 @@ function integer(
 
 export const maxConfiguredContextTokens = 128_000;
 export const maxConfiguredOutputTokens = 16_384;
+
+export async function readWebConfig(env: NodeJS.ProcessEnv) {
+	const path = env.TEYVAT_SOURCE_POLICY_FILE;
+	if (!path) return undefined;
+	const permits: unknown = JSON.parse(await readFile(path, "utf8"));
+	if (
+		!Array.isArray(permits) ||
+		permits.length > 16 ||
+		!permits.every(validPermit)
+	)
+		throw new Error("WEB_SOURCE_UNAVAILABLE");
+	if (!permits.some((p) => p.access === "fetch_store_cite")) return undefined;
+	const key = (
+		await readFile(
+			env.TEYVAT_SEARCH_API_KEY_FILE ?? "/run/secrets/search_api_key",
+			"utf8",
+		)
+	).trim();
+	if (!/^[\x21-\x7e]+$/u.test(key)) throw new Error("WEB_SOURCE_UNAVAILABLE");
+	return { key, permits: permits as SourcePermit[] };
+}
+
+export async function readAnswerConfig(env: NodeJS.ProcessEnv) {
+	const file = env.TEYVAT_MODEL_API_KEY_FILE ?? "/run/secrets/model_api_key";
+	let key: string;
+	try {
+		key = (await readFile(file, "utf8")).trim();
+	} catch (error) {
+		if (
+			env.TEYVAT_MODEL_API_KEY_FILE === undefined &&
+			(error as NodeJS.ErrnoException).code === "ENOENT"
+		)
+			return undefined;
+		throw new Error("MODEL_CONFIGURATION_INVALID");
+	}
+	const model = env.TEYVAT_MODEL_ID ?? "deepseek-flash";
+	const url = new URL(env.TEYVAT_MODEL_BASE_URL ?? "https://api.deepseek.com");
+	if (
+		!/^[\x21-\x7e]+$/u.test(key) ||
+		!/^[\w./:-]{1,128}$/u.test(model) ||
+		url.protocol !== "https:" ||
+		url.username ||
+		url.password ||
+		url.search ||
+		url.hash
+	)
+		throw new Error("MODEL_CONFIGURATION_INVALID");
+	return { key, model, baseUrl: url.href.replace(/\/+$/u, "") };
+}
 
 export class TerminologyError extends Error {
 	constructor(
@@ -117,8 +172,12 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 			turnMs: integer(env, "TEYVAT_TURN_MS", 30_000, 1, 300_000),
 			modelMs: integer(env, "TEYVAT_MODEL_MS", 10_000, 1, 120_000),
 			toolMs: integer(env, "TEYVAT_TOOL_MS", 3_000, 1, 60_000),
+			searchMs: integer(env, "TEYVAT_SEARCH_MS", 3_000, 1, 60_000),
+			fetchMs: integer(env, "TEYVAT_FETCH_MS", 3_000, 1, 60_000),
 			modelCalls: integer(env, "TEYVAT_MODEL_CALLS", 6, 1, 30),
 			toolCalls: integer(env, "TEYVAT_TOOL_CALLS", 8, 1, 100),
+			searchCalls: integer(env, "TEYVAT_SEARCH_CALLS", 1, 0, 1),
+			fetchCalls: integer(env, "TEYVAT_FETCH_CALLS", 3, 0, 3),
 			contextTokens: integer(
 				env,
 				"TEYVAT_CONTEXT_TOKENS",
@@ -135,5 +194,78 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 			),
 			maxOutputTokens: output,
 		},
+	};
+}
+
+function origin(env: NodeJS.ProcessEnv, name: string, fallback: string): URL {
+	try {
+		const url = new URL(env[name] ?? fallback);
+		if (
+			(url.protocol === "http:" || url.protocol === "https:") &&
+			url.pathname === "/" &&
+			!url.username &&
+			!url.password &&
+			!url.search &&
+			!url.hash
+		)
+			return url;
+	} catch {}
+	throw new Error(`配置 ${name} 必须是无凭据的 HTTP(S) 服务地址`);
+}
+
+export function readGuideStorageConfig(env: NodeJS.ProcessEnv) {
+	const model = env.TEYVAT_EMBEDDING_MODEL ?? "qwen3-embedding:0.6b";
+	if (!/^qwen3-embedding:[\w.-]+$/u.test(model))
+		throw new Error(
+			"配置 TEYVAT_EMBEDDING_MODEL 必须指定 qwen3-embedding 的模型标签",
+		);
+	const dimensions = integer(
+		env,
+		"TEYVAT_EMBEDDING_DIMENSIONS",
+		1024,
+		32,
+		4096,
+	);
+	const id = createHash("sha256")
+		.update(JSON.stringify([model, dimensions]))
+		.digest("hex")
+		.slice(0, 24);
+	const embedding: EmbeddingConfig = { id, model, dimensions };
+	const collection = env.TEYVAT_CHROMA_COLLECTION ?? "teyvatnotes_guides";
+	if (!/^[a-z0-9][a-z0-9_-]{1,31}$/u.test(collection))
+		throw new Error("配置 TEYVAT_CHROMA_COLLECTION 不是有效的集合前缀");
+	return {
+		embedding,
+		collection,
+		chroma: origin(env, "TEYVAT_CHROMA_URL", "http://chromadb:8000"),
+		ollama: origin(env, "TEYVAT_OLLAMA_URL", "http://ollama:11434"),
+	};
+}
+
+export async function readDatabaseConfig(env: NodeJS.ProcessEnv) {
+	let password: string;
+	try {
+		password = (
+			await readFile(
+				env.TEYVAT_DB_PASSWORD_FILE ?? "/run/secrets/postgres_password",
+				"utf8",
+			)
+		).replace(/[\r\n]+$/u, "");
+		if (!password.trim()) throw new Error();
+	} catch {
+		throw new Error(
+			"配置 TEYVAT_DB_PASSWORD_FILE 未指向可读取的 PostgreSQL 密钥文件",
+		);
+	}
+	return {
+		host: env.TEYVAT_DB_HOST ?? "postgres",
+		port: integer(env, "TEYVAT_DB_PORT", 5432, 1, 65535),
+		user: env.TEYVAT_DB_USER ?? "teyvatnotes",
+		database: env.TEYVAT_DB_NAME ?? "teyvatnotes",
+		password,
+		max: 4,
+		connectionTimeoutMillis: 3000,
+		statement_timeout: 4000,
+		idle_in_transaction_session_timeout: 6000,
 	};
 }

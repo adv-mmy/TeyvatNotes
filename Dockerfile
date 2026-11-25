@@ -13,6 +13,7 @@ RUN npm run build && chmod +x dist/src/bootstrap/main.js
 
 FROM build AS acceptance
 COPY --chown=node:node tests ./tests
+COPY --chown=node:node migrations/ ./migrations/
 COPY --chown=node:node resources/terminology/terminology.json ./resources/terminology/terminology.json
 RUN npm run build
 CMD ["node", "--test", "dist/tests/**/*.test.js"]
@@ -21,6 +22,7 @@ FROM base AS runtime
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && ln -s /app/dist/src/bootstrap/main.js /usr/local/bin/teyvatnotes
 COPY --chown=node:node --from=build /app/dist/src ./dist/src
+COPY --chown=node:node migrations/ ./migrations/
 COPY --chown=node:node resources/terminology/terminology.json ./resources/terminology/terminology.json
 USER node
-CMD ["teyvatnotes"]
+ENTRYPOINT ["teyvatnotes"]

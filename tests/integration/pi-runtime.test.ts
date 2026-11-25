@@ -12,7 +12,10 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { PiAgentRuntime } from "../../src/adapters/pi/runtime.js";
+import {
+	createResponsesRuntime,
+	PiAgentRuntime,
+} from "../../src/adapters/pi/runtime.js";
 import { registeredTurnTools } from "../../src/application/guide-tools.js";
 import type {
 	AgentRunHost,
@@ -38,6 +41,37 @@ const tools = ["probe", "read_candidate", "report_gap"].map(
 
 const ask = { prompt: "确认两步工具循环", tools };
 const freshSignal = () => new AbortController().signal;
+test("正式 Responses 传输遇到 503 只请求一次，不返回供应商错误正文", async (t) => {
+	let attempts = 0;
+	t.mock.method(globalThis, "fetch", async () => {
+		attempts++;
+		return new Response("隔离上游内部错误", { status: 503 });
+	});
+	const runtime = await createResponsesRuntime({
+		cwd: process.cwd(),
+		key: "isolated-test-only",
+		baseUrl: "https://model.invalid",
+		model: "deepseek-flash",
+		contextWindow: 32000,
+		maxTokens: 8192,
+	});
+	assert.deepEqual(
+		await runtime.run(
+			ask,
+			{
+				async prepareModelRequest() {
+					return { allowed: true };
+				},
+				async executeToolBatch() {
+					assert.fail("模型失败后不应调用工具");
+				},
+			},
+			freshSignal(),
+		),
+		{ status: "failed", code: "MODEL_FAILED" },
+	);
+	assert.equal(attempts, 1);
+});
 const use = (id: string, name: string, value: string | number): PiToolCall => ({
 	type: "toolCall",
 	id,

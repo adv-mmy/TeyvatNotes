@@ -551,6 +551,8 @@ test("累计 Token 逐次结算，低于预留的请求不抵消另一笔超额"
 			},
 		);
 		assert.deepEqual(budget.summary(), {
+			searchCalls: 0,
+			fetchCalls: 0,
 			modelCalls: 2,
 			toolCalls: 0,
 			rejectedTools: 0,

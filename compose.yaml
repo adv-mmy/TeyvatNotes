@@ -5,9 +5,76 @@ services:
     build: .
     stdin_open: true
     tty: true
-    network_mode: none
+    networks: [backend, model_api]
+    environment:
+      TEYVAT_MODEL_ID: ${TEYVAT_MODEL_ID:-deepseek-flash}
+      TEYVAT_MODEL_BASE_URL: ${TEYVAT_MODEL_BASE_URL:-https://api.deepseek.com}
+      TEYVAT_EMBEDDING_MODEL: ${TEYVAT_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+      TEYVAT_EMBEDDING_DIMENSIONS: ${TEYVAT_EMBEDDING_DIMENSIONS:-1024}
     volumes:
       - session_data:/data/sessions
 
+  postgres:
+    image: postgres:17-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652
+    profiles: [v2]
+    networks: [backend]
+    environment:
+      POSTGRES_DB: teyvatnotes
+      POSTGRES_USER: teyvatnotes
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "teyvatnotes", "-d", "teyvatnotes"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  chromadb:
+    image: chromadb/chroma:1.5.5@sha256:0771874eaffc80fb4a66ba4de41a8fadf0447240b08d92353450e26ee43c9355
+    profiles: [v2]
+    networks: [backend]
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8000;
+          printf 'GET /api/v2/heartbeat HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          read -r status <&3;
+          [[ "$$status" == HTTP/*" 200 "* ]]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.13.5@sha256:2c9595c555fd70a28363489ac03bd5bf9e7c5bdf2890373c3a830ffd7252ce6d
+    profiles: [v2]
+    networks: [backend, model_download]
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 4s
+      timeout: 3s
+      retries: 20
+
 volumes:
   session_data:
+  pg_data:
+  chroma_data:
+  ollama_models:
+
+networks:
+  backend:
+    internal: true
+  model_download:
+  model_api:
+
+secrets:
+  postgres_password:
+    file: ${TEYVAT_POSTGRES_PASSWORD_FILE:-./secrets/postgres_password}

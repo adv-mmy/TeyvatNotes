@@ -124,6 +124,12 @@ function cosine(vector: readonly number[], other: readonly number[]): number {
 	);
 }
 
+function bySimilarity(scores: ReadonlyMap<string, number>): string[] {
+	return [...scores]
+		.sort(([a, x], [b, y]) => y - x || (a < b ? -1 : a > b ? 1 : 0))
+		.map(([id]) => id);
+}
+
 export class GuideRetrieval {
 	constructor(
 		private readonly data: GuideData,
@@ -281,12 +287,14 @@ export class GuideRetrieval {
 	): Promise<Branch> {
 		const { vectorIndex, embeddings, repository } = this.data;
 		const { embeddingId } = snapshot;
-		const { pageSize, maxScanned, maxPages, minVectorScore } = this.limits;
+		const { pageSize, maxScanned, maxPages, minVectorScore, maxCandidates } =
+			this.limits;
 		signal.throwIfAborted();
 		const vector = await embeddings.embed(query, embeddingId, signal);
 		assertVector(vector);
 		let size = Math.min(pageSize, maxScanned);
 		const seen = new Set<string>();
+		const approximate = new Map<string, number>();
 		for (let page = 0; page < maxPages; page++) {
 			signal.throwIfAborted();
 			const nearest = await vectorIndex.nearest(
@@ -294,22 +302,34 @@ export class GuideRetrieval {
 				vector,
 				size,
 				signal,
+				filter,
 			);
 			if (
 				nearest.length > size ||
 				nearest.some((item) => !item.id || !Number.isFinite(item.score))
 			)
 				throw new Error("INVALID_NEAREST_RESULT");
-			const hits = await eligible(
-				nearest
-					.filter(({ id, score }) => !seen.has(id) && score >= minVectorScore)
-					.map(({ id }) => id),
+			const scored = nearest.filter(({ score }) => score >= minVectorScore);
+			const hits = new Set(
+				await eligible(
+					scored.filter(({ id }) => !seen.has(id)).map(({ id }) => id),
+				),
 			);
-			for (const { id } of nearest) seen.add(id);
-			if (hits.length) return { ranked: hits, exhausted: false };
+			for (const { id, score } of scored) {
+				seen.add(id);
+				if (hits.has(id) || approximate.has(id))
+					approximate.set(
+						id,
+						Math.max(score, approximate.get(id) ?? -Infinity),
+					);
+			}
+			if (approximate.size >= maxCandidates)
+				return { ranked: bySimilarity(approximate), exhausted: false };
 			if (size === maxScanned) break;
 			size = Math.min(size * 2, maxScanned);
 		}
+		if (approximate.size)
+			return { ranked: bySimilarity(approximate), exhausted: false };
 		// ANN 的空结果或短页都不证明查完。以权威分块清单补判相似度。
 		const scores = new Map<string, number>();
 		const coverage = await this.walk(
@@ -334,9 +354,7 @@ export class GuideRetrieval {
 		);
 		return {
 			exhausted: coverage.exhausted,
-			ranked: [...scores]
-				.sort(([a, x], [b, y]) => y - x || (a < b ? -1 : a > b ? 1 : 0))
-				.map(([id]) => id),
+			ranked: bySimilarity(scores),
 		};
 	}
 
@@ -344,11 +362,12 @@ export class GuideRetrieval {
 		load: (cursor: string | null, limit: number) => Promise<GuidePage>,
 		select: (ids: readonly string[]) => Promise<string[]>,
 		signal: AbortSignal,
-		stopAtHit = true,
+		stopWhenEnough = true,
 	): Promise<Branch> {
-		const { pageSize, maxScanned, maxPages } = this.limits;
+		const { pageSize, maxScanned, maxPages, maxCandidates } = this.limits;
 		const ids = new Set<string>();
 		const cursors = new Set<string>();
+		const ranked: string[] = [];
 		let cursor: string | null = null;
 		let scanned = 0;
 		for (let page = 0; page < maxPages && scanned < maxScanned; page++) {
@@ -360,14 +379,16 @@ export class GuideRetrieval {
 			scanned += result.ids.length;
 			const fresh = [...new Set(result.ids)].filter((id) => !ids.has(id));
 			for (const id of fresh) ids.add(id);
-			const ranked = await select(fresh);
-			if (ranked.length && stopAtHit)
-				return { ranked, exhausted: result.next === null };
+			ranked.push(...(await select(fresh)));
 			if (result.next === null) return { ranked, exhausted: true };
-			if (cursors.has(result.next)) return { ranked: [], exhausted: false };
+			if (
+				(stopWhenEnough && ranked.length >= maxCandidates) ||
+				cursors.has(result.next)
+			)
+				return { ranked, exhausted: false };
 			cursors.add(result.next);
 			cursor = result.next;
 		}
-		return { ranked: [], exhausted: false };
+		return { ranked, exhausted: false };
 	}
 }

@@ -14,6 +14,7 @@ import {
 	type ToolResult,
 	untilAborted,
 } from "./ports/agent.js";
+import type { WebSupplement } from "./ports/guide-source.js";
 import type { CitationSnapshot } from "./ports/session.js";
 import type {
 	AuthorizedCandidate,
@@ -29,7 +30,11 @@ export interface TurnToolObservation {
 export interface TurnTool {
 	readonly definition: ToolDefinition;
 	readonly denyCode?: ToolRejection;
-	authorize(call: ToolCall, previous: readonly TurnToolObservation[]): boolean;
+	authorize(
+		call: ToolCall,
+		previous: readonly TurnToolObservation[],
+		batch: ToolBatch,
+	): boolean | ToolRejection;
 	execute(
 		call: ToolCall,
 		signal: AbortSignal,
@@ -69,6 +74,8 @@ export type ToolFailure =
 	| "BUDGET_EXHAUSTED"
 	| "TOOL_TIMEOUT"
 	| "TOOL_FAILED"
+	| "WEB_SOURCE_UNAVAILABLE"
+	| "INDEX_NOT_READY"
 	| RetrievalError;
 export class TurnToolError extends Error {
 	constructor(readonly code: ToolFailure) {
@@ -116,10 +123,14 @@ export function registeredTurnTools(
 					const previous = observations.slice();
 					const authorized = batch.calls.map((call) => {
 						const tool = registered.get(call.name);
+						const decision = tool?.authorize(call, previous, batch);
 						return {
 							call,
-							tool: tool?.authorize(call, previous) ? tool : undefined,
-							rejection: tool?.denyCode ?? "TOOL_NOT_ALLOWED",
+							tool: decision === true ? tool : undefined,
+							rejection:
+								typeof decision === "string"
+									? decision
+									: (tool?.denyCode ?? "TOOL_NOT_ALLOWED"),
 						};
 					});
 					budget.recordRejection(batch.rejected.length);
@@ -260,15 +271,72 @@ function candidateWasDelivered(
 	);
 }
 
-/** 本批次只装配库内工具；联网补查由独立资料源接入后再注册。 */
 export function createGuideTools(
 	retrieval: GuideRetrieval,
+	supplement?: WebSupplement,
 ): TurnToolEnvironmentFactory {
 	return (context) => {
 		const { scope, turnId } = context;
 		if (!scope) throw new TurnToolError("TOOL_FAILED");
 		const candidates = new Map<string, AuthorizedCandidate>();
+		let webSpent = false;
+		let recheck: string | undefined;
+		let lastMiss: string | undefined;
 		const tools: readonly TurnTool[] = [
+			{
+				definition: schemaOf(
+					"search_web_guides",
+					"仅在前一批已确认库内未命中时，按角色、版本和配队目标补查一次。",
+					"query",
+				),
+				authorize(call, previous, batch) {
+					if (
+						webSpent ||
+						candidates.size ||
+						[...batch.calls, ...batch.rejected].some(
+							(c) => c.name === "search_guides",
+						) ||
+						!previous.some(
+							(o) =>
+								o.call.name === "search_guides" &&
+								isObject(o.content) &&
+								o.content.status === "miss",
+						)
+					)
+						return false;
+					const q = call.arguments.query;
+					if (typeof q !== "string") return "INVALID_TOOL_ARGUMENT";
+					let residue = q.normalize("NFKC").trim();
+					if (!residue || /(?:\b(?:OR|AND|NOT)\b|[:："'()-])/iu.test(residue))
+						return "INVALID_TOOL_ARGUMENT";
+					for (const term of [
+						scope.entityId,
+						scope.gameVersion,
+						"原神",
+						"配队",
+						"阵容",
+						"攻略",
+						"推荐",
+					])
+						residue = residue.replaceAll(term, "");
+					if (residue.trim()) return "INVALID_TOOL_ARGUMENT";
+					// 同批多个合法补查也只给第一个执行资格。
+					webSpent = true;
+					return true;
+				},
+				async execute(_call, signal) {
+					const status = supplement
+						? await supplement(scope, context.budget, signal)
+						: "source_restricted";
+					if (status === "indexed") {
+						// 重检是必经步骤，预算已尽时也不再花一次模型请求来提出重检。
+						if (!context.budget.hasToolCapacity)
+							throw new TurnToolError("BUDGET_EXHAUSTED");
+						recheck = lastMiss;
+					}
+					return { content: { status } };
+				},
+			},
 			{
 				definition: schemaOf(
 					"search_guides",
@@ -282,13 +350,17 @@ export function createGuideTools(
 					if (typeof query !== "string") throw new TurnToolError("TOOL_FAILED");
 					const result = await retrieval.searchGuides(
 						scope,
-						query.trim(),
+						recheck ?? query.trim(),
 						signal,
 					);
 					signal.throwIfAborted();
 					if (result.kind === "error") throw new TurnToolError(result.code);
-					if (result.kind === "miss")
+					const searched = recheck ?? query.trim();
+					recheck = undefined;
+					if (result.kind === "miss") {
+						lastMiss = searched;
 						return { content: { status: "miss" }, gap: true };
+					}
 					const summaries = result.candidates.map((candidate) => {
 						const candidateId = randomUUID();
 						candidates.set(candidateId, candidate);
@@ -391,7 +463,7 @@ export function createGuideTools(
 							isObject(content) &&
 							content.status === "miss",
 					);
-			return { evidence, gap, readAllCandidates };
+			return { evidence, gap: gap && recheck === undefined, readAllCandidates };
 		})(context);
 		return {
 			...env,
@@ -399,6 +471,7 @@ export function createGuideTools(
 				"攻略回答只返回 JSON 对象，包含 recommendations 和 gaps 两个数组，二者只填一个。",
 				"recommendations 每项必须有 text、conditions、requiredEntityIds、evidenceIds；后三项为字符串数组。",
 				"先检索再在下一批回读。只能引用 read_guide 返回的 evidenceId；摘要不是证据。",
+				"只有查库明确 miss 后才可在不含查库的下一批用 search_web_guides 补查一次。query 仅用本轮角色、版本、配队。indexed 后必须用原范围重新查库、回读；其他状态说明具体缺口。",
 				"conditions 保留回读提供的明确适用前提。requiredEntityIds 是所引证据要求的角色与装备。",
 				"资料不足时 gaps 含 {kind: insufficient_evidence, text}；存在冲突时使用 {kind: conflict, sides}，两方分别给 conclusion、conditions、evidenceIds。",
 				"根据完整回读发现确有必要但持有未知的装备，且无可用替代时，gaps 可使用 {kind: equipment_required, equipmentId, evidenceIds}。",

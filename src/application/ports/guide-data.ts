@@ -96,12 +96,85 @@ export interface VectorIndexPort {
 		vector: readonly number[],
 		limit: number,
 		signal: AbortSignal,
+		filter?: GuideFilter,
 	): Promise<readonly { readonly id: string; readonly score: number }[]>;
 	vectors(
 		embeddingId: string,
 		ids: readonly string[],
 		signal: AbortSignal,
 	): Promise<ReadonlyMap<string, readonly number[]>>;
+}
+
+export interface EmbeddingConfig {
+	readonly id: string;
+	readonly model: string;
+	readonly dimensions: number;
+}
+
+export interface ImportedChunk {
+	readonly id: string;
+	readonly section: string;
+	readonly location: string;
+	readonly body: string;
+	readonly terms: readonly string[];
+}
+
+export interface ImportDocument {
+	readonly webEvidence?: {
+		readonly permission: string;
+		readonly parser: string;
+		readonly fields: import("./guide-source.js").FieldProofs;
+	};
+	readonly id: string;
+	readonly title: string;
+	readonly sourceUrl: string;
+	readonly content: string;
+	readonly contentHash: string;
+	readonly processingVersion: string;
+	readonly entityId: string;
+	readonly gameVersions: GuideChunkMetadata["gameVersions"];
+	readonly applicability: Exclude<
+		GuideChunkMetadata["applicability"],
+		{ kind: "unknown" }
+	>;
+	readonly chunks: readonly ImportedChunk[];
+}
+
+export interface StoredGuide {
+	readonly id: string;
+	readonly entityId: string;
+	readonly gameVersions: GuideChunkMetadata["gameVersions"];
+	readonly published: boolean;
+	readonly indexed: boolean;
+	readonly chunks: readonly { readonly id: string; readonly body: string }[];
+}
+
+export interface GuideWriteRepository {
+	save(
+		document: ImportDocument,
+		embedding: EmbeddingConfig,
+		signal: AbortSignal,
+	): Promise<StoredGuide>;
+	forPublication(
+		id: string,
+		embeddingId: string,
+		signal: AbortSignal,
+	): Promise<StoredGuide | null>;
+	finishIndex(
+		id: string,
+		embeddingId: string,
+		signal: AbortSignal,
+	): Promise<void>;
+	publish(id: string, embeddingId: string, signal: AbortSignal): Promise<void>;
+}
+
+export interface VectorWritePort extends VectorIndexPort {
+	upsert(
+		embeddingId: string,
+		guide: StoredGuide,
+		vectors: ReadonlyMap<string, readonly number[]>,
+		signal: AbortSignal,
+	): Promise<void>;
 }
 export interface GuideData {
 	readonly repository: GuideRepository;

@@ -6,6 +6,9 @@
 !src/**
 !tests/
 !tests/**
+!migrations/
+!migrations/001_guide_store.sql
+!migrations/002_web_guide_evidence.sql
 !resources/
 !resources/terminology/
 !resources/terminology/terminology.json
