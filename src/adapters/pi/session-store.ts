@@ -16,6 +16,7 @@ import {
 	type VerifiedTurn,
 	type WritableSession,
 } from "../../application/ports/session.js";
+import { isSupplementGap } from "../../domain/answer-validation.js";
 import { isScopeDraft } from "../../domain/query-scope.js";
 
 const uuid =
@@ -88,8 +89,13 @@ function validOutcome(value: unknown): value is TurnOutcome {
 				)
 			);
 		case "needs_clarification":
-		case "insufficient_evidence":
 			return nonempty(value.text);
+		case "insufficient_evidence":
+			return (
+				nonempty(value.text) &&
+				(value.supplementGap === undefined ||
+					isSupplementGap(value.supplementGap))
+			);
 		case "failed":
 			return (
 				typeof value.code === "string" && /^[A-Z_]{1,80}$/.test(value.code)

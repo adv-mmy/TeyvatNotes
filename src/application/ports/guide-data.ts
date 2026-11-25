@@ -91,6 +91,12 @@ export interface EmbeddingPort {
 	): Promise<readonly number[]>;
 }
 export interface VectorIndexPort {
+	/** 只核对指定分块在当前集合中的存在性，不传回向量或参与排名。 */
+	hasAll(
+		embeddingId: string,
+		ids: readonly string[],
+		signal: AbortSignal,
+	): Promise<boolean>;
 	nearest(
 		embeddingId: string,
 		vector: readonly number[],

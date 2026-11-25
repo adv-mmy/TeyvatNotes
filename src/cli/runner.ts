@@ -159,7 +159,20 @@ export async function runCli(
 				if (allowReply) print("请直接输入要补充的条件。");
 				break;
 			case "insufficient_evidence":
-				print(`资料不足：${outcome.text}`);
+				print(
+					`资料不足：${
+						outcome.supplementGap
+							? {
+									no_results: "联网补查未找到相关攻略。",
+									source_restricted: "没有获准且可读取正文的攻略来源。",
+									no_readable_body: "找到了攻略链接，但没有可读取的正文。",
+									metadata_incomplete:
+										"攻略缺少明确的适用信息或存在歧义，未发布。",
+									scope_mismatch: "找到的攻略不适用于本轮角色或游戏版本。",
+								}[outcome.supplementGap]
+							: outcome.text
+					}`,
+				);
 				break;
 			case "failed":
 				error(outcome.code);

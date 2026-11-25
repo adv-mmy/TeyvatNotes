@@ -72,7 +72,7 @@ function pagedRetrieval(
 				return { ids: ["first"], next: expanding === "keyword" ? "p2" : null };
 			},
 			async eligibleIds() {
-				assert.fail("已有合格候选不需要进行全量覆盖补判");
+				return { ids: [...chunks.keys()], next: null };
 			},
 			async metadata(_snapshot, ids) {
 				return ids.flatMap((id) => {
@@ -91,6 +91,9 @@ function pagedRetrieval(
 			},
 		},
 		vectorIndex: {
+			async hasAll(_config, ids) {
+				return ids.every((id) => chunks.has(id));
+			},
 			async nearest(_id, _vector, limit) {
 				vectorLimits.push(limit);
 				return [
@@ -100,8 +103,8 @@ function pagedRetrieval(
 						: []),
 				];
 			},
-			async vectors() {
-				assert.fail("已有合格候选不需要按 ID 补判向量");
+			async vectors(_config, ids) {
+				return new Map(ids.map((id) => [id, [1, 0]]));
 			},
 		},
 	};

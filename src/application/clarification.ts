@@ -28,10 +28,10 @@ export interface DialogueTurn {
 	readonly prompt: string;
 	readonly scope?: QueryScope;
 	readonly scopeDraft?: ScopeDraft;
-	readonly preflight?: {
-		readonly status: "needs_clarification" | "insufficient_evidence";
-		readonly text: string;
-	};
+	readonly preflight?: Extract<
+		TurnOutcome,
+		{ status: "needs_clarification" | "insufficient_evidence" }
+	>;
 	readonly waiting?: Unfinished;
 	readonly continuing?: PendingClarification;
 	readonly confirmation?: Confirmation;

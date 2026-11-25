@@ -1,6 +1,7 @@
 .idea/
 node_modules/
 .env
+secrets/
 .guide-server.env
 .teyvat-client-*
 .teyvat-env-*

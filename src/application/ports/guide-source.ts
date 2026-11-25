@@ -36,11 +36,7 @@ export type ParsePage = (
 /** 只向供应商传递公开检索词，不把会话或玩家清单放到这个接口上。 */
 export type SupplementStatus =
 	| "indexed"
-	| "no_results"
-	| "source_restricted"
-	| "no_readable_body"
-	| "metadata_incomplete"
-	| "scope_mismatch";
+	| import("../../domain/answer-validation.js").SupplementGap;
 export type WebSupplement = (
 	scope: import("./guide-data.js").GuideFilter,
 	budget: import("../turn-budget.js").TurnBudget,

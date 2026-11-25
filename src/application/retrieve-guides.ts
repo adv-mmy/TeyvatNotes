@@ -1,5 +1,9 @@
 import { rankGuides } from "../domain/guide-ranking.js";
-import { type QueryScope, versionApplies } from "../domain/query-scope.js";
+import {
+	hasKnownPremise,
+	type QueryScope,
+	versionApplies,
+} from "../domain/query-scope.js";
 import {
 	type GuideChunkMetadata,
 	type GuideData,
@@ -79,11 +83,7 @@ function matches(scope: QueryScope, item: GuideChunkMetadata): boolean {
 	)
 		return false;
 	if (item.applicability.kind === "known") {
-		if (
-			!item.applicability.conditions.length ||
-			item.applicability.conditions.some((value) => !value.trim())
-		)
-			return false;
+		if (!hasKnownPremise(item.applicability)) return false;
 		if (
 			scope.playerConstraints.targetHolding === "not_owned" &&
 			item.applicability.requiredCharacterIds.includes(scope.entityId)
@@ -198,6 +198,8 @@ export class GuideRetrieval {
 			signal.throwIfAborted();
 			await this.data.repository.assertSnapshot(filter, snapshot, signal);
 			signal.throwIfAborted();
+			if (!semantic.exhausted)
+				return { kind: "error", code: "RETRIEVAL_INCOMPLETE" };
 			const ranked = rankGuides([keywords.ranked, semantic.ranked]).slice(
 				0,
 				this.limits.maxCandidates,
@@ -294,6 +296,7 @@ export class GuideRetrieval {
 		assertVector(vector);
 		let size = Math.min(pageSize, maxScanned);
 		const seen = new Set<string>();
+		const present = new Set<string>();
 		const approximate = new Map<string, number>();
 		for (let page = 0; page < maxPages; page++) {
 			signal.throwIfAborted();
@@ -309,6 +312,7 @@ export class GuideRetrieval {
 				nearest.some((item) => !item.id || !Number.isFinite(item.score))
 			)
 				throw new Error("INVALID_NEAREST_RESULT");
+			for (const { id } of nearest) present.add(id);
 			const scored = nearest.filter(({ score }) => score >= minVectorScore);
 			const hits = new Set(
 				await eligible(
@@ -323,14 +327,40 @@ export class GuideRetrieval {
 						Math.max(score, approximate.get(id) ?? -Infinity),
 					);
 			}
-			if (approximate.size >= maxCandidates)
-				return { ranked: bySimilarity(approximate), exhausted: false };
+			if (approximate.size >= maxCandidates) break;
 			if (size === maxScanned) break;
 			size = Math.min(size * 2, maxScanned);
 		}
-		if (approximate.size)
-			return { ranked: bySimilarity(approximate), exhausted: false };
-		// ANN 的空结果或短页都不证明查完。以权威分块清单补判相似度。
+		// 有近邻不证明索引完整。只按页核对 ID，不读取额外向量、扩充排名或
+		// 因一个健康范围大于排名预算就误报故障。核对始终受同一工具/轮次时限约束。
+		if (approximate.size) {
+			let cursor: string | null = null;
+			const cursors = new Set<string>();
+			do {
+				signal.throwIfAborted();
+				const page: GuidePage = await repository.eligibleIds(
+					filter,
+					snapshot,
+					cursor,
+					256,
+					signal,
+				);
+				const unchecked = page.ids.filter((id) => !present.has(id));
+				if (
+					unchecked.length &&
+					!(await vectorIndex.hasAll(embeddingId, unchecked, signal))
+				)
+					throw new Error("MISSING_INDEX_VECTOR");
+				cursor = page.next;
+				if (cursor !== null) {
+					if (!page.ids.length || cursors.has(cursor))
+						return { ranked: [], exhausted: false };
+					cursors.add(cursor);
+				}
+			} while (cursor !== null);
+			return { ranked: bySimilarity(approximate), exhausted: true };
+		}
+		// ANN 未命中不证明查完：在排名预算内按权威清单补判相似度。
 		const scores = new Map<string, number>();
 		const coverage = await this.walk(
 			(cursor, limit) =>

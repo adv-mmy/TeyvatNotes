@@ -3,6 +3,7 @@ import type {
 	GuideEvidence,
 	GuideEvidenceView,
 } from "../domain/answer-validation.js";
+import { isSupplementGap } from "../domain/answer-validation.js";
 import type { FrozenQueryScope } from "../domain/query-scope.js";
 import {
 	type JsonObject,
@@ -325,6 +326,8 @@ export function createGuideTools(
 					return true;
 				},
 				async execute(_call, signal) {
+					if (!context.budget.canFinishSupplement)
+						throw new TurnToolError("BUDGET_EXHAUSTED");
 					const status = supplement
 						? await supplement(scope, context.budget, signal)
 						: "source_restricted";
@@ -463,7 +466,17 @@ export function createGuideTools(
 							isObject(content) &&
 							content.status === "miss",
 					);
-			return { evidence, gap: gap && recheck === undefined, readAllCandidates };
+			const web = observations.find(
+				(o) => o.call.name === "search_web_guides",
+			)?.content;
+			return {
+				evidence,
+				gap: gap && recheck === undefined,
+				readAllCandidates,
+				...(!candidates.size && isObject(web) && isSupplementGap(web.status)
+					? { supplementGap: web.status }
+					: {}),
+			};
 		})(context);
 		return {
 			...env,

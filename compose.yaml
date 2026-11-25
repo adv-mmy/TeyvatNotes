@@ -1,18 +1,44 @@
 name: teyvatnotes
 
-services:
-  teyvatnotes:
+x-cli: &cli
+    image: ${COMPOSE_PROJECT_NAME:-teyvatnotes}-teyvatnotes
     build: .
     stdin_open: true
     tty: true
-    networks: [backend, model_api]
-    environment:
+    environment: &cli-env
       TEYVAT_MODEL_ID: ${TEYVAT_MODEL_ID:-deepseek-flash}
       TEYVAT_MODEL_BASE_URL: ${TEYVAT_MODEL_BASE_URL:-https://api.deepseek.com}
       TEYVAT_EMBEDDING_MODEL: ${TEYVAT_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
       TEYVAT_EMBEDDING_DIMENSIONS: ${TEYVAT_EMBEDDING_DIMENSIONS:-1024}
     volumes:
       - session_data:/data/sessions
+
+# 同一 CLI 和会话卷；按用途挂载最少的凭据，未使用的入口不要求密钥存在。
+services:
+  teyvatnotes:
+    <<: *cli
+    networks: [backend]
+    secrets: [postgres_password]
+
+  teyvatnotes-ask:
+    <<: *cli
+    profiles: [ask]
+    networks: [backend, model_api]
+    secrets: [postgres_password, model_api_key]
+
+  teyvatnotes-web:
+    <<: *cli
+    profiles: [web]
+    networks: [backend, model_api]
+    secrets: [postgres_password, model_api_key, search_api_key, source_policy]
+    environment:
+      <<: *cli-env
+      TEYVAT_SOURCE_POLICY_FILE: /run/secrets/source_policy
+
+  teyvatnotes-offline:
+    <<: *cli
+    profiles: [offline]
+    network_mode: none
 
   postgres:
     image: postgres:17-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652
@@ -78,3 +104,9 @@ networks:
 secrets:
   postgres_password:
     file: ${TEYVAT_POSTGRES_PASSWORD_FILE:-./secrets/postgres_password}
+  model_api_key:
+    file: ${TEYVAT_MODEL_API_KEY_FILE:-./secrets/model_api_key}
+  search_api_key:
+    file: ${TEYVAT_SEARCH_API_KEY_FILE:-./secrets/search_api_key}
+  source_policy:
+    file: ${TEYVAT_SOURCE_POLICY_FILE:-./secrets/source_policy.json}

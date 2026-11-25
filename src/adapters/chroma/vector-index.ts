@@ -101,6 +101,20 @@ export class ChromaVectorIndex implements VectorWritePort {
 		return vectors;
 	}
 
+	async hasAll(
+		embeddingId: string,
+		ids: readonly string[],
+		signal: AbortSignal,
+	) {
+		if (!ids.length) return true;
+		const collection = await this.existing(embeddingId, signal);
+		if (!collection) return false;
+		const found = new Set(
+			(await collection.get({ ids: [...ids], include: [] })).ids,
+		);
+		return ids.every((id) => found.has(id));
+	}
+
 	async upsert(
 		embeddingId: string,
 		guide: StoredGuide,

@@ -135,6 +135,7 @@ export async function createResponsesRuntime(
 						return {
 							...raw,
 							input,
+							reasoning: { effort: "none" },
 							max_output_tokens: Math.min(
 								Number(raw.max_output_tokens ?? options.maxTokens),
 								step?.maxTokens ?? options.maxTokens,

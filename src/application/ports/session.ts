@@ -17,8 +17,13 @@ export type TurnOutcome =
 			readonly citations: readonly CitationSnapshot[];
 	  }
 	| {
-			readonly status: "needs_clarification" | "insufficient_evidence";
+			readonly status: "needs_clarification";
 			readonly text: string;
+	  }
+	| {
+			readonly status: "insufficient_evidence";
+			readonly text: string;
+			readonly supplementGap?: import("../../domain/answer-validation.js").SupplementGap;
 	  }
 	| { readonly status: "failed"; readonly code: string }
 	| { readonly status: "cancelled" | "interrupted" };

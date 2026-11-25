@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
 	gameVersionKey,
+	hasKnownPremise,
 	resolveTerm,
 	type TermCategory,
 	type TerminologyEntry,
@@ -294,18 +295,13 @@ export function prepareGuide(
 				),
 			),
 		].sort();
-		if (
-			!conditions.length &&
-			!requiredCharacterIds.length &&
-			!requiredEquipmentIds.length
-		)
-			return incomplete();
 		applicability = {
 			kind: "known",
 			conditions,
 			requiredCharacterIds,
 			requiredEquipmentIds,
 		};
+		if (!hasKnownPremise(applicability)) return incomplete();
 	} else return incomplete();
 	if (typeof value.body !== "string" || value.body.includes("\0"))
 		return invalid();
@@ -447,7 +443,10 @@ export function webSupplement(options: {
 	return async (scope, budget, signal) => {
 		signal.throwIfAborted();
 		const permits = options.permits.filter(
-			(p) => validPermit(p) && p.access === "fetch_store_cite",
+			(p) =>
+				validPermit(p) &&
+				p.access === "fetch_store_cite" &&
+				options.source.canFetch(p),
 		);
 		if (!permits.length) return "source_restricted";
 		// 仅由已确认范围构造出站参数，不转发模型自由文本、玩家条件或历史。

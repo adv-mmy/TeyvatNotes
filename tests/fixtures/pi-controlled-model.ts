@@ -228,6 +228,12 @@ function guideData(): GuideData {
 			},
 		},
 		vectorIndex: {
+			async hasAll(_config, ids) {
+				return (
+					scenario !== "guides-missing-vector" &&
+					ids.every((id) => rows.some((row) => row.id === id))
+				);
+			},
 			async nearest(_embeddingId, _vector, limit) {
 				return [
 					"guides-exact",

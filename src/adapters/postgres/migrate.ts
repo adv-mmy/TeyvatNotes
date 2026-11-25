@@ -41,11 +41,16 @@ export async function migrate(
 				`../../../../migrations/${name}.sql`,
 				import.meta.url,
 			);
-			const sql = await readFile(location, { encoding: "utf8", signal });
+			const sql = (
+				await readFile(location, { encoding: "utf8", signal })
+			).replaceAll("\r\n", "\n");
 			return {
 				name,
 				sql,
 				checksum: createHash("sha256").update(sql).digest("hex"),
+				crlfChecksum: createHash("sha256")
+					.update(sql.replaceAll("\n", "\r\n"))
+					.digest("hex"),
 			};
 		}),
 	);
@@ -55,13 +60,13 @@ export async function migrate(
 		    id text PRIMARY KEY, checksum text NOT NULL
 		)`);
 		let changed = false;
-		for (const { name, sql, checksum } of scripts) {
+		for (const { name, sql, checksum, crlfChecksum } of scripts) {
 			const { rows } = await client.query<{ checksum: string }>(
 				"SELECT checksum FROM guide_schema_migration WHERE id = $1",
 				[name],
 			);
 			if (rows[0]) {
-				if (rows[0].checksum !== checksum)
+				if (rows[0].checksum !== checksum && rows[0].checksum !== crlfChecksum)
 					throw new Error("MIGRATION_CHECKSUM_MISMATCH");
 				continue;
 			}

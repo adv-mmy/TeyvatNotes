@@ -23,7 +23,20 @@ export interface GuideEvidence {
 	readonly citation: GuideCitation;
 }
 
+const supplementGaps = [
+	"no_results",
+	"source_restricted",
+	"no_readable_body",
+	"metadata_incomplete",
+	"scope_mismatch",
+] as const;
+export type SupplementGap = (typeof supplementGaps)[number];
+export function isSupplementGap(value: unknown): value is SupplementGap {
+	return supplementGaps.some((reason) => reason === value);
+}
+
 export interface GuideEvidenceView {
+	readonly supplementGap?: SupplementGap;
 	readonly evidence: ReadonlyMap<string, GuideEvidence>;
 	readonly gap: boolean;
 	readonly readAllCandidates: boolean;
@@ -35,7 +48,11 @@ export type GuideValidation =
 			readonly text: string;
 			readonly citations: readonly GuideCitation[];
 	  }
-	| { readonly status: "insufficient_evidence"; readonly text: string }
+	| {
+			readonly status: "insufficient_evidence";
+			readonly text: string;
+			readonly supplementGap?: SupplementGap;
+	  }
 	| {
 			readonly status: "needs_clarification";
 			readonly text: string;
@@ -155,7 +172,20 @@ function cited(records: readonly GuideEvidence[]): readonly GuideCitation[] {
 	];
 }
 
-function show(text: string, conditions: readonly string[]): string {
+function show(
+	text: string,
+	declared: readonly string[],
+	sources: readonly GuideEvidence[],
+): string {
+	const conditions = [
+		...new Set([
+			...declared,
+			...sources.flatMap((source) => [
+				...source.requiredCharacterIds.map((id) => `需持有角色「${id}」`),
+				...source.requiredEquipmentIds.map((id) => `需持有装备「${id}」`),
+			]),
+		]),
+	];
 	return conditions.length
 		? `${text}\n适用前提：${conditions.join("；")}`
 		: text;
@@ -212,7 +242,7 @@ export function validateGuideAnswer(
 			!item.requiredEntityIds.every((id) => required.has(id))
 		)
 			return invalid("INVALID_ANSWER_CONDITIONS");
-		output.push(show(item.text, item.conditions));
+		output.push(show(item.text, item.conditions, sources));
 		records.push(...sources);
 	}
 	if (output.length)
@@ -229,6 +259,7 @@ export function validateGuideAnswer(
 			? {
 					status: "insufficient_evidence",
 					text: "没有取得适用且可引用的完整攻略证据。",
+					...(view.supplementGap ? { supplementGap: view.supplementGap } : {}),
 				}
 			: invalid("INVALID_ANSWER_CONDITIONS");
 	}
@@ -281,7 +312,7 @@ export function validateGuideAnswer(
 		if (!premises(item.conditions, sources))
 			return invalid("INVALID_ANSWER_CONDITIONS");
 		for (const source of sources) chunks.add(source.chunkId);
-		output.push(show(item.conclusion, item.conditions));
+		output.push(show(item.conclusion, item.conditions, sources));
 		records.push(...sources);
 	}
 	return {

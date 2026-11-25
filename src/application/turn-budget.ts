@@ -85,6 +85,14 @@ export class TurnBudget {
 		return this.tools < this.limits.toolCalls;
 	}
 
+	/** 补查工具已计数：若发布成功，仍需模型驱动重检、回读和最终生成。 */
+	get canFinishSupplement(): boolean {
+		return (
+			this.limits.modelCalls - this.models >= 3 &&
+			this.limits.toolCalls - this.tools >= 2
+		);
+	}
+
 	startTool(): AbortSignal | undefined {
 		this.signal.throwIfAborted();
 		if (!this.hasToolCapacity) return undefined;

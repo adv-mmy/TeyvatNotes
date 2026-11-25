@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import { ChromaVectorIndex } from "../../src/adapters/chroma/vector-index.js";
 import { OllamaEmbedder } from "../../src/adapters/ollama/embedder.js";
 import { createResponsesRuntime } from "../../src/adapters/pi/runtime.js";
 import { PostgreSqlGuideRepository } from "../../src/adapters/postgres/guide-repository.js";
+import { migrate } from "../../src/adapters/postgres/migrate.js";
 import { DeepSeekSource } from "../../src/adapters/web/deepseek-source.js";
 import { parseWebGuide } from "../../src/adapters/web/metadata-parser.js";
 import { createGuideTools } from "../../src/application/guide-tools.js";
@@ -224,6 +225,9 @@ test("向量不能完整回查时不发布，显式重导复用版本，已确�
 	let calls: string[] = [];
 	const stored = new Map<string, readonly number[]>();
 	const vectors: VectorWritePort = {
+		async hasAll(_config, ids) {
+			return canRead && ids.every((id) => stored.has(id));
+		},
 		async nearest() {
 			return [];
 		},
@@ -403,6 +407,38 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 	try {
 		assert.match(await cli("db", "migrate"), /已初始化攻略库|已执行/u);
 		assert.match(await cli("db", "migrate"), /无需重复/u);
+		// 使用独立的 schema 验证历史校验和，不更改已应用的迁移记录。
+		const schema = `migration_${randomUUID().replaceAll("-", "")}`;
+		await pool.query(`CREATE SCHEMA ${schema}`);
+		const legacy = new pg.Pool({ ...db, options: `-c search_path=${schema}` });
+		try {
+			await legacy.query(
+				"CREATE TABLE guide_schema_migration(id text PRIMARY KEY, checksum text NOT NULL)",
+			);
+			const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+			for (const name of ["001_guide_store", "002_web_guide_evidence"]) {
+				const lf = (
+					await readFile(
+						new URL(`../../../migrations/${name}.sql`, import.meta.url),
+						"utf8",
+					)
+				).replaceAll("\r\n", "\n");
+				await legacy.query(
+					"INSERT INTO guide_schema_migration VALUES ($1,$2)",
+					[name, hash(lf.replaceAll("\n", "\r\n"))],
+				);
+			}
+			assert.equal(await migrate(legacy, signal), false);
+			await legacy.query(
+				"UPDATE guide_schema_migration SET checksum=$1 WHERE id='002_web_guide_evidence'",
+				[hash("SELECT 42;")],
+			);
+			await assert.rejects(migrate(legacy, signal), {
+				message: "MIGRATION_CHECKSUM_MISMATCH",
+			});
+		} finally {
+			await legacy.end();
+		}
 		const retrieval = new GuideRetrieval({
 			repository,
 			embeddings,
@@ -552,6 +588,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				);
 				assert.equal(payload.model, "deepseek-flash");
 				assert.equal(payload.max_output_tokens, 8192);
+				assert.deepEqual(payload.reasoning, { effort: "none" });
 				assert.equal(payload.previous_response_id, undefined);
 				assert.deepEqual(
 					payload.tools.map((tool: { name: string }) => tool.name).sort(),
@@ -595,19 +632,36 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							content: [
 								{
 									type: "output_text",
-									text: JSON.stringify({
-										recommendations: [
-											{
-												text: content.body.includes("钟离可与虚构队友配队")
-													? "钟离可与虚构队友配队。"
-													: "隔离配队建议",
-												conditions: [],
-												requiredEntityIds: [],
-												evidenceIds: [content.evidenceId],
-											},
-										],
-										gaps: [],
-									}),
+									text: JSON.stringify(
+										content.status !== "complete"
+											? {
+													recommendations: [],
+													gaps: [
+														{
+															kind: "insufficient_evidence",
+															text: "模型不能替应用决定失败原因",
+														},
+													],
+												}
+											: {
+													recommendations: [
+														{
+															text: content.body.includes(
+																"钟离可与虚构队友配队",
+															)
+																? "钟离可与虚构队友配队。"
+																: "隔离配队建议",
+															conditions: content.conditions,
+															requiredEntityIds: [
+																...content.requiredCharacterIds,
+																...content.requiredEquipmentIds,
+															],
+															evidenceIds: [content.evidenceId],
+														},
+													],
+													gaps: [],
+												},
+									),
 								},
 							],
 						};
@@ -635,6 +689,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			gameVersion: string,
 			supplement?: WebSupplement,
 			toolLimit = 8,
+			modelLimit = 6,
 		) => {
 			requests = 0;
 			const stdin = new PassThrough();
@@ -659,6 +714,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						TEYVAT_MODEL_ID: "deepseek-flash",
 						TEYVAT_MODEL_API_KEY_FILE: secret,
 						TEYVAT_TOOL_CALLS: String(toolLimit),
+						TEYVAT_MODEL_CALLS: String(modelLimit),
 					},
 					supplement
 						? async (context) => ({
@@ -687,6 +743,71 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		assert.match(transcript, /隔离配队建议/u);
 		assert.match(transcript, /原文：https:\/\/example\.invalid\//u);
 		assert.equal(requests, 3);
+		const gearDoc = prepareGuide(
+			JSON.stringify({
+				...fixture,
+				sourceUrl: `https://example.invalid/gear/${randomUUID()}`,
+				gameVersions: { from: "975.1", through: "975.1" },
+				applicability: {
+					kind: "known",
+					conditions: [],
+					requiredCharacterIds: [],
+					requiredEquipmentIds: ["黑缨枪"],
+				},
+			}),
+			"json",
+			terminology,
+		);
+		const ingest = new IngestGuide(
+			repository,
+			embeddings,
+			vectorIndex,
+			storage.embedding,
+		);
+		await ingest.import(gearDoc, true, signal);
+		const gearAnswer = await runQuestion("975.1", async () =>
+			assert.fail("已发布攻略不应触发补查"),
+		);
+		assert.match(gearAnswer, /需持有装备「黑缨枪」/u);
+		assert.match(gearAnswer, /原文：https:\/\/example\.invalid\/gear\//u);
+		assert.equal(requests, 3);
+		// 独立版本模拟已就绪的两块只剩一个向量。不删除已有向量，验证后补回此样本的索引。
+		const drift = prepareGuide(
+			JSON.stringify({
+				...fixture,
+				sourceUrl: `https://example.invalid/drift/${randomUUID()}`,
+				gameVersions: { from: "975.2", through: "975.2" },
+			}),
+			"json",
+			terminology,
+		);
+		const saved = await repository.save(drift, storage.embedding, signal);
+		assert.equal(saved.chunks.length, 2);
+		const one = saved.chunks[0];
+		assert.ok(one);
+		await vectorIndex.upsert(
+			storage.embedding.id,
+			{ ...saved, chunks: [one] },
+			new Map([
+				[
+					one.id,
+					await embeddings.embed(one.body, storage.embedding.id, signal),
+				],
+			]),
+			signal,
+		);
+		await repository.finishIndex(saved.id, storage.embedding.id, signal);
+		await repository.publish(saved.id, storage.embedding.id, signal);
+		try {
+			const partial = await runQuestion("975.2", async () =>
+				assert.fail("索引故障不应触发补查"),
+			);
+			assert.match(partial, /RETRIEVAL_UNAVAILABLE/u);
+			assert.doesNotMatch(partial, /原文：/u);
+			assert.equal(requests, 1);
+		} finally {
+			await ingest.import(drift, true, signal);
+		}
 		const permit = {
 			origin: "https://example.invalid",
 			path: "/allowed/",
@@ -827,7 +948,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			),
 			"source_restricted",
 		);
-		assert.equal(fetches, 0);
+		assert.deepEqual(
+			[searches, fetches],
+			[1, 0],
+			"适配器不能读取正文时连 Search 也不发起",
+		);
 		for (const op of ["search", "fetch"] as const) {
 			const budget = new TurnBudget(
 				{ ...readConfig({}).limits, searchMs: 50, fetchMs: 50 },
@@ -878,6 +1003,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		);
 		markdown = content;
 		const notVisible: VectorWritePort = {
+			hasAll: async () => false,
 			upsert: async () => {},
 			vectors: async () => new Map(),
 			nearest: vectorIndex.nearest.bind(vectorIndex),
@@ -919,10 +1045,29 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		const nextVersion = webVersion.replace(/\.1$/u, ".2");
 		markdown = content.replace(webVersion, nextVersion);
 		webVersion = nextVersion;
-		const limited = await runQuestion(webVersion, supplement, 2);
-		assert.match(limited, /BUDGET_EXHAUSTED/u);
-		assert.doesNotMatch(limited, /原文：/u);
-		assert.deepEqual([requests, searches, fetches], [2, 2, 2]);
+		for (const [tools, models] of [
+			[2, 6],
+			[8, 2],
+			[3, 5],
+			[4, 4],
+		] as const) {
+			const limited = await runQuestion(webVersion, supplement, tools, models);
+			assert.match(limited, /BUDGET_EXHAUSTED/u);
+			assert.doesNotMatch(limited, /原文：/u);
+			assert.deepEqual([requests, searches, fetches], [2, 1, 1]);
+		}
+		for (const [status, reason] of [
+			["no_results", "未找到相关攻略"],
+			["source_restricted", "没有获准"],
+			["no_readable_body", "没有可读取的正文"],
+			["metadata_incomplete", "适用信息"],
+			["scope_mismatch", "不适用于本轮"],
+		] as const) {
+			const missing = await runQuestion(webVersion, async () => status);
+			assert.ok(missing.includes(reason), missing);
+			assert.doesNotMatch(missing, /模型不能替应用决定失败原因|原文：/u);
+			assert.equal(requests, 3);
+		}
 	} finally {
 		await pool.end();
 		await rm(temp, { recursive: true, force: true });

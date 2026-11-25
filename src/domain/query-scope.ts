@@ -8,6 +8,24 @@ export interface TerminologyEntry {
 
 export type TeamMode = "general" | "inventory";
 export type Holding = "owned" | "not_owned";
+export function hasKnownPremise(rule: {
+	readonly conditions: readonly string[];
+	readonly requiredCharacterIds: readonly string[];
+	readonly requiredEquipmentIds: readonly string[];
+}): boolean {
+	const fields = [
+		rule.conditions,
+		rule.requiredCharacterIds,
+		rule.requiredEquipmentIds,
+	];
+	return (
+		fields.every(
+			(values) =>
+				Array.isArray(values) &&
+				values.every((v) => typeof v === "string" && v.trim()),
+		) && fields.some((values) => values.length > 0)
+	);
+}
 export type ScopeField =
 	| "entityId"
 	| "gameVersion"
