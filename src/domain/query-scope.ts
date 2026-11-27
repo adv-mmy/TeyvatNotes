@@ -99,7 +99,9 @@ export function inventoryFit(
 		rule.requiredCharacterIds.some(
 			(id) =>
 				c.excludedCharacters?.includes(id) ||
-				(id === scope.entityId && c.targetHolding === "not_owned"),
+				(id === scope.entityId &&
+					scope.teamMode === "inventory" &&
+					c.targetHolding === "not_owned"),
 		) ||
 		rule.requiredEquipmentIds.some((id) => c.excludedEquipment?.includes(id)) ||
 		(rule.requiredEquipmentIds.length > 0 &&
@@ -280,62 +282,94 @@ function splitInventoryClauses(
 	const questionParts: string[] = [];
 	const facts: InventoryFact[] = [];
 	let invalidFacts = false;
-	for (const [part] of normalize(prompt).matchAll(/[^,;。!?\n]+\??/gu)) {
-		const match =
-			/^(?:我(?:其实)?|本轮|这次)?\s*(没有|不持有|持有|有|不能用|不用|不使用|不要用)\s*(.+)$/u.exec(
-				part.trim(),
-			);
-		if (!match) {
-			questionParts.push(part);
-			continue;
-		}
-		const state = /^(?:没有|不持有)$/u.test(match[1] ?? "")
-			? "not_owned"
-			: /^(?:有|持有)$/u.test(match[1] ?? "")
-				? "owned"
-				: "avoid";
-		for (const entry of (match[2] ?? "").split("、")) {
-			const raw = entry.trim();
-			const typed = /^(队友|角色|装备|武器|圣遗物)\s*(.+)$/u.exec(raw);
-			const find = (s: string, categories: readonly TermCategory[]) =>
-				categories.flatMap((cat) =>
-					matchingNames(s, terms, cat, true).map((id) => ({
-						category:
-							cat === "character"
-								? ("character" as const)
-								: ("equipment" as const),
-						id,
-						state,
-					})),
-				);
-			const candidates = find(raw, ["character", "weapon", "artifact"]);
-			const fact = one(
-				candidates.length || !typed
-					? candidates
-					: find(
-							typed[2] ?? "",
-							/队友|角色/u.test(typed[1] ?? "")
-								? ["character"]
-								: typed[1] === "武器"
-									? ["weapon"]
-									: typed[1] === "圣遗物"
-										? ["artifact"]
-										: ["weapon", "artifact"],
-						),
-			);
+	const clauses =
+		/(?:^|(?:我|本轮|这次)\s*|(?<=\s|配队|组队|阵容)(?=没有|不持有|未持有|没抽到|不能用|不用|不使用|不要用|不想用|别用|不带))(其实|目前|现在|暂时|还|也|可能|大概|似乎|好像|也许)?\s*(没有|不持有|未持有|没抽到|持有|有|不能用|不用|不使用|不要用|不想用|别用|不带)\s*/gu;
+	for (const [segment] of normalize(prompt).matchAll(/[^,;。!?\n]+\??/gu)) {
+		const part = segment.trim();
+		const matches = [...part.matchAll(clauses)];
+		const first = matches[0];
+		if (!first) {
 			if (
-				!fact ||
-				facts.some(
-					(f) =>
-						f.category === fact.category &&
-						f.id === fact.id &&
-						f.state !== "avoid" &&
-						state !== "avoid" &&
-						f.state !== state,
+				/我(?:到底)?有没有|不确定.{0,6}(?:有没有|是否(?:持|拥)?有|持有|没有)/u.test(
+					part,
 				)
 			)
 				invalidFacts = true;
-			else facts.push({ ...fact, state });
+			questionParts.push(part);
+			continue;
+		}
+		questionParts.push(part.slice(0, first.index));
+		for (const [i, match] of matches.entries()) {
+			let value = part
+				.slice(match.index + match[0].length, matches[i + 1]?.index)
+				.trim();
+			// 也接受先声明库存、再以空格接本轮带明确版本的配队问题。
+			const suffix = /\s+(?=\S.*\d{1,3}\.\d{1,3}.*(?:配队|组队|阵容))/u.exec(
+				value,
+			);
+			if (suffix) {
+				questionParts.push(value.slice(suffix.index).trim());
+				value = value.slice(0, suffix.index);
+			}
+			if (
+				!value ||
+				/[?？]$|吗$/u.test(value) ||
+				/^(?:可能|大概|似乎|好像|也许)$/u.test(match[1] ?? "") ||
+				/(?:如果|假设|假如|要是|是否|不确定)\s*$/u.test(
+					part.slice(0, match.index),
+				)
+			) {
+				invalidFacts = true;
+				continue;
+			}
+			const state = /^(?:没有|不持有|未持有|没抽到)$/u.test(match[2] ?? "")
+				? "not_owned"
+				: /^(?:有|持有)$/u.test(match[2] ?? "")
+					? "owned"
+					: "avoid";
+			for (const entry of value.split("、")) {
+				const raw = entry.trim();
+				const typed = /^(队友|角色|装备|武器|圣遗物)\s*(.+)$/u.exec(raw);
+				const find = (s: string, categories: readonly TermCategory[]) =>
+					categories.flatMap((cat) =>
+						matchingNames(s, terms, cat, true).map((id) => ({
+							category:
+								cat === "character"
+									? ("character" as const)
+									: ("equipment" as const),
+							id,
+							state,
+						})),
+					);
+				const candidates = find(raw, ["character", "weapon", "artifact"]);
+				const fact = one(
+					candidates.length || !typed
+						? candidates
+						: find(
+								typed[2] ?? "",
+								/队友|角色/u.test(typed[1] ?? "")
+									? ["character"]
+									: typed[1] === "武器"
+										? ["weapon"]
+										: typed[1] === "圣遗物"
+											? ["artifact"]
+											: ["weapon", "artifact"],
+							),
+				);
+				if (
+					!fact ||
+					facts.some(
+						(f) =>
+							f.category === fact.category &&
+							f.id === fact.id &&
+							f.state !== "avoid" &&
+							state !== "avoid" &&
+							f.state !== state,
+					)
+				)
+					invalidFacts = true;
+				else facts.push({ ...fact, state });
+			}
 		}
 	}
 	return {
@@ -567,7 +601,9 @@ export function resolveScope(
 				.map((f) => f.id),
 		]),
 	];
-	const excludedCharacters = excluded("character", player.holdings);
+	const excludedCharacters = excluded("character", player.holdings).filter(
+		(id) => teamMode === "inventory" || id !== entityId,
+	);
 	const excludedEquipment = excluded(
 		"equipment",
 		player.equipmentHoldings ?? {},
@@ -585,7 +621,7 @@ export function resolveScope(
 		)
 	)
 		return { kind: "no_team", reason: "target_excluded" };
-	if (targetHolding === "not_owned")
+	if (teamMode === "inventory" && targetHolding === "not_owned")
 		return { kind: "no_team", reason: "target_absent" };
 	if (teamMode === "inventory") {
 		if (

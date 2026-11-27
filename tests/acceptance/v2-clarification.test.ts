@@ -96,7 +96,7 @@ test(
 		const first = cli(t, root, "guides-constraints");
 		const id = await create(first);
 		first.send("小甲 7.1 怎么配队？我没有角色乙");
-		await first.receive(/队友丙携带试验弓搭配角色甲/u);
+		await first.receive(/参考配队：角色甲＋队友丙（试验弓）＋队友丁＋队友戊/u);
 		await first.receive(/原文：https:\/\/example.test\/alternative/u);
 		await first.exit();
 		const resumed = cli(t, root, "guides-constraints");

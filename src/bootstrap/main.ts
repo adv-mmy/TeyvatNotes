@@ -158,6 +158,7 @@ export async function startCli(
 							process.stderr.write(`${JSON.stringify(info)}\n`);
 					},
 					new Clarification(terms),
+					terms,
 				),
 			};
 		}

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
 	gameVersionKey,
 	hasKnownPremise,
+	inventoryFit,
 	resolveTerm,
 	type TermCategory,
 	type TerminologyEntry,
@@ -484,6 +485,7 @@ export function webSupplement(options: {
 		);
 		if (!links.length) return "no_results";
 		let outcome: SupplementStatus = "source_restricted";
+		let sawInventoryMismatch = false;
 		const seen = new Set<string>();
 		for (const link of links) {
 			signal.throwIfAborted();
@@ -535,8 +537,15 @@ export function webSupplement(options: {
 						: "RETRIEVAL_UNAVAILABLE",
 				);
 			}
+			if (
+				doc.applicability.kind === "known" &&
+				inventoryFit(scope, doc.applicability) === "unavailable"
+			) {
+				sawInventoryMismatch = true;
+				continue;
+			}
 			return "indexed";
 		}
-		return outcome;
+		return sawInventoryMismatch ? "inventory_mismatch" : outcome;
 	};
 }

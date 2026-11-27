@@ -11,11 +11,12 @@ import {
 import {
 	type GuideEvidence,
 	type GuideEvidenceView,
-	validateGuideAnswer,
+	validateGuideAnswer as validateAnswer,
 } from "../../src/domain/answer-validation.js";
 import { rankGuides } from "../../src/domain/guide-ranking.js";
 import {
 	type FrozenQueryScope,
+	type TerminologyEntry,
 	versionApplies,
 } from "../../src/domain/query-scope.js";
 
@@ -180,10 +181,27 @@ const testView = (...records: GuideEvidence[]): GuideEvidenceView => ({
 	gap: true,
 	readAllCandidates: true,
 });
+const terms: readonly TerminologyEntry[] = [
+	...["甲", "乙", "丙", "丁", "戊"].map((name) => ({
+		category: "character" as const,
+		name,
+		aliases: [`角色${name}`],
+	})),
+	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
+	{ category: "weapon", name: "替代弓", aliases: [] },
+	{ category: "artifact", name: "试验套", aliases: ["小套"] },
+];
+const validateGuideAnswer = (
+	raw: string,
+	scope: FrozenQueryScope,
+	turnId: string,
+	view: GuideEvidenceView,
+) => validateAnswer(raw, scope, turnId, view, terms);
 const recommendation = {
-	text: "建议甲与乙组队。",
-	conditions: ["须持有试验弓"],
-	requiredEntityIds: ["甲", "乙", "试验弓"],
+	team: ["甲", "乙", "丙", "丁"].map((characterId) => ({
+		characterId,
+		equipmentIds: [] as string[],
+	})),
 	evidenceIds: ["e1"],
 };
 const draft = (items: unknown[], gaps: unknown[] = []) =>
@@ -214,19 +232,21 @@ test("通用建议保留明确前提，引用从证据登记簿生成", () => {
 	);
 	assert.equal(result.status, "answered");
 	if (result.status === "answered") {
-		assert.match(result.text, /适用前提：须持有试验弓/u);
+		assert.match(result.text, /参考配队：甲＋乙＋丙＋丁/u);
+		assert.match(result.text, /须持有试验弓/u);
 		assert.deepEqual(result.citations, [reference.citation]);
 	}
 	assert.deepEqual(
 		validateGuideAnswer(
-			draft([{ ...recommendation, conditions: [] }]),
+			draft([{ ...recommendation, text: "伪装为其他阵容" }]),
 			scope,
 			"t1",
 			testView(reference),
 		),
 		{
 			status: "failed",
-			code: "INVALID_ANSWER_CONDITIONS",
+			code: "INVALID_ANSWER_STRUCTURE",
+			validationDetail: "unexpected_fields:$.recommendations[0]",
 		},
 	);
 });
@@ -245,10 +265,8 @@ test("攻略格式错误只报告固定原因和字段路径，合法资料不�
 		[draft([], []), "status_conflict:both_empty"],
 		[draft([recommendation], [gap]), "status_conflict:both_nonempty"],
 		[
-			draft([
-				{ text: recommendation.text, conditions: [], evidenceIds: ["e1"] },
-			]),
-			"missing_field:$.recommendations[0].requiredEntityIds",
+			draft([{ evidenceIds: ["e1"] }]),
+			"missing_field:$.recommendations[0].team",
 		],
 		[
 			JSON.stringify({
@@ -306,13 +324,97 @@ test("伪造、跨轮、错范围、错版本、正文截断都不是引用", ()
 	}
 });
 
+test("有效引用不能替代实际阵容的库存校验；标准名、别名及设备类别共用同一规则", () => {
+	const source = {
+		...reference,
+		conditions: [],
+		requiredCharacterIds: [],
+		requiredEquipmentIds: [],
+	};
+	for (const [target, owned, excluded] of [
+		["甲", ["试验弓"], "试验套"],
+		["乙", ["试验套"], "替代弓"],
+	] as const) {
+		const inventory: FrozenQueryScope = {
+			...scope,
+			entityId: target,
+			teamMode: "inventory",
+			playerConstraints: {
+				targetHolding: "owned",
+				teammates: {
+					kind: "known",
+					items: ["甲", "乙", "丙", "丁"].filter((id) => id !== target),
+				},
+				equipment: { kind: "known", items: owned },
+				excludedEquipment: [excluded],
+			},
+		};
+		const read = testView({ ...source, entityId: target });
+		const submit = (item: unknown, selected = inventory) =>
+			validateGuideAnswer(draft([item]), selected, "t1", read);
+		const withGear = (equipmentIds: string[]) => ({
+			...recommendation,
+			team: recommendation.team.map((slot) =>
+				slot.characterId === target
+					? { characterId: `角色${target}`, equipmentIds }
+					: slot,
+			),
+		});
+		const ok = submit(withGear([target === "甲" ? "小弓" : "小套"]));
+		assert.equal(ok.status, "answered");
+		if (ok.status === "answered")
+			assert.ok(ok.text.includes(`${target}（${owned[0]}）`));
+		for (const item of [
+			withGear([excluded]),
+			withGear([target === "甲" ? "替代弓" : "试验弓"]),
+			{
+				...recommendation,
+				team: recommendation.team.map((slot) =>
+					slot.characterId === "丁" ? { ...slot, characterId: "戊" } : slot,
+				),
+			},
+		])
+			assert.deepEqual(submit(item), {
+				status: "failed",
+				code: "INVALID_ANSWER_CONDITIONS",
+			});
+		assert.equal(
+			submit(recommendation, {
+				...inventory,
+				playerConstraints: {
+					...inventory.playerConstraints,
+					equipment: { kind: "unknown" },
+				},
+			}).status,
+			"answered",
+		);
+		for (const malformed of [
+			{ ...recommendation, team: recommendation.team.slice(0, 3) },
+			{
+				...recommendation,
+				team: recommendation.team.map((slot) => ({
+					...slot,
+					characterId: `角色${target}`,
+				})),
+			},
+			withGear(["试验弓", "替代弓"]),
+			withGear(["角色丙"]),
+		]) {
+			const rejected = submit(malformed);
+			assert.equal(rejected.status, "failed");
+			if (rejected.status === "failed")
+				assert.equal(rejected.code, "INVALID_ANSWER_STRUCTURE");
+		}
+	}
+});
+
 test("按库存先用满足条件的替代；找不到且确有依据才追问未知装备", () => {
 	const inventory: FrozenQueryScope = {
 		...scope,
 		teamMode: "inventory",
 		playerConstraints: {
 			targetHolding: "owned",
-			teammates: { kind: "known", items: ["乙"] },
+			teammates: { kind: "known", items: ["乙", "丙", "丁"] },
 			equipment: { kind: "unknown" },
 		},
 	};

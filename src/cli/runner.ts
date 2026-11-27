@@ -169,6 +169,8 @@ export async function runCli(
 									metadata_incomplete:
 										"攻略缺少明确的适用信息或存在歧义，未发布。",
 									scope_mismatch: "找到的攻略不适用于本轮角色或游戏版本。",
+									inventory_mismatch:
+										"找到的攻略不符合本轮已确认的库存或排除条件。",
 									recheck_miss:
 										"补查资料已入库，但重新检索后没有找到适用于本轮条件的攻略。",
 								}[outcome.supplementGap]

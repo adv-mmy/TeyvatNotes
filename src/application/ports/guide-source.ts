@@ -1,4 +1,7 @@
-import type { TerminologyEntry } from "../../domain/query-scope.js";
+import type {
+	FrozenQueryScope,
+	TerminologyEntry,
+} from "../../domain/query-scope.js";
 import type { ImportDocument } from "./guide-data.js";
 
 export interface SourcePermit {
@@ -41,7 +44,7 @@ export type SupplementStatus =
 			"recheck_miss"
 	  >;
 export type WebSupplement = (
-	scope: import("./guide-data.js").GuideFilter,
+	scope: FrozenQueryScope,
 	budget: import("../turn-budget.js").TurnBudget,
 	signal: AbortSignal,
 ) => Promise<SupplementStatus>;

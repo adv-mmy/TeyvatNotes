@@ -1,6 +1,8 @@
 import {
 	type FrozenQueryScope,
 	inventoryFit,
+	resolveTerm,
+	type TerminologyEntry,
 	versionApplies,
 } from "./query-scope.js";
 
@@ -34,6 +36,7 @@ const supplementGaps = [
 	"no_readable_body",
 	"metadata_incomplete",
 	"scope_mismatch",
+	"inventory_mismatch",
 ] as const;
 export type SupplementGap = (typeof supplementGaps)[number];
 export function isSupplementGap(value: unknown): value is SupplementGap {
@@ -199,12 +202,83 @@ function show(
 		: text;
 }
 
+type TeamSlot = {
+	readonly characterId: string;
+	readonly equipmentIds: readonly string[];
+};
+
+function validateTeam(
+	value: unknown,
+	path: string,
+	terms: readonly TerminologyEntry[],
+): { team: readonly TeamSlot[] } | { detail: GuideStructureDetail } {
+	if (!Array.isArray(value) || value.length !== 4)
+		return { detail: `invalid_field:${path}` };
+	const team: TeamSlot[] = [];
+	const characters = new Set<string>();
+	for (const [i, slot] of (value as unknown[]).entries()) {
+		const at = `${path}[${i}]`;
+		if (!object(slot)) return { detail: `invalid_field:${at}` };
+		const fields = fieldShape(slot, at, ["characterId", "equipmentIds"]);
+		if (fields) return { detail: fields };
+		const id = text(slot.characterId)
+			? resolveTerm(slot.characterId, terms, ["character"])
+			: undefined;
+		if (!id || characters.has(id))
+			return { detail: `invalid_field:${at}.characterId` };
+		if (!strings(slot.equipmentIds))
+			return { detail: `invalid_field:${at}.equipmentIds` };
+		const equipment = new Set<string>();
+		let weapons = 0;
+		for (const label of slot.equipmentIds) {
+			const name = resolveTerm(label, terms, ["weapon", "artifact"]);
+			if (
+				!name ||
+				equipment.has(name) ||
+				(resolveTerm(label, terms, ["weapon"]) && ++weapons > 1)
+			)
+				return { detail: `invalid_field:${at}.equipmentIds` };
+			equipment.add(name);
+		}
+		characters.add(id);
+		team.push({ characterId: id, equipmentIds: [...equipment] });
+	}
+	return { team };
+}
+
+function showTeam(
+	scope: FrozenQueryScope,
+	team: readonly TeamSlot[],
+	sources: readonly GuideEvidence[],
+): string {
+	const lineup = team
+		.map(({ characterId, equipmentIds }) =>
+			equipmentIds.length
+				? `${characterId}（${equipmentIds.join("、")}）`
+				: characterId,
+		)
+		.join("＋");
+	const general = scope.teamMode === "general";
+	const conditions = sources.flatMap((record) => record.conditions);
+	if (general) {
+		conditions.unshift("需持有阵容中的四名角色及所列装备");
+		if (scope.playerConstraints.targetHolding === "not_owned")
+			conditions.push(`尚未持有目标角色「${scope.entityId}」`);
+	}
+	return show(
+		`${general ? "参考配队" : "可用配队"}：${lineup}`,
+		conditions,
+		sources,
+	);
+}
+
 /** 领域层只读本轮成功回读证据；原文是否语义支持结论由固定用例评测。 */
 export function validateGuideAnswer(
 	raw: string,
 	scope: FrozenQueryScope,
 	turnId: string,
 	view: GuideEvidenceView,
+	terms: readonly TerminologyEntry[],
 ): GuideValidation {
 	let draft: unknown;
 	try {
@@ -232,34 +306,24 @@ export function validateGuideAnswer(
 	for (const [i, item] of (draft.recommendations as unknown[]).entries()) {
 		const path = `$.recommendations[${i}]`;
 		if (!object(item)) return structure(`invalid_field:${path}`);
-		const fields = fieldShape(item, path, [
-			"text",
-			"conditions",
-			"requiredEntityIds",
-			"evidenceIds",
-		]);
+		const fields = fieldShape(item, path, ["team", "evidenceIds"]);
 		if (fields) return structure(fields);
-		if (!text(item.text)) return structure(`invalid_field:${path}.text`);
-		if (!strings(item.conditions))
-			return structure(`invalid_field:${path}.conditions`);
-		if (!strings(item.requiredEntityIds))
-			return structure(`invalid_field:${path}.requiredEntityIds`);
+		const result = validateTeam(item.team, `${path}.team`, terms);
+		if ("detail" in result) return structure(result.detail);
+		const { team } = result;
 		const sources = refs(item.evidenceIds, scope, turnId, view);
 		if (!sources) return invalid("INVALID_CITATION");
-		const required = new Set(
-			sources.flatMap((item) => [
-				...item.requiredCharacterIds,
-				...item.requiredEquipmentIds,
-			]),
-		);
+		const selected = {
+			requiredCharacterIds: team.map((slot) => slot.characterId),
+			requiredEquipmentIds: team.flatMap((slot) => slot.equipmentIds),
+		};
 		if (
-			!premises(item.conditions, sources) ||
 			!sources.every((record) => canUse(scope, record)) ||
-			item.requiredEntityIds.length !== required.size ||
-			!item.requiredEntityIds.every((id) => required.has(id))
+			!selected.requiredCharacterIds.includes(scope.entityId) ||
+			inventoryFit(scope, selected) !== "usable"
 		)
 			return invalid("INVALID_ANSWER_CONDITIONS");
-		output.push(show(item.text, item.conditions, sources));
+		output.push(showTeam(scope, team, sources));
 		records.push(...sources);
 	}
 	if (output.length)

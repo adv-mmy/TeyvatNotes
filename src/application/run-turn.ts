@@ -2,7 +2,11 @@ import {
 	type GuideStructureDetail,
 	validateGuideAnswer,
 } from "../domain/answer-validation.js";
-import type { FrozenQueryScope, QueryScope } from "../domain/query-scope.js";
+import type {
+	FrozenQueryScope,
+	QueryScope,
+	TerminologyEntry,
+} from "../domain/query-scope.js";
 import { Clarification, type DialogueTurn } from "./clarification.js";
 import {
 	type ToolFailure,
@@ -150,6 +154,7 @@ export class RunTurn {
 			},
 		) => void = () => {},
 		private readonly clarification = new Clarification(),
+		private readonly terminology: readonly TerminologyEntry[] = [],
 	) {}
 
 	pendingClarification(session: WritableSession) {
@@ -312,7 +317,13 @@ export class RunTurn {
 			if (result.status === "cancelled") return { status: "cancelled" };
 			const { citations, gap, guide } = tools.evidenceView();
 			if (scope && guide)
-				return validateGuideAnswer(result.text, scope, turnId, guide);
+				return validateGuideAnswer(
+					result.text,
+					scope,
+					turnId,
+					guide,
+					this.terminology,
+				);
 			const validated = validateAnswer(result.text, citations, gap);
 			// 攻略轮次尚未接入领域校验，不能凭未校验的模型文字创建证据驱动追问。
 			return scope && validated.status === "needs_clarification"

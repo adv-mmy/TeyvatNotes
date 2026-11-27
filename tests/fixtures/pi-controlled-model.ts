@@ -27,6 +27,8 @@ const v2Terminology = [
 	{ category: "character", name: "角色甲", aliases: ["小甲"] },
 	{ category: "character", name: "角色乙", aliases: [] },
 	{ category: "character", name: "队友丙", aliases: [] },
+	{ category: "character", name: "队友丁", aliases: [] },
+	{ category: "character", name: "队友戊", aliases: [] },
 	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
 ] as const;
 let requests = 0;
@@ -179,14 +181,21 @@ function guideData(): GuideData {
 						requiredCharacterIds: ["角色乙"],
 						requiredEquipmentIds: [],
 					}
-				: scenario === "guides-equipment"
+				: scenario === "guides-reference"
 					? {
 							kind: "known",
-							conditions: ["需持有试验弓"],
-							requiredCharacterIds: ["角色甲", "队友丙"],
-							requiredEquipmentIds: ["试验弓"],
+							conditions: [],
+							requiredCharacterIds: ["角色甲"],
+							requiredEquipmentIds: [],
 						}
-					: { kind: "unrestricted" },
+					: scenario === "guides-equipment"
+						? {
+								kind: "known",
+								conditions: ["需持有试验弓"],
+								requiredCharacterIds: ["角色甲", "队友丙"],
+								requiredEquipmentIds: ["试验弓"],
+							}
+						: { kind: "unrestricted" },
 		published: true,
 		indexReady: true,
 		title: "隔离攻略 G-01",
@@ -241,9 +250,9 @@ function guideData(): GuideData {
 					body:
 						scenario === "guides-constraints"
 							? id === alternate.id
-								? "队友丙携带试验弓搭配角色甲。"
-								: "角色乙搭配角色甲。"
-							: "隔离样本原文：队伍配置与适用条件。",
+								? "角色甲、队友丙、队友丁、队友戊组队，队友丙携带试验弓。"
+								: "角色甲、角色乙、队友丁、队友戊组队。"
+							: "隔离样本原文：角色甲、队友丙、队友丁、队友戊组队。",
 					complete: scenario !== "guides-truncated",
 				};
 			},
@@ -335,18 +344,16 @@ const runGuideModel: StreamFn = (model, context) => {
 	if (scenario !== "guides-constraints")
 		assert.equal(retrieved.candidates.length, 1);
 	const id = retrieved.candidates[0].candidateId;
-	const rec = (
-		evidenceId: string,
-		conditions: string[] = [],
-		requiredEntityIds: string[] = [],
-		text = "按隔离样本给出配队建议。",
-	) =>
+	const team = (teammate: string, weapon?: string) =>
+		["角色甲", teammate, "队友丁", "队友戊"].map((characterId) => ({
+			characterId,
+			equipmentIds: characterId === teammate && weapon ? [weapon] : [],
+		}));
+	const rec = (evidenceId: string, slots = team("队友丙")) =>
 		answer({
 			recommendations: [
 				{
-					text,
-					conditions,
-					requiredEntityIds,
+					team: slots,
 					evidenceIds: [evidenceId],
 				},
 			],
@@ -361,7 +368,6 @@ const runGuideModel: StreamFn = (model, context) => {
 	if (evidence.status === "incomplete") return gap();
 	const formatProbe = {
 		text: "不能进入普通诊断的模拟正文",
-		conditions: [],
 		evidenceIds: [evidence.evidenceId],
 	};
 	if (scenario === "guides-format-fence")
@@ -378,7 +384,9 @@ const runGuideModel: StreamFn = (model, context) => {
 		return answer({ recommendations: [formatProbe], gaps: [] });
 	if (scenario === "guides-format-conflict")
 		return answer({
-			recommendations: [{ ...formatProbe, requiredEntityIds: [] }],
+			recommendations: [
+				{ team: team("队友丙"), evidenceIds: formatProbe.evidenceIds },
+			],
 			gaps: [
 				{ kind: "insufficient_evidence", text: "不能进入普通诊断的模拟缺口" },
 			],
@@ -386,9 +394,9 @@ const runGuideModel: StreamFn = (model, context) => {
 	if (scenario === "guides-constraints")
 		return rec(
 			evidence.evidenceId,
-			evidence.conditions,
-			[...evidence.requiredCharacterIds, ...evidence.requiredEquipmentIds],
-			evidence.body,
+			evidence.requiredEquipmentIds.length
+				? team("队友丙", evidence.requiredEquipmentIds[0])
+				: team("角色乙"),
 		);
 	if (scenario === "guides-equipment") {
 		const projection = context.messages.find(
@@ -414,11 +422,7 @@ const runGuideModel: StreamFn = (model, context) => {
 					},
 				],
 			});
-		return rec(
-			evidence.evidenceId,
-			["需持有试验弓"],
-			["角色甲", "队友丙", "试验弓"],
-		);
+		return rec(evidence.evidenceId, team("队友丙", "试验弓"));
 	}
 	return rec(evidence.evidenceId);
 };

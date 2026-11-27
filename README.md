@@ -9,30 +9,26 @@ TeyvatNotes 是一个《原神》攻略问答项目，旨在帮助玩家根据�
 ### 前提
 
 - 已安装 Docker 与 `docker compose`（Compose V2）。
-- 凭据文件放在 `secrets/` 目录（已入 `.gitignore`，不进仓库）：
-  - `secrets/postgres_password`：PostgreSQL 密码（V2+）。
-  - `secrets/model_api_key`：DeepSeek 回答模型 API Key（问答需要）。
-  - `secrets/search_api_key`：DeepSeek Search/Fetch API Key（联网补查需要）。
-  - `secrets/source_policy.json`：联网来源许可配置（联网补查需要）。
+- 启动攻略库前，将 PostgreSQL 密码放在 `secrets/postgres_password`；问答还需在 `secrets/model_api_key` 中配置 DeepSeek API Key。两者都是本机文件，不提交到仓库。若放在其他位置，请在运行 Compose 的终端将 `TEYVAT_POSTGRES_PASSWORD_FILE`、`TEYVAT_MODEL_API_KEY_FILE` 分别设为对应的文件路径。
 - 本地开发还需 Node.js >=24.15.0 <25。
 
-### V1：只运行 CLI（无需数据库等依赖）
-
-构建并进入交互式 CLI：
+首次使用或更新源码后，在项目目录构建 CLI 镜像：
 
 ```bash
-docker compose run --rm teyvatnotes
+docker compose build teyvatnotes
 ```
 
 CLI 启动后可用命令：`/new`（新建会话）、`/open <会话 ID>`、`/history`、`/exit`。空白输入不会启动一轮；`Ctrl+C` 取消当前轮次。
 
-仅查看已保存的本地历史（不启动依赖容器，也不要求模型联通）：
+### 离线查看历史
+
+镜像已经构建时，可直接查看同一 Compose 项目里已保存的会话。不启动数据库，不挂载密钥，不连接网络：
 
 ```bash
-docker compose run --rm --no-deps teyvatnotes
+docker compose run --rm teyvatnotes-offline
 ```
 
-### V2：启动攻略 RAG 依赖后使用 CLI
+### V2：启动本地攻略问答
 
 ```bash
 # 启动核心依赖（后台运行，等待就绪）
@@ -44,11 +40,15 @@ docker compose run --rm -T teyvatnotes db migrate
 # 拉取配置中固定的 Embedding 模型
 docker compose exec ollama ollama pull qwen3-embedding:0.6b
 
-# 进入交互式 CLI
-docker compose run --rm teyvatnotes
+# 进入问答；启动后输入 /new 创建会话，再问带明确版本的配队问题
+docker compose run --rm teyvatnotes-ask
 ```
 
+问答入口读取本地攻略库，调用配置的回答模型；真实联网补查未启用。本地找不到适用攻略时，不会自动从网站抓取正文。
+
 ### 维护命令（在 CLI 容器内一次性运行）
+
+维护入口 `teyvatnotes` 用于初始化数据库、导入和发布资料，不挂载回答模型密钥。
 
 ```bash
 docker compose run --rm -T teyvatnotes guides import /imports/guide.md        # 导入 Markdown/JSON 攻略，默认待发布
@@ -82,5 +82,5 @@ npm run test         # 编译并运行测试
 
 - 默认不将 PostgreSQL、ChromaDB、Ollama、Redis 等内部服务端口映射到主机，不提供公网入口；容器间通过 Compose 服务名寻址。
 - 凭据在运行时通过 Compose `secrets` 注入，不写入镜像或仓库。
-- V1 可在没有 V2 依赖服务的情况下运行 CLI 和查看历史；问答、导入、检索等需要对应阶段服务就绪后方可用。
+- 离线历史不依赖攻略库或模型；问答和导入需要对应服务就绪。
 - 更多部署边界与阶段划分见 `docs/architecture.md#7-docker-compose-部署边界`、`docs/architecture.md#8-分阶段交付`。

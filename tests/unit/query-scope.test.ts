@@ -53,6 +53,37 @@ test("未提及不是未持有；角色、武器别名按类别排除，歧义�
 		});
 });
 
+test("内联库存声明与分隔形式等价；疑问、假设和无法识别的对象仍先澄清", () => {
+	for (const fact of ["我目前没有小弓", "本轮不用小套", "我没抽到角色乙"]) {
+		const expected = parseQuestion(`小甲 7.1 通用配队，${fact}`, terms);
+		assert.equal(expected.entityId, "角色甲");
+		assert.equal(expected.inventoryFacts?.length, 1);
+		for (const prompt of [
+			`小甲 7.1 通用配队 ${fact}`,
+			`小甲 7.1 通用配队${fact}`,
+			`${fact} 小甲 7.1 通用配队`,
+		])
+			assert.deepEqual(parseQuestion(prompt, terms), expected, prompt);
+	}
+	assert.equal(
+		parseQuestion("小甲 7.1 怎么配队我有小套我没有小弓", terms).inventoryFacts
+			?.length,
+		2,
+	);
+	for (const clause of [
+		"我没有未知武器",
+		"我没有小弓吗",
+		"如果我没有小弓",
+		"我有小弓我没有小弓",
+		"我可能没有小弓",
+		"我不确定自己是否拥有小弓",
+	])
+		assert.equal(
+			parseQuestion(`小甲 7.1 通用配队 ${clause}`, terms).inventoryFacts,
+			null,
+		);
+});
+
 test("装备按类别校对，非装备或无法唯一确认的别名不能进入库存", () => {
 	assert.equal(parseQuestion("试验弓 7.1 怎么配队", terms).entityId, undefined);
 	assert.deepEqual(
@@ -210,6 +241,26 @@ test("库存未知和明确为空不同，通用模式不要求库存", () => {
 			kind: "no_team",
 			reason: "target_absent",
 		},
+	);
+	const notOwned = { holdings: { 角色甲: "not_owned" as const } };
+	const reference = resolveScope(general, notOwned);
+	assert.equal(reference.kind, "ready");
+	if (reference.kind === "ready") {
+		assert.equal(reference.scope.playerConstraints.targetHolding, "not_owned");
+		assert.equal(
+			inventoryFit(reference.scope, {
+				requiredCharacterIds: ["角色甲"],
+				requiredEquipmentIds: [],
+			}),
+			"usable",
+		);
+	}
+	assert.deepEqual(
+		resolveScope(
+			parseQuestion("小甲 7.1 通用配队本轮不用小甲", terms),
+			notOwned,
+		),
+		{ kind: "no_team", reason: "target_excluded" },
 	);
 });
 

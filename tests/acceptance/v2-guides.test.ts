@@ -111,7 +111,7 @@ for (const [scenario, expected, toolCalls, modelCalls] of [
 		await cli.close();
 		assert.doesNotMatch(
 			cli.output(),
-			/引用：|索引依赖报错原文不可公开|按隔离样本给出配队建议/u,
+			/引用：|索引依赖报错原文不可公开|参考配队：|可用配队：/u,
 		);
 		const [trace] = cli.diagnostics();
 		assert.deepEqual(
@@ -123,10 +123,7 @@ for (const [scenario, expected, toolCalls, modelCalls] of [
 
 for (const [scenario, detail] of [
 	["guides-format-fence", "json_code_fence"],
-	[
-		"guides-format-missing",
-		"missing_field:$.recommendations[0].requiredEntityIds",
-	],
+	["guides-format-missing", "missing_field:$.recommendations[0].team"],
 	["guides-format-conflict", "status_conflict:both_nonempty"],
 ] as const) {
 	test(
@@ -156,13 +153,34 @@ for (const [scenario, detail] of [
 }
 
 test(
+	"同一会话未持有目标：按库存不编队，通用配队仍可给引用与持有前提",
+	linux,
+	async (t) => {
+		const cli = await open(t, "guides-reference");
+		cli.send("小甲 7.1 按库存配队我没有小甲");
+		await cli.until(/已确认未持有目标角色/u);
+		cli.send("小甲 7.1 通用配队");
+		await cli.until(/参考配队：角色甲＋队友丙＋队友丁＋队友戊/u);
+		await cli.until(/尚未持有目标角色「角色甲」/u);
+		await cli.until(/原文：https:\/\/example\.test\/guide/u);
+		cli.send("小甲 7.1 通用配队本轮不用小甲");
+		await cli.until(/本轮明确不使用目标角色/u);
+		await cli.close();
+		assert.deepEqual(
+			cli.diagnostics().map(({ modelCalls }) => modelCalls),
+			[0, 3, 0],
+		);
+	},
+);
+
+test(
 	"按库存配队回读后追问必要装备，确认后新开一轮再检索和回读",
 	linux,
 	async (t) => {
 		const cli = await open(t, "guides-equipment");
 		cli.send("小甲 7.1 按库存配队");
 		await cli.until(/目标角色持有：持有/u);
-		cli.send("目标角色持有：持有；队友：队友丙");
+		cli.send("目标角色持有：持有；队友：队友丙、队友丁、队友戊");
 		await cli.until(/补充条件待确认/u);
 		cli.send("确认");
 		await cli.until(/回读的配队方案需要「试验弓」/u);
