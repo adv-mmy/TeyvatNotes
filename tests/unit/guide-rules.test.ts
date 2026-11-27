@@ -231,6 +231,58 @@ test("通用建议保留明确前提，引用从证据登记簿生成", () => {
 	);
 });
 
+test("攻略格式错误只报告固定原因和字段路径，合法资料不足仍可展示", () => {
+	const gap = { kind: "insufficient_evidence", text: "没有适用资料" };
+	for (const [raw, detail] of [
+		["未公开的非 JSON 正文", "json_invalid"],
+		[`\`\`\`json\n${draft([], [gap])}\n\`\`\``, "json_code_fence"],
+		["[]", "root_not_object"],
+		[
+			JSON.stringify({ recommendations: [recommendation] }),
+			"missing_field:$.gaps",
+		],
+		[JSON.stringify({ recommendations: [], gaps: {} }), "invalid_field:$.gaps"],
+		[draft([], []), "status_conflict:both_empty"],
+		[draft([recommendation], [gap]), "status_conflict:both_nonempty"],
+		[
+			draft([
+				{ text: recommendation.text, conditions: [], evidenceIds: ["e1"] },
+			]),
+			"missing_field:$.recommendations[0].requiredEntityIds",
+		],
+		[
+			JSON.stringify({
+				recommendations: [],
+				gaps: [gap],
+				不应记录的属性名: "不应记录的属性值",
+			}),
+			"unexpected_fields:$",
+		],
+		[
+			draft([], [{ kind: "不应记录的类型名", text: "不应记录的正文" }]),
+			"unsupported_gap_kind",
+		],
+	] as const)
+		assert.deepEqual(validateGuideAnswer(raw, scope, "t1", testView()), {
+			status: "failed",
+			code: "INVALID_ANSWER_STRUCTURE",
+			validationDetail: detail,
+		});
+	assert.equal(
+		validateGuideAnswer(draft([], [gap]), scope, "t1", testView()).status,
+		"insufficient_evidence",
+	);
+	assert.deepEqual(
+		validateGuideAnswer(
+			draft([{ ...recommendation, evidenceIds: undefined }]),
+			scope,
+			"t1",
+			testView(reference),
+		),
+		{ status: "failed", code: "INVALID_CITATION" },
+	);
+});
+
 test("伪造、跨轮、错范围、错版本、正文截断都不是引用", () => {
 	for (const record of [
 		{ ...reference, evidenceId: "other" },

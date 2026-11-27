@@ -1,6 +1,7 @@
 import { rankGuides } from "../domain/guide-ranking.js";
 import {
 	hasKnownPremise,
+	inventoryFit,
 	type QueryScope,
 	versionApplies,
 } from "../domain/query-scope.js";
@@ -84,11 +85,7 @@ function matches(scope: QueryScope, item: GuideChunkMetadata): boolean {
 		return false;
 	if (item.applicability.kind === "known") {
 		if (!hasKnownPremise(item.applicability)) return false;
-		if (
-			scope.playerConstraints.targetHolding === "not_owned" &&
-			item.applicability.requiredCharacterIds.includes(scope.entityId)
-		)
-			return false;
+		if (inventoryFit(scope, item.applicability) === "unavailable") return false;
 	}
 	return true;
 }

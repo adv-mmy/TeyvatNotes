@@ -30,6 +30,7 @@ const v2Terminology = [
 	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
 ] as const;
 let requests = 0;
+const inheritanceScopes = new Map<number, string>();
 
 function controlledResponse(
 	model: Model<Api>,
@@ -171,14 +172,21 @@ function guideData(): GuideData {
 		guideKind: "team",
 		gameVersions: { from: "7.1", through: "7.1" },
 		applicability:
-			scenario === "guides-equipment"
+			scenario === "guides-constraints"
 				? {
 						kind: "known",
-						conditions: ["需持有试验弓"],
-						requiredCharacterIds: ["角色甲", "队友丙"],
-						requiredEquipmentIds: ["试验弓"],
+						conditions: [],
+						requiredCharacterIds: ["角色乙"],
+						requiredEquipmentIds: [],
 					}
-				: { kind: "unrestricted" },
+				: scenario === "guides-equipment"
+					? {
+							kind: "known",
+							conditions: ["需持有试验弓"],
+							requiredCharacterIds: ["角色甲", "队友丙"],
+							requiredEquipmentIds: ["试验弓"],
+						}
+					: { kind: "unrestricted" },
 		published: true,
 		indexReady: true,
 		title: "隔离攻略 G-01",
@@ -192,7 +200,22 @@ function guideData(): GuideData {
 		documentVersionId: "other-version",
 		gameVersions: { from: "7.2", through: "7.3" },
 	}));
-	const rows = [...wrong, chunk];
+	const alternate: GuideChunkMetadata = {
+		...chunk,
+		id: "chunk-22",
+		documentVersionId: "alt-version",
+		title: "替代队攻略",
+		sourceUrl: "https://example.test/alternative",
+		applicability: {
+			kind: "known",
+			conditions: [],
+			requiredCharacterIds: ["队友丙"],
+			requiredEquipmentIds: ["试验弓"],
+		},
+	};
+	const inScope =
+		scenario === "guides-constraints" ? [chunk, alternate] : [chunk];
+	const rows = [...wrong, ...inScope];
 	return {
 		repository: {
 			async snapshot() {
@@ -205,16 +228,22 @@ function guideData(): GuideData {
 				if (scenario === "guides-miss") return { ids: [], next: null };
 				if (scenario === "guides-incomplete")
 					return { ids: [], next: "unconfirmed-tail" };
-				return { ids: [chunk.id], next: null };
+				return { ids: inScope.map((row) => row.id), next: null };
 			},
 			async metadata(_snapshot, ids) {
 				return rows.filter((row) => ids.includes(row.id));
 			},
 			async read(_snapshot, id) {
-				assert.equal(id, chunk.id);
+				const current = inScope.find((row) => row.id === id);
+				assert.ok(current);
 				return {
-					chunk,
-					body: "隔离样本原文：队伍配置与适用条件。",
+					chunk: current,
+					body:
+						scenario === "guides-constraints"
+							? id === alternate.id
+								? "队友丙携带试验弓搭配角色甲。"
+								: "角色乙搭配角色甲。"
+							: "隔离样本原文：队伍配置与适用条件。",
 					complete: scenario !== "guides-truncated",
 				};
 			},
@@ -256,6 +285,14 @@ function guideData(): GuideData {
 	};
 }
 const runGuideModel: StreamFn = (model, context) => {
+	if (scenario.startsWith("guides-format-")) {
+		const prompt = JSON.stringify(
+			context.messages.filter((message) => message.role === "system"),
+		);
+		assert.match(prompt, /gaps 必须是 \[\]/u);
+		assert.match(prompt, /recommendations 必须是 \[\]/u);
+		assert.match(prompt, /不要加 Markdown 代码围栏/u);
+	}
 	const results = context.messages.filter(
 		(message) => message.role === "toolResult",
 	);
@@ -295,17 +332,19 @@ const runGuideModel: StreamFn = (model, context) => {
 			gaps: [{ kind: "insufficient_evidence", text: "未取得证据" }],
 		});
 	if (retrieved.status === "miss") return gap();
-	assert.equal(retrieved.candidates.length, 1);
+	if (scenario !== "guides-constraints")
+		assert.equal(retrieved.candidates.length, 1);
 	const id = retrieved.candidates[0].candidateId;
 	const rec = (
 		evidenceId: string,
 		conditions: string[] = [],
 		requiredEntityIds: string[] = [],
+		text = "按隔离样本给出配队建议。",
 	) =>
 		answer({
 			recommendations: [
 				{
-					text: "按隔离样本给出配队建议。",
+					text,
 					conditions,
 					requiredEntityIds,
 					evidenceIds: [evidenceId],
@@ -320,6 +359,37 @@ const runGuideModel: StreamFn = (model, context) => {
 			call("body_2", "read_guide", { candidateId: id }),
 		]);
 	if (evidence.status === "incomplete") return gap();
+	const formatProbe = {
+		text: "不能进入普通诊断的模拟正文",
+		conditions: [],
+		evidenceIds: [evidence.evidenceId],
+	};
+	if (scenario === "guides-format-fence")
+		return controlledResponse(model, [
+			{
+				type: "text",
+				text:
+					"~~~json\n" +
+					JSON.stringify({ recommendations: [], gaps: [] }) +
+					"\n~~~",
+			},
+		]);
+	if (scenario === "guides-format-missing")
+		return answer({ recommendations: [formatProbe], gaps: [] });
+	if (scenario === "guides-format-conflict")
+		return answer({
+			recommendations: [{ ...formatProbe, requiredEntityIds: [] }],
+			gaps: [
+				{ kind: "insufficient_evidence", text: "不能进入普通诊断的模拟缺口" },
+			],
+		});
+	if (scenario === "guides-constraints")
+		return rec(
+			evidence.evidenceId,
+			evidence.conditions,
+			[...evidence.requiredCharacterIds, ...evidence.requiredEquipmentIds],
+			evidence.body,
+		);
 	if (scenario === "guides-equipment") {
 		const projection = context.messages.find(
 			(item) =>
@@ -391,6 +461,38 @@ const stream: StreamFn = (model, context, options) => {
 				kind: "unknown",
 			});
 			assert.doesNotMatch(JSON.stringify(context), /角色甲|小甲|队友丙/);
+		}
+		if (scenario === "v2-inheritance") {
+			const round = Math.floor((requests - 1) / 3);
+			assert.ok(round < 4);
+			const initial = round === 0;
+			const changedRole = round === 3;
+			const scopeId = inheritanceScopes.get(round);
+			if (scopeId) assert.equal(queryScope.scopeId, scopeId);
+			else {
+				assert.ok(
+					![...inheritanceScopes.values()].includes(queryScope.scopeId),
+				);
+				inheritanceScopes.set(round, queryScope.scopeId);
+			}
+			assert.equal(queryScope.entityId, changedRole ? "队友丙" : "角色甲");
+			assert.equal(queryScope.gameVersion, initial ? "7.1" : "7.2");
+			assert.equal(queryScope.teamMode, round < 2 ? "inventory" : "general");
+			assert.equal(queryScope.goal, "配队");
+			assert.deepEqual(queryScope.playerConstraints, {
+				...(initial
+					? { limitEquipment: true, excludedEquipment: ["试验弓"] }
+					: {}),
+				excludedCharacters: ["角色乙"],
+				targetHolding: changedRole ? "unknown" : "owned",
+				teammates: { kind: "known", items: changedRole ? [] : ["队友丙"] },
+				equipment: { kind: "known", items: [] },
+			});
+			if (!initial)
+				assert.doesNotMatch(
+					JSON.stringify(context.messages),
+					/限用装备|本轮不用小弓/u,
+				);
 		}
 		if (scenario === "v2-fail") throw new Error("隔离验收的模型故障");
 	}

@@ -36,7 +36,10 @@ export type ParsePage = (
 /** 只向供应商传递公开检索词，不把会话或玩家清单放到这个接口上。 */
 export type SupplementStatus =
 	| "indexed"
-	| import("../../domain/answer-validation.js").SupplementGap;
+	| Exclude<
+			import("../../domain/answer-validation.js").SupplementGap,
+			"recheck_miss"
+	  >;
 export type WebSupplement = (
 	scope: import("./guide-data.js").GuideFilter,
 	budget: import("../turn-budget.js").TurnBudget,

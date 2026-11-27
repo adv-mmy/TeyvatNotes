@@ -116,6 +116,7 @@ const scopeFields = new Set([
 	"holding",
 	"teammates",
 	"equipment",
+	"inventoryFacts",
 ]);
 
 function validClarification(value: unknown): value is PendingClarification {

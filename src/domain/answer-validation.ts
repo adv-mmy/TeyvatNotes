@@ -1,4 +1,8 @@
-import { type FrozenQueryScope, versionApplies } from "./query-scope.js";
+import {
+	type FrozenQueryScope,
+	inventoryFit,
+	versionApplies,
+} from "./query-scope.js";
 
 export interface GuideCitation {
 	readonly source: string;
@@ -24,6 +28,7 @@ export interface GuideEvidence {
 }
 
 const supplementGaps = [
+	"recheck_miss",
 	"no_results",
 	"source_restricted",
 	"no_readable_body",
@@ -41,6 +46,16 @@ export interface GuideEvidenceView {
 	readonly gap: boolean;
 	readonly readAllCandidates: boolean;
 }
+
+export type GuideStructureDetail =
+	| "json_invalid"
+	| "json_code_fence"
+	| "root_not_object"
+	| "status_conflict:both_empty"
+	| "status_conflict:both_nonempty"
+	| "invalid_gap_count"
+	| "unsupported_gap_kind"
+	| `${"missing_field" | "invalid_field" | "unexpected_fields"}:${string}`;
 
 export type GuideValidation =
 	| {
@@ -60,16 +75,24 @@ export type GuideValidation =
 	  }
 	| {
 			readonly status: "failed";
-			readonly code:
-				| "INVALID_ANSWER_STRUCTURE"
-				| "INVALID_CITATION"
-				| "INVALID_ANSWER_CONDITIONS";
+			readonly code: "INVALID_ANSWER_STRUCTURE";
+			readonly validationDetail: GuideStructureDetail;
+	  }
+	| {
+			readonly status: "failed";
+			readonly code: "INVALID_CITATION" | "INVALID_ANSWER_CONDITIONS";
 	  };
 
 const invalid = (
-	code: Extract<GuideValidation, { status: "failed" }>["code"],
+	code: "INVALID_CITATION" | "INVALID_ANSWER_CONDITIONS",
 ): GuideValidation => ({ status: "failed", code });
-const structure = () => invalid("INVALID_ANSWER_STRUCTURE");
+const structure = (
+	validationDetail: GuideStructureDetail,
+): GuideValidation => ({
+	status: "failed",
+	code: "INVALID_ANSWER_STRUCTURE",
+	validationDetail,
+});
 
 function object(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -84,11 +107,20 @@ function strings(value: unknown): value is string[] {
 		new Set(value).size === value.length
 	);
 }
-function only(
+/** 诊断路径与字段名只来自下方固定协议；不回显模型提供的属性名或值。 */
+function fieldShape(
 	value: Record<string, unknown>,
+	path: string,
 	keys: readonly string[],
-): boolean {
-	return Object.keys(value).every((key) => keys.includes(key));
+): GuideStructureDetail | undefined {
+	const missing = keys.find(
+		(key) => key !== "evidenceIds" && !Object.hasOwn(value, key),
+	);
+	if (missing) return `missing_field:${path}.${missing}`;
+	if (Object.keys(value).some((key) => !keys.includes(key)))
+		return `unexpected_fields:${path}`;
+	// evidenceIds 仍由 refs 校验并沿用 INVALID_CITATION。
+	return undefined;
 }
 
 function relevant(
@@ -106,32 +138,8 @@ function relevant(
 	);
 }
 
-function knownCharacters(
-	scope: FrozenQueryScope,
-	ids: readonly string[],
-): boolean {
-	const { teammates, targetHolding } = scope.playerConstraints;
-	return ids.every((id) =>
-		id === scope.entityId
-			? targetHolding === "owned"
-			: teammates.kind === "known" && teammates.items.includes(id),
-	);
-}
-
 function canUse(scope: FrozenQueryScope, evidence: GuideEvidence): boolean {
-	const { equipment, targetHolding } = scope.playerConstraints;
-	if (
-		targetHolding === "not_owned" &&
-		evidence.requiredCharacterIds.includes(scope.entityId)
-	)
-		return false;
-	return (
-		scope.teamMode === "general" ||
-		(knownCharacters(scope, evidence.requiredCharacterIds) &&
-			evidence.requiredEquipmentIds.every(
-				(id) => equipment.kind === "known" && equipment.items.includes(id),
-			))
-	);
+	return inventoryFit(scope, evidence) === "usable";
 }
 
 function refs(
@@ -202,31 +210,40 @@ export function validateGuideAnswer(
 	try {
 		draft = JSON.parse(raw);
 	} catch {
-		return structure();
+		return structure(
+			/^\s*(?:```|~~~)/u.test(raw) ? "json_code_fence" : "json_invalid",
+		);
 	}
-	if (
-		!object(draft) ||
-		!only(draft, ["recommendations", "gaps"]) ||
-		!Array.isArray(draft.recommendations) ||
-		!Array.isArray(draft.gaps) ||
-		draft.recommendations.length + draft.gaps.length === 0 ||
-		(draft.recommendations.length && draft.gaps.length)
-	)
-		return structure();
+	if (!object(draft)) return structure("root_not_object");
+	const root = fieldShape(draft, "$", ["recommendations", "gaps"]);
+	if (root) return structure(root);
+	if (!Array.isArray(draft.recommendations))
+		return structure("invalid_field:$.recommendations");
+	if (!Array.isArray(draft.gaps)) return structure("invalid_field:$.gaps");
+	if (!draft.recommendations.length && !draft.gaps.length)
+		return structure("status_conflict:both_empty");
+	if (draft.recommendations.length && draft.gaps.length)
+		return structure("status_conflict:both_nonempty");
 	const available = [...view.evidence.values()].filter((item) =>
 		relevant(scope, turnId, item),
 	);
 	const records: GuideEvidence[] = [];
 	const output: string[] = [];
-	for (const item of draft.recommendations as unknown[]) {
-		if (
-			!object(item) ||
-			!only(item, ["text", "conditions", "requiredEntityIds", "evidenceIds"]) ||
-			!text(item.text) ||
-			!strings(item.conditions) ||
-			!strings(item.requiredEntityIds)
-		)
-			return structure();
+	for (const [i, item] of (draft.recommendations as unknown[]).entries()) {
+		const path = `$.recommendations[${i}]`;
+		if (!object(item)) return structure(`invalid_field:${path}`);
+		const fields = fieldShape(item, path, [
+			"text",
+			"conditions",
+			"requiredEntityIds",
+			"evidenceIds",
+		]);
+		if (fields) return structure(fields);
+		if (!text(item.text)) return structure(`invalid_field:${path}.text`);
+		if (!strings(item.conditions))
+			return structure(`invalid_field:${path}.conditions`);
+		if (!strings(item.requiredEntityIds))
+			return structure(`invalid_field:${path}.requiredEntityIds`);
 		const sources = refs(item.evidenceIds, scope, turnId, view);
 		if (!sources) return invalid("INVALID_CITATION");
 		const required = new Set(
@@ -251,10 +268,16 @@ export function validateGuideAnswer(
 			text: output.join("\n\n"),
 			citations: cited(records),
 		};
-	if (draft.gaps.length !== 1 || !object(draft.gaps[0])) return structure();
+	if (draft.gaps.length !== 1) return structure("invalid_gap_count");
+	const gapPath = "$.gaps[0]";
 	const gap = draft.gaps[0];
+	if (!object(gap)) return structure(`invalid_field:${gapPath}`);
+	if (!Object.hasOwn(gap, "kind"))
+		return structure(`missing_field:${gapPath}.kind`);
 	if (gap.kind === "insufficient_evidence") {
-		if (!only(gap, ["kind", "text"]) || !text(gap.text)) return structure();
+		const fields = fieldShape(gap, gapPath, ["kind", "text"]);
+		if (fields) return structure(fields);
+		if (!text(gap.text)) return structure(`invalid_field:${gapPath}.text`);
 		return view.gap && !available.some((item) => canUse(scope, item))
 			? {
 					status: "insufficient_evidence",
@@ -264,52 +287,63 @@ export function validateGuideAnswer(
 			: invalid("INVALID_ANSWER_CONDITIONS");
 	}
 	if (gap.kind === "equipment_required") {
-		if (
-			!only(gap, ["kind", "equipmentId", "evidenceIds"]) ||
-			!text(gap.equipmentId)
-		)
-			return structure();
+		const fields = fieldShape(gap, gapPath, [
+			"kind",
+			"equipmentId",
+			"evidenceIds",
+		]);
+		if (fields) return structure(fields);
+		if (!text(gap.equipmentId))
+			return structure(`invalid_field:${gapPath}.equipmentId`);
 		const sources = refs(gap.evidenceIds, scope, turnId, view);
 		if (!sources) return invalid("INVALID_CITATION");
 		const equipmentId = gap.equipmentId;
 		if (
 			scope.teamMode !== "inventory" ||
-			scope.playerConstraints.equipment.kind !== "unknown" ||
+			(scope.playerConstraints.equipment.kind === "known" &&
+				scope.playerConstraints.equipment.items.includes(equipmentId)) ||
 			!view.readAllCandidates ||
 			available.some((item) => canUse(scope, item)) ||
 			!sources.some(
 				(item) =>
 					item.requiredEquipmentIds.includes(equipmentId) &&
-					knownCharacters(scope, item.requiredCharacterIds),
+					!scope.playerConstraints.ownedEquipment?.includes(equipmentId) &&
+					inventoryFit(scope, item) === "unknown_equipment",
 			)
 		)
 			return invalid("INVALID_ANSWER_CONDITIONS");
 		return {
 			status: "needs_clarification",
 			equipmentId,
-			text: `回读的配队方案需要「${equipmentId}」。请确认你的装备清单（含该装备，如没有可列出其他已持有装备，或输入「装备：无」）。`,
+			text: `回读的配队方案需要「${equipmentId}」。请确认是否持有：可输入「我有${equipmentId}」或「我没有${equipmentId}」，也可填写装备清单。「装备：无」表示没有任何装备。`,
 		};
 	}
-	if (
-		gap.kind !== "conflict" ||
-		!only(gap, ["kind", "sides"]) ||
-		!Array.isArray(gap.sides) ||
-		gap.sides.length !== 2
-	)
-		return structure();
+	if (gap.kind !== "conflict") return structure("unsupported_gap_kind");
+	const fields = fieldShape(gap, gapPath, ["kind", "sides"]);
+	if (fields) return structure(fields);
+	if (!Array.isArray(gap.sides) || gap.sides.length !== 2)
+		return structure(`invalid_field:${gapPath}.sides`);
 	const chunks = new Set<string>();
-	for (const item of gap.sides as unknown[]) {
-		if (
-			!object(item) ||
-			!only(item, ["conclusion", "conditions", "evidenceIds"]) ||
-			!text(item.conclusion) ||
-			!strings(item.conditions)
-		)
-			return structure();
+	for (const [i, item] of (gap.sides as unknown[]).entries()) {
+		const path = `${gapPath}.sides[${i}]`;
+		if (!object(item)) return structure(`invalid_field:${path}`);
+		const sideFields = fieldShape(item, path, [
+			"conclusion",
+			"conditions",
+			"evidenceIds",
+		]);
+		if (sideFields) return structure(sideFields);
+		if (!text(item.conclusion))
+			return structure(`invalid_field:${path}.conclusion`);
+		if (!strings(item.conditions))
+			return structure(`invalid_field:${path}.conditions`);
 		const sources = refs(item.evidenceIds, scope, turnId, view);
 		if (!sources || sources.some((record) => chunks.has(record.chunkId)))
 			return invalid("INVALID_CITATION");
-		if (!premises(item.conditions, sources))
+		if (
+			!premises(item.conditions, sources) ||
+			!sources.every((record) => canUse(scope, record))
+		)
 			return invalid("INVALID_ANSWER_CONDITIONS");
 		for (const source of sources) chunks.add(source.chunkId);
 		output.push(show(item.conclusion, item.conditions, sources));

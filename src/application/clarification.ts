@@ -9,6 +9,7 @@ import {
 	type ScopeDraft,
 	type ScopeField,
 	type TerminologyEntry,
+	updatedInventory,
 } from "../domain/query-scope.js";
 import type { JsonObject } from "./ports/agent.js";
 import type {
@@ -21,7 +22,7 @@ import type {
 type Unfinished = Omit<PendingClarification, "questionTurnId">;
 type Confirmation = {
 	readonly conditions: JsonObject;
-	readonly clarification: PendingClarification;
+	readonly clarification?: PendingClarification;
 };
 export interface DialogueTurn {
 	readonly kind: "run";
@@ -61,24 +62,28 @@ const questions: Readonly<Record<ScopeField, string>> = {
 	holding: "目标角色持有：持有 / 不持有",
 	teammates: "队友：名字列表，或「无」",
 	equipment: "装备：武器或圣遗物的标准名、已登记别名，或「无」",
+	inventoryFacts:
+		"库存约束：请写「我没有…」或「本轮不用…」加标准名称，多项用顿号分隔；没有限制请写「无」",
 };
 
 function playerFrom(history: SessionHistory): PlayerInventory {
-	const holdings = history.conditions.holdings;
-	const teammates = history.conditions.teammates;
-	return {
-		holdings: Object.fromEntries(
+	const records = (holdings: JsonObject[string]) =>
+		Object.fromEntries(
 			holdings && typeof holdings === "object" && !Array.isArray(holdings)
 				? Object.entries(holdings).filter(
 						(entry): entry is [string, Holding] =>
 							entry[1] === "owned" || entry[1] === "not_owned",
 					)
 				: [],
-		),
-		...(Array.isArray(teammates) &&
-		teammates.every((value): value is string => typeof value === "string")
-			? { teammates }
-			: {}),
+		);
+	const { teammates, equipment } = history.conditions;
+	const list = (v: unknown): v is string[] =>
+		Array.isArray(v) && v.every((s) => typeof s === "string");
+	return {
+		holdings: records(history.conditions.holdings ?? {}),
+		equipmentHoldings: records(history.conditions.equipmentHoldings ?? {}),
+		...(list(teammates) ? { teammates } : {}),
+		...(list(equipment) ? { equipment } : {}),
 	};
 }
 
@@ -156,16 +161,27 @@ export class Clarification {
 					},
 				};
 			}
-			const player = playerFrom(history);
-			const holdings =
-				draft.updates.holding && draft.input.entityId
-					? {
-							...player.holdings,
-							[draft.input.entityId]: draft.updates.holding,
-						}
-					: undefined;
+			const player = updatedInventory(
+				playerFrom(history),
+				draft.updates.inventoryFacts ?? [],
+			);
+			const holdings = { ...player.holdings };
+			if (draft.updates.holding && draft.input.entityId)
+				holdings[draft.input.entityId] = draft.updates.holding;
+			for (const id of draft.updates.teammates ?? [])
+				if (holdings[id] === "not_owned") holdings[id] = "owned";
+			const equipmentHoldings = { ...player.equipmentHoldings };
+			if (draft.updates.equipment?.length === 0)
+				for (const id of Object.keys(equipmentHoldings))
+					equipmentHoldings[id] = "not_owned";
+			for (const id of draft.updates.equipment ?? [])
+				equipmentHoldings[id] = "owned";
 			const confirmed: JsonObject = {
-				...(holdings ? { holdings } : {}),
+				...(Object.keys(holdings).length ? { holdings } : {}),
+				...(Object.keys(equipmentHoldings).length ? { equipmentHoldings } : {}),
+				...(draft.updates.equipment
+					? { equipment: draft.updates.equipment }
+					: {}),
 				...(draft.updates.teammates
 					? { teammates: draft.updates.teammates }
 					: {}),
@@ -175,7 +191,8 @@ export class Clarification {
 				draft.input,
 				{
 					...player,
-					...(holdings ? { holdings } : {}),
+					holdings,
+					equipmentHoldings,
 					...(draft.updates.teammates
 						? { teammates: draft.updates.teammates }
 						: {}),
@@ -202,7 +219,15 @@ export class Clarification {
 				await session.abandonClarification(pending.questionTurnId);
 				return this.fresh(line, history);
 			}
-			const parsed = parseSupplement(line, this.terms, pending.fields ?? []);
+			const factReply = pending.equipmentId
+				? parseSupplement(line, this.terms, ["inventoryFacts"])
+				: undefined;
+			const parsed =
+				factReply?.patch.inventoryFacts?.length === 1 &&
+				factReply.patch.inventoryFacts[0]?.category === "equipment" &&
+				factReply.patch.inventoryFacts[0].id === pending.equipmentId
+					? factReply
+					: parseSupplement(line, this.terms, pending.fields ?? []);
 			if (!parsed)
 				return notice(`未能明确识别补充条件，未保存。\n${pending.text}`);
 			this.drafts.set(session, {
@@ -233,7 +258,7 @@ export class Clarification {
 					prompt: turn.continuing?.prompt ?? turn.prompt,
 					text: outcome.text,
 					state: "waiting",
-					scope: { ...turn.scopeDraft, equipmentRequired: true },
+					scope: turn.scopeDraft,
 					fields: ["equipment"],
 					equipmentId,
 				};
@@ -261,13 +286,24 @@ export class Clarification {
 	}
 
 	private fresh(prompt: string, history: SessionHistory): DialogueTurn {
-		return this.terms
-			? this.evaluate(
-					prompt,
-					parseQuestion(prompt, this.terms),
-					playerFrom(history),
-				)
-			: { kind: "run", prompt };
+		if (!this.terms) return { kind: "run", prompt };
+		const draft = parseQuestion(prompt, this.terms);
+		const player = playerFrom(history);
+		const next = this.evaluate(prompt, draft, player);
+		// 用户明说的持有事实可跨轮；“本轮不用”不是库存变更。
+		if (!draft.inventoryFacts?.some((f) => f.state !== "avoid")) return next;
+		const updated = updatedInventory(player, draft.inventoryFacts);
+		return {
+			...next,
+			confirmation: {
+				conditions: {
+					holdings: updated.holdings,
+					equipmentHoldings: updated.equipmentHoldings ?? {},
+					...(updated.equipment ? { equipment: updated.equipment } : {}),
+					...(updated.teammates ? { teammates: updated.teammates } : {}),
+				},
+			},
+		};
 	}
 
 	private evaluate(
@@ -292,8 +328,10 @@ export class Clarification {
 						status: "insufficient_evidence",
 						text:
 							result.reason === "target_absent"
-								? "已确认未持有目标角色，无法按库存提供该角色的配队。"
-								: "已确认没有可用的队友，无法按库存提供配队。",
+								? "已确认未持有目标角色，无法提供当前可用的该角色队伍。"
+								: result.reason === "target_excluded"
+									? "本轮明确不使用目标角色，无法以该角色组队。"
+									: "已确认没有可用的队友，无法按库存提供配队。",
 					},
 				};
 			case "missing": {

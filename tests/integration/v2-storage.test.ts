@@ -567,6 +567,25 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		// 不注入问答工厂，走正式 CLI 装配。仅在 HTTP 边界替换付费服务。
 		const originalFetch = globalThis.fetch;
 		let requests = 0;
+		let scripted: ((request: number, result: unknown) => object) | undefined;
+		let scriptError: unknown;
+		const respond = (item: object, request: number) =>
+			new Response(
+				[
+					{ type: "response.output_item.done", output_index: 0, item },
+					{
+						type: "response.completed",
+						response: {
+							id: `resp_${request}`,
+							status: "completed",
+							output: [item],
+						},
+					},
+				]
+					.map((event) => `data: ${JSON.stringify(event)}\n\n`)
+					.join(""),
+				{ headers: { "content-type": "text/event-stream" } },
+			);
 		t.mock.method(
 			globalThis,
 			"fetch",
@@ -605,10 +624,18 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						)
 					: undefined;
 				if (requests > 1) assert.equal(last.call_id, `call_${requests - 1}`);
+				if (scripted) {
+					try {
+						return respond(scripted(requests, content), requests);
+					} catch (error) {
+						scriptError = error;
+						throw error;
+					}
+				}
 				const tool =
 					!content || content.status === "indexed"
 						? "search_guides"
-						: content.status === "miss"
+						: content.status === "miss" && content.reason !== "recheck_miss"
 							? "search_web_guides"
 							: content.status === "hit"
 								? "read_guide"
@@ -665,44 +692,36 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 								},
 							],
 						};
-				return new Response(
-					[
-						{ type: "response.output_item.done", output_index: 0, item },
-						{
-							type: "response.completed",
-							response: {
-								id: `resp_${requests}`,
-								status: "completed",
-								output: [item],
-							},
-						},
-					]
-						.map((event) => `data: ${JSON.stringify(event)}\n\n`)
-						.join(""),
-					{ headers: { "content-type": "text/event-stream" } },
-				);
+				return respond(item, requests);
 			},
 		);
 		const secret = join(temp, "model-key");
 		await writeFile(secret, "isolated-test-key", { mode: 0o600 });
-		const runQuestion = async (
-			gameVersion: string,
+		const playCli = async (
+			steps: readonly (readonly [output: RegExp, input: string])[],
 			supplement?: WebSupplement,
 			toolLimit = 8,
 			modelLimit = 6,
 		) => {
 			requests = 0;
+			scriptError = undefined;
 			const stdin = new PassThrough();
 			const stdout = new PassThrough();
 			let transcript = "";
+			let next = 0;
+			let cursor = 0;
 			stdout.on("data", (data) => {
-				const line = data.toString();
-				transcript += line;
-				if (line.includes("命令：")) setImmediate(() => stdin.write("/new\n"));
-				if (line.includes("已创建会话"))
-					setImmediate(() => stdin.write(`钟离 ${gameVersion} 通用配队\n`));
-				if (/原文：|[A-Z_]{4,}：|需要补充条件：|资料不足：/u.test(line))
-					setImmediate(() => stdin.end("/exit\n"));
+				transcript += data.toString();
+				const step = steps[next];
+				if (!step) return;
+				const [output, input] = step;
+				const match = transcript.slice(cursor).match(output);
+				if (!match) return;
+				next++;
+				cursor += (match.index ?? 0) + match[0].length;
+				setImmediate(() =>
+					input === "/exit" ? stdin.end("/exit\n") : stdin.write(`${input}\n`),
+				);
 			});
 			const timer = setTimeout(() => stdin.end(), 30_000);
 			try {
@@ -737,8 +756,26 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			} finally {
 				clearTimeout(timer);
 			}
+			if (scriptError) throw scriptError;
+			assert.equal(next, steps.length, transcript);
 			return transcript;
 		};
+		const runQuestion = (
+			gameVersion: string,
+			supplement?: WebSupplement,
+			toolLimit = 8,
+			modelLimit = 6,
+		) =>
+			playCli(
+				[
+					[/命令：/u, "/new"],
+					[/已创建会话/u, `钟离 ${gameVersion} 通用配队`],
+					[/原文：|[A-Z_]{4,}：|需要补充条件：|资料不足：/u, "/exit"],
+				],
+				supplement,
+				toolLimit,
+				modelLimit,
+			);
 		const transcript = await runQuestion(filter.gameVersion);
 		assert.match(transcript, /隔离配队建议/u);
 		assert.match(transcript, /原文：https:\/\/example\.invalid\//u);
@@ -1045,6 +1082,14 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		const nextVersion = webVersion.replace(/\.1$/u, ".2");
 		markdown = content.replace(webVersion, nextVersion);
 		webVersion = nextVersion;
+		let rechecks = 0;
+		const missedAgain = await runQuestion(webVersion, async () => {
+			rechecks++;
+			return "indexed";
+		});
+		assert.match(missedAgain, /资料已入库，但重新检索后没有找到/u);
+		assert.doesNotMatch(missedAgain, /原文：/u);
+		assert.deepEqual([requests, rechecks], [4, 1]);
 		for (const [tools, models] of [
 			[2, 6],
 			[8, 2],
@@ -1068,6 +1113,300 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			assert.doesNotMatch(missing, /模型不能替应用决定失败原因|原文：/u);
 			assert.equal(requests, 3);
 		}
+
+		type GuideInput = Pick<typeof fixture, "title" | "sourceUrl" | "body">;
+		const importFor = async (
+			gameVersion: string,
+			guide: GuideInput,
+			conditions: string[] = [],
+		) => {
+			await writeFile(
+				file,
+				JSON.stringify({
+					...fixture,
+					...guide,
+					entityId: "钟离",
+					gameVersions: { from: gameVersion, through: gameVersion },
+					applicability: conditions.length
+						? {
+								kind: "known",
+								conditions,
+								requiredCharacterIds: [],
+								requiredEquipmentIds: [],
+							}
+						: { kind: "unrestricted" },
+				}),
+				"utf8",
+			);
+			const out = await cli("guides", "import", file, "--publish");
+			const imported = /已发布攻略：([a-f0-9]{64})/u.exec(out)?.[1];
+			assert.ok(imported, out);
+			return imported;
+		};
+		const unusedVersion = async (start: number) => {
+			for (let minor = start; minor < 100; minor++) {
+				const gameVersion = `984.${minor}`;
+				const probe = await retrieval.searchGuides(
+					{ ...scope, gameVersion },
+					"钟离配队",
+					signal,
+				);
+				assert.notEqual(probe.kind, "error", JSON.stringify(probe));
+				if (probe.kind === "miss") return gameVersion;
+			}
+			throw new Error("验收库没有空闲版本");
+		};
+		type Readback = {
+			status: string;
+			evidenceId: string;
+			body: string;
+			sourceUrl: string;
+			documentVersionId: string;
+			conditions: string[];
+		};
+		type ExpectedGuide = GuideInput & { versionId: string };
+		const forGuides = (
+			guides: readonly ExpectedGuide[],
+			answer: (reads: readonly Readback[]) => object,
+		) => {
+			const reads: Readback[] = [];
+			let candidates: string[] = [];
+			return (n: number, result: unknown) => {
+				const tool = (name: string, args: object) => ({
+					type: "function_call",
+					id: `fc_${n}`,
+					call_id: `call_${n}`,
+					name,
+					arguments: JSON.stringify(args),
+				});
+				if (n === 1) return tool("search_guides", { query: "钟离 配队" });
+				if (n === 2) {
+					const found = result as {
+						status: string;
+						candidates: { title: string; candidateId: string }[];
+					};
+					assert.equal(found.status, "hit");
+					candidates = guides.map(({ title }) => {
+						const candidate = found.candidates.find(
+							(row) => row.title === title,
+						);
+						assert.ok(candidate, `未检索到「${title}」`);
+						return candidate.candidateId;
+					});
+				} else {
+					const read = result as Readback;
+					const expected = guides[n - 3];
+					assert.ok(expected);
+					assert.equal(read.status, "complete");
+					assert.equal(read.documentVersionId, expected.versionId);
+					assert.equal(read.sourceUrl, expected.sourceUrl);
+					assert.equal(
+						read.body,
+						expected.body.split("\n").slice(1).join("\n"),
+					);
+					reads.push(read);
+				}
+				const next = candidates[reads.length];
+				if (next) return tool("read_guide", { candidateId: next });
+				assert.equal(reads.length, guides.length);
+				return {
+					type: "message",
+					id: `msg_${n}`,
+					role: "assistant",
+					content: [
+						{ type: "output_text", text: JSON.stringify(answer(reads)) },
+					],
+				};
+			};
+		};
+		const recommendations = ([read]: readonly Readback[]) => {
+			assert.ok(read);
+			return {
+				recommendations: [
+					{
+						text: read.body,
+						conditions: read.conditions,
+						requiredEntityIds: [],
+						evidenceIds: [read.evidenceId],
+					},
+				],
+				gaps: [],
+			};
+		};
+		const ask = async (
+			gameVersion: string,
+			finish: RegExp,
+			sessionId?: string,
+		) =>
+			playCli([
+				[/命令：/u, sessionId ? `/open ${sessionId}` : "/new"],
+				[/已创建会话|已打开会话/u, `钟离 ${gameVersion} 通用配队`],
+				[finish, "/exit"],
+			]);
+		const sessionFrom = (transcript: string) => {
+			const id = /已创建会话 ([a-f0-9-]{36})/u.exec(transcript)?.[1];
+			assert.ok(id, transcript);
+			return id;
+		};
+		await t.test("AT-05 · 同一来源修订后，CLI 历史仍可定位原版本", async () => {
+			const gameVersion = await unusedVersion(1);
+			const sourceUrl = `https://example.invalid/revisions/${randomUUID()}`;
+			const previous = {
+				title: "钟离配队修订前",
+				sourceUrl,
+				body: "## 初版方案\n初版隔离资料推荐钟离与示例队友甲搭配。",
+			};
+			const oldId = await importFor(gameVersion, previous);
+			scripted = forGuides(
+				[{ ...previous, versionId: oldId }],
+				recommendations,
+			);
+			const original = await ask(gameVersion, /原文：.*\/revisions\//u);
+			assert.equal(requests, 3);
+			const sessionId = sessionFrom(original);
+			const revised = {
+				title: "钟离配队修订稿",
+				sourceUrl,
+				body: "## 修订方案\n修订隔离资料改为推荐钟离与示例队友乙搭配。",
+			};
+			const newId = await importFor(gameVersion, revised);
+			assert.notEqual(newId, oldId);
+			scripted = undefined;
+			const history = await playCli([
+				[/命令：/u, `/open ${sessionId}`],
+				[/已打开会话/u, "/history"],
+				[/原文：.*\/revisions\//u, "/exit"],
+			]);
+			assert.equal(requests, 0);
+			const old = await repository.forPublication(
+				oldId,
+				storage.embedding.id,
+				signal,
+			);
+			assert.equal(old?.chunks.length, 1);
+			const oldChunk = old?.chunks[0];
+			assert.ok(oldChunk);
+			const oldScope = { ...scope, gameVersion };
+			const oldSnapshot = await repository.snapshot(oldScope, signal);
+			const archived = await repository.read(oldSnapshot, oldChunk.id, signal);
+			assert.equal(archived?.chunk.documentVersionId, oldId);
+			assert.equal(archived.chunk.sourceUrl, sourceUrl);
+			assert.equal(archived.body, "初版隔离资料推荐钟离与示例队友甲搭配。");
+			assert.ok(
+				history.includes(
+					`引用：${previous.title}｜${gameVersion}｜${archived.chunk.location}\n${archived.body}\n原文：${sourceUrl}`,
+				),
+				history,
+			);
+			assert.doesNotMatch(history, /修订隔离资料改为/u);
+			const log = await readFile(
+				join(temp, "sessions", sessionId, "turns.jsonl"),
+				"utf8",
+			);
+			assert.match(log, new RegExp(`"documentVersionId":"${oldId}"`, "u"));
+			assert.ok(!log.includes(newId));
+			scripted = forGuides([{ ...revised, versionId: newId }], recommendations);
+			const newAnswer = await ask(
+				gameVersion,
+				/原文：.*\/revisions\//u,
+				sessionId,
+			);
+			assert.equal(requests, 3);
+			assert.match(newAnswer, /引用：钟离配队修订稿.*修订方案/u);
+			assert.doesNotMatch(newAnswer, /初版隔离资料推荐/u);
+			const combined = await readFile(
+				join(temp, "sessions", sessionId, "turns.jsonl"),
+				"utf8",
+			);
+			assert.ok(combined.startsWith(log), "新轮只能追加，不能改写历史引用");
+			assert.match(
+				combined.slice(log.length),
+				new RegExp(`"documentVersionId":"${newId}"`, "u"),
+			);
+		});
+
+		await t.test("AT-06 · 同范围冲突展示双方原文，跨轮证据被拒", async () => {
+			const gameVersion = await unusedVersion(50);
+			const prerequisite = "同一隔离配队前提";
+			const path = `https://example.invalid/dispute/${randomUUID()}`;
+			const first = {
+				title: "钟离配队冲突资料甲",
+				sourceUrl: `${path}/a`,
+				body: "## 资料甲结论\n在同一隔离配队前提下，钟离的配队必须使用示例装备甲。",
+			};
+			const second = {
+				title: "钟离配队冲突资料乙",
+				sourceUrl: `${path}/b`,
+				body: "## 资料乙结论\n在同一隔离配队前提下，钟离的配队不需要示例装备甲。",
+			};
+			const guides = [
+				{
+					...first,
+					versionId: await importFor(gameVersion, first, [prerequisite]),
+				},
+				{
+					...second,
+					versionId: await importFor(gameVersion, second, [prerequisite]),
+				},
+			];
+			let staleEvidence: string | undefined;
+			const opposing = (reads: readonly Readback[], useStale: boolean) => {
+				assert.equal(reads.length, 2);
+				if (!useStale) staleEvidence = reads[1]?.evidenceId;
+				else {
+					assert.ok(staleEvidence);
+					assert.notEqual(reads[1]?.evidenceId, staleEvidence);
+				}
+				return {
+					recommendations: [],
+					gaps: [
+						{
+							kind: "conflict",
+							sides: reads.map((read, index) => {
+								assert.deepEqual(read.conditions, [prerequisite]);
+								return {
+									conclusion: read.body,
+									conditions: read.conditions,
+									evidenceIds: [
+										useStale && index === 1 ? staleEvidence : read.evidenceId,
+									],
+								};
+							}),
+						},
+					],
+				};
+			};
+			scripted = forGuides(guides, (reads) => opposing(reads, false));
+			const displayed = await ask(
+				gameVersion,
+				/原文：[^\n]+\/dispute\/[^\n]+\/b/u,
+			);
+			assert.equal(requests, 4);
+			assert.match(displayed, /存在分歧，不能给出唯一结论/u);
+			assert.match(displayed, /观点 1：[^\n]+必须使用示例装备甲/u);
+			assert.match(displayed, /观点 2：[^\n]+不需要示例装备甲/u);
+			assert.equal(displayed.match(/适用前提：同一隔离配队前提/gu)?.length, 2);
+			assert.equal(displayed.match(/引用：/gu)?.length, 2);
+			for (const guide of guides) {
+				const [heading, excerpt] = guide.body.split("\n");
+				assert.ok(heading && excerpt);
+				assert.ok(
+					displayed.includes(
+						`引用：${guide.title}｜${gameVersion}｜${heading.slice(3)} · 第 2–2 行\n${excerpt}\n原文：${guide.sourceUrl}`,
+					),
+					displayed,
+				);
+			}
+			scripted = forGuides(guides, (reads) => opposing(reads, true));
+			const rejected = await ask(
+				gameVersion,
+				/INVALID_CITATION：/u,
+				sessionFrom(displayed),
+			);
+			assert.equal(requests, 4);
+			assert.match(rejected, /INVALID_CITATION/u);
+			assert.doesNotMatch(rejected, /观点 [12]：|引用：|原文：/u);
+		});
 	} finally {
 		await pool.end();
 		await rm(temp, { recursive: true, force: true });

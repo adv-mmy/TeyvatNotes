@@ -89,6 +89,38 @@ async function events(root: string, id: string) {
 }
 
 test(
+	"明确未持有跨进程保留，本轮禁用不跨轮；过滤后回读替代攻略，无解不编队",
+	options,
+	async (t) => {
+		const root = await isolated(t);
+		const first = cli(t, root, "guides-constraints");
+		const id = await create(first);
+		first.send("小甲 7.1 怎么配队？我没有角色乙");
+		await first.receive(/队友丙携带试验弓搭配角色甲/u);
+		await first.receive(/原文：https:\/\/example.test\/alternative/u);
+		await first.exit();
+		const resumed = cli(t, root, "guides-constraints");
+		resumed.send(`/open ${id}`);
+		await resumed.receive(/已打开会话/u);
+		resumed.send("小甲 7.1 怎么配队？本轮不用小弓");
+		await resumed.receive(/资料不足/u);
+		resumed.send("小甲 7.1 怎么配队");
+		await resumed.receive(/原文：https:\/\/example.test\/alternative/u);
+		resumed.send("小甲 7.1 怎么配队？我有角色乙，本轮不用小弓");
+		await resumed.receive(/原文：https:\/\/example.test\/guide/u);
+		await resumed.exit();
+		assert.deepEqual(
+			resumed.diagnostics().map((r) => [r.status, r.toolCalls, r.searchCalls]),
+			[
+				["insufficient_evidence", 1, 0],
+				["answered", 2, 0],
+				["answered", 2, 0],
+			],
+		);
+	},
+);
+
+test(
 	"V2 装配从仓库术语资源读取角色别名，缺版本时仍不调用模型",
 	options,
 	async (t) => {
@@ -191,6 +223,58 @@ test(
 			client.diagnostics().map(({ modelCalls }) => modelCalls),
 			[0, 3],
 		);
+	},
+);
+
+test(
+	"V2 切换版本、配队模式和角色：只继承已确认的全局库存，为每轮重建范围",
+	options,
+	async (t) => {
+		const root = await isolated(t);
+		const client = cli(t, root, "v2-inheritance");
+		const id = await create(client);
+		client.send(
+			"小甲 7.1 按库存配队，限用装备，我有角色甲，我没有角色乙，本轮不用小弓",
+		);
+		await client.receive(/需要补充条件：.*队友：.*装备：/u);
+		client.send("队友：队友丙；装备：无");
+		await client.receive(/补充条件待确认：队友：队友丙；装备：明确为空/u);
+		client.send("确认");
+		await client.receive(/引用：TeyvatNotes 隔离测试样本/u);
+		for (const input of [
+			"小甲 7.2 按库存配队",
+			"小甲 7.2 通用配队",
+			"队友丙 7.2 通用配队",
+		]) {
+			client.send(input);
+			await client.receive(/引用：TeyvatNotes 隔离测试样本/u);
+		}
+		await client.exit();
+		assert.deepEqual(
+			client
+				.diagnostics()
+				.map(({ status, modelCalls, toolCalls }) => [
+					status,
+					modelCalls,
+					toolCalls,
+				]),
+			[
+				["needs_clarification", 0, 0],
+				["answered", 3, 2],
+				["answered", 3, 2],
+				["answered", 3, 2],
+				["answered", 3, 2],
+			],
+		);
+		const confirmed = (await events(root, id)).filter(
+			({ type }) => type === "conditions_confirmed",
+		);
+		assert.ok(confirmed.length > 0);
+		assert.deepEqual(confirmed.at(-1)?.conditions, {
+			holdings: { 角色甲: "owned", 角色乙: "not_owned" },
+			equipment: [],
+			teammates: ["队友丙"],
+		});
 	},
 );
 

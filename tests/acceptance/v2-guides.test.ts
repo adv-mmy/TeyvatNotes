@@ -68,6 +68,9 @@ async function open(t: TestContext, scenario: string) {
 		output() {
 			return stdout;
 		},
+		errors() {
+			return stderr;
+		},
 	};
 	api.send("/new");
 	await api.until(/已创建会话/u);
@@ -116,6 +119,40 @@ for (const [scenario, expected, toolCalls, modelCalls] of [
 			[toolCalls, modelCalls],
 		);
 	});
+}
+
+for (const [scenario, detail] of [
+	["guides-format-fence", "json_code_fence"],
+	[
+		"guides-format-missing",
+		"missing_field:$.recommendations[0].requiredEntityIds",
+	],
+	["guides-format-conflict", "status_conflict:both_nonempty"],
+] as const) {
+	test(
+		`真实 CLI＋Pi：攻略格式细分原因仅进入诊断（${detail}）`,
+		linux,
+		async (t) => {
+			const cli = await open(t, scenario);
+			cli.send("小甲 7.1 怎么配队；不能进入普通诊断的测试问题标记");
+			await cli.until(/INVALID_ANSWER_STRUCTURE：回答不符合格式，未展示。/u);
+			cli.send("/history");
+			await cli.until(/问题：小甲 7.1 怎么配队/u);
+			await cli.until(/INVALID_ANSWER_STRUCTURE：回答不符合格式，未展示。/u);
+			await cli.close();
+			const [trace, ...extra] = cli.diagnostics();
+			assert.equal(extra.length, 0);
+			assert.equal(trace.errorCode, "INVALID_ANSWER_STRUCTURE");
+			assert.equal(trace.validationDetail, detail);
+			assert.equal(trace.modelCalls, 3);
+			assert.equal(trace.toolCalls, 2);
+			assert.doesNotMatch(
+				cli.output(),
+				/validationDetail|引用：|不能进入普通诊断的模拟/u,
+			);
+			assert.doesNotMatch(cli.errors(), /不能进入普通诊断|未公开/u);
+		},
+	);
 }
 
 test(

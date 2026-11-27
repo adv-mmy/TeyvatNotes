@@ -19,6 +19,10 @@ services:
     <<: *cli
     networks: [backend]
     secrets: [postgres_password]
+    volumes:
+      - session_data:/data/sessions
+      # 默认是空的独立卷；显式指定主机目录才会看见待导入资料。
+      - ${TEYVAT_IMPORTS_DIR:-imports}:/imports:ro
 
   teyvatnotes-ask:
     <<: *cli
@@ -90,6 +94,7 @@ services:
       retries: 20
 
 volumes:
+  imports:
   session_data:
   pg_data:
   chroma_data:

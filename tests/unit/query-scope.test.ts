@@ -6,6 +6,7 @@ import {
 } from "../../src/bootstrap/config.js";
 import {
 	applySupplement,
+	inventoryFit,
 	parseQuestion,
 	parseSupplement,
 	resolveScope,
@@ -19,6 +20,38 @@ const terms = [
 	{ category: "weapon", name: "试验弓", aliases: ["小弓"] },
 	{ category: "artifact", name: "试验套", aliases: ["小套"] },
 ] as const;
+
+test("未提及不是未持有；角色、武器别名按类别排除，歧义与互相矛盾先澄清", () => {
+	const resolve = (s: string) =>
+		resolveScope(parseQuestion(`小甲 7.1 怎么配队，${s}`, terms), {
+			holdings: {},
+		});
+	const res = resolve("我没有角色乙、装备小弓");
+	assert.equal(res.kind, "ready");
+	if (res.kind !== "ready") return;
+	assert.equal(res.scope.entityId, "角色甲");
+	for (const [chars, gear, expected] of [
+		[["角色乙"], [], "unavailable"],
+		[[], ["试验弓"], "unavailable"],
+		[["队友丙"], [], "usable"],
+	] as const)
+		assert.equal(
+			inventoryFit(res.scope, {
+				requiredCharacterIds: chars,
+				requiredEquipmentIds: gear,
+			}),
+			expected,
+		);
+	for (const s of [
+		"我没有未知装备",
+		"我没有角色乙，我有角色乙",
+		"我没有角色乙？",
+	])
+		assert.deepEqual(resolve(s), {
+			kind: "missing",
+			fields: ["inventoryFacts"],
+		});
+});
 
 test("装备按类别校对，非装备或无法唯一确认的别名不能进入库存", () => {
 	assert.equal(parseQuestion("试验弓 7.1 怎么配队", terms).entityId, undefined);
@@ -71,6 +104,41 @@ test("本地术语资源可读，缺失或非法结构有独立错误码", async
 		readTerminology(new URL("./never-present.json", import.meta.url)),
 		{ message: "TERMINOLOGY_UNAVAILABLE" },
 	);
+});
+
+test("未列出的装备仍可追问；限用清单和明确空清单不是未知", () => {
+	const player = {
+		holdings: { 角色甲: "owned" as const },
+		teammates: ["队友丙"],
+		equipment: ["其他装备"],
+	};
+	const draft = parseQuestion("小甲 7.1 按库存配队，本轮不用角色乙", terms);
+	const rule = {
+		requiredCharacterIds: ["队友丙"],
+		requiredEquipmentIds: ["试验弓"],
+	};
+	for (const [input, expected] of [
+		[draft, "unknown_equipment"],
+		[{ ...draft, equipmentRequired: true }, "unavailable"],
+		[{ ...draft, equipment: [] }, "unavailable"],
+		[
+			applySupplement(draft, {
+				inventoryFacts: [
+					{ category: "equipment", id: "试验弓", state: "owned" },
+				],
+			}),
+			"usable",
+		],
+	] as const) {
+		const result = resolveScope(input, player);
+		assert.equal(result.kind, "ready");
+		if (result.kind === "ready") {
+			assert.equal(inventoryFit(result.scope, rule), expected);
+			assert.deepEqual(result.scope.playerConstraints.excludedCharacters, [
+				"角色乙",
+			]);
+		}
+	}
 });
 
 test("标准名、别名和重叠名字都确定到同一角色，多个不同角色不擅自选目标", () => {

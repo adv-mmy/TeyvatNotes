@@ -1,5 +1,5 @@
 import {
-	type GuideValidation,
+	type GuideStructureDetail,
 	validateGuideAnswer,
 } from "../domain/answer-validation.js";
 import type { FrozenQueryScope, QueryScope } from "../domain/query-scope.js";
@@ -23,6 +23,11 @@ import { TurnBudget, type TurnLimits } from "./turn-budget.js";
 export interface TurnInput extends DialogueTurn {
 	readonly onProgress?: (stage: "model" | "tool") => void;
 }
+
+type TurnProposal = TurnOutcome & {
+	readonly equipmentId?: string;
+	readonly validationDetail?: GuideStructureDetail;
+};
 
 function validateAnswer(
 	text: string,
@@ -92,6 +97,31 @@ function freezeScope(scope: QueryScope, turnId: string): FrozenQueryScope {
 		...scope,
 		scopeId: turnId,
 		playerConstraints: Object.freeze({
+			...(scope.playerConstraints.noTeammates ? { noTeammates: true } : {}),
+			...(scope.playerConstraints.limitEquipment
+				? { limitEquipment: true }
+				: {}),
+			...(scope.playerConstraints.excludedCharacters
+				? {
+						excludedCharacters: Object.freeze([
+							...scope.playerConstraints.excludedCharacters,
+						]),
+					}
+				: {}),
+			...(scope.playerConstraints.excludedEquipment
+				? {
+						excludedEquipment: Object.freeze([
+							...scope.playerConstraints.excludedEquipment,
+						]),
+					}
+				: {}),
+			...(scope.playerConstraints.ownedEquipment
+				? {
+						ownedEquipment: Object.freeze([
+							...scope.playerConstraints.ownedEquipment,
+						]),
+					}
+				: {}),
 			targetHolding: scope.playerConstraints.targetHolding,
 			teammates: freezeItems(scope.playerConstraints.teammates),
 			equipment: freezeItems(scope.playerConstraints.equipment),
@@ -115,6 +145,7 @@ export class RunTurn {
 				turnId: string;
 				status: TurnOutcome["status"];
 				errorCode?: string;
+				validationDetail?: GuideStructureDetail;
 				elapsedMs: number;
 			},
 		) => void = () => {},
@@ -155,6 +186,7 @@ export class RunTurn {
 		try {
 			const turnId = await session.begin(input.prompt);
 			let recorded: TurnOutcome = { status: "failed", code: "SESSION_FAILED" };
+			let validationDetail: GuideStructureDetail | undefined;
 			try {
 				// 确认写入失败属于会话故障；不调用模型，也不尝试补写正常终态。
 				if (input.confirmation && !budget.signal.aborted)
@@ -166,15 +198,13 @@ export class RunTurn {
 					? runtimeFailure()
 					: (input.preflight ??
 						(await this.runAgent(session, input, turnId, budget)));
-				const outcome: TurnOutcome | GuideValidation = signal.aborted
+				const outcome: TurnProposal = signal.aborted
 					? { status: "cancelled" }
 					: budget.deadline.aborted
 						? { status: "failed", code: "TURN_TIMEOUT" }
 						: proposed;
 				const equipmentId =
-					outcome.status === "needs_clarification" &&
-					"equipmentId" in outcome &&
-					typeof outcome.equipmentId === "string"
+					outcome.status === "needs_clarification"
 						? outcome.equipmentId
 						: undefined;
 				const clarification = this.clarification.finish(
@@ -186,7 +216,9 @@ export class RunTurn {
 				const persisted: TurnOutcome =
 					outcome.status === "needs_clarification"
 						? { status: "needs_clarification", text: outcome.text }
-						: outcome;
+						: outcome.status === "failed"
+							? { status: "failed", code: outcome.code }
+							: outcome;
 				// 运行取消不能打断持久化。
 				const committed = await session.commit({
 					turnId,
@@ -194,6 +226,11 @@ export class RunTurn {
 					...(clarification !== undefined ? { clarification } : {}),
 				});
 				recorded = committed.outcome;
+				if (
+					recorded.status === "failed" &&
+					recorded.code === "INVALID_ANSWER_STRUCTURE"
+				)
+					validationDetail = outcome.validationDetail;
 				return committed;
 			} finally {
 				this.diagnose({
@@ -202,6 +239,7 @@ export class RunTurn {
 					turnId,
 					status: recorded.status,
 					...(recorded.status === "failed" ? { errorCode: recorded.code } : {}),
+					...(validationDetail ? { validationDetail } : {}),
 					elapsedMs: Math.round(performance.now() - started),
 				});
 			}
@@ -215,7 +253,7 @@ export class RunTurn {
 		input: TurnInput,
 		turnId: string,
 		budget: TurnBudget,
-	): Promise<TurnOutcome | GuideValidation> {
+	): Promise<TurnProposal> {
 		const scope = input.scope ? freezeScope(input.scope, turnId) : undefined;
 		let environment: TurnToolEnvironment | undefined;
 		let terminal: ToolFailure | undefined;

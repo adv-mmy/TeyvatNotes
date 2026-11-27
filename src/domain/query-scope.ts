@@ -8,6 +8,11 @@ export interface TerminologyEntry {
 
 export type TeamMode = "general" | "inventory";
 export type Holding = "owned" | "not_owned";
+interface InventoryFact {
+	readonly category: "character" | "equipment";
+	readonly id: string;
+	readonly state: Holding | "avoid";
+}
 export function hasKnownPremise(rule: {
 	readonly conditions: readonly string[];
 	readonly requiredCharacterIds: readonly string[];
@@ -33,9 +38,12 @@ export type ScopeField =
 	| "teamMode"
 	| "holding"
 	| "teammates"
-	| "equipment";
+	| "equipment"
+	| "inventoryFacts";
 
 export interface ScopeDraft {
+	/** null 表示库存声明未识别或相互冲突，必须澄清，不落入通用推荐。 */
+	readonly inventoryFacts?: readonly InventoryFact[] | null;
 	readonly entityId?: string;
 	readonly gameVersion?: string;
 	readonly goal?: string;
@@ -49,6 +57,8 @@ export interface ScopeDraft {
 export interface PlayerInventory {
 	readonly holdings: Readonly<Record<string, Holding>>;
 	readonly teammates?: readonly string[];
+	readonly equipment?: readonly string[];
+	readonly equipmentHoldings?: Readonly<Record<string, Holding>>;
 }
 
 type KnownItems =
@@ -64,10 +74,100 @@ export interface QueryScope {
 		readonly targetHolding: Holding | "unknown";
 		readonly teammates: KnownItems;
 		readonly equipment: KnownItems;
+		readonly excludedCharacters?: readonly string[];
+		readonly excludedEquipment?: readonly string[];
+		readonly ownedEquipment?: readonly string[];
+		readonly limitEquipment?: boolean;
+		readonly noTeammates?: boolean;
 	};
 }
 
 export type FrozenQueryScope = Readonly<QueryScope & { scopeId: string }>;
+
+/** 未知装备可供回读以判断是否需要追问；明确不适用的候选不能算命中。 */
+export function inventoryFit(
+	scope: QueryScope,
+	rule: {
+		readonly requiredCharacterIds: readonly string[];
+		readonly requiredEquipmentIds: readonly string[];
+	},
+): "usable" | "unknown_equipment" | "unavailable" {
+	const c = scope.playerConstraints;
+	if (
+		(c.noTeammates &&
+			rule.requiredCharacterIds.some((id) => id !== scope.entityId)) ||
+		rule.requiredCharacterIds.some(
+			(id) =>
+				c.excludedCharacters?.includes(id) ||
+				(id === scope.entityId && c.targetHolding === "not_owned"),
+		) ||
+		rule.requiredEquipmentIds.some((id) => c.excludedEquipment?.includes(id)) ||
+		(rule.requiredEquipmentIds.length > 0 &&
+			c.equipment.kind === "known" &&
+			!c.equipment.items.length)
+	)
+		return "unavailable";
+	if (scope.teamMode === "general") return "usable";
+	if (
+		rule.requiredCharacterIds.some((id) =>
+			id === scope.entityId
+				? c.targetHolding !== "owned"
+				: c.teammates.kind !== "known" || !c.teammates.items.includes(id),
+		)
+	)
+		return "unavailable";
+	const equipment = c.equipment;
+	if (!rule.requiredEquipmentIds.length) return "usable";
+	if (equipment.kind === "unknown")
+		return rule.requiredEquipmentIds.every((id) =>
+			c.ownedEquipment?.includes(id),
+		)
+			? "usable"
+			: "unknown_equipment";
+	return rule.requiredEquipmentIds.every(
+		(id) =>
+			equipment.items.includes(id) ||
+			(!c.limitEquipment && c.ownedEquipment?.includes(id)),
+	)
+		? "usable"
+		: c.limitEquipment
+			? "unavailable"
+			: "unknown_equipment";
+}
+
+export function updatedInventory(
+	player: PlayerInventory,
+	facts: readonly InventoryFact[],
+): PlayerInventory {
+	const holdings = { ...player.holdings };
+	const equipmentHoldings = { ...player.equipmentHoldings };
+	for (const { category, id, state } of facts) {
+		if (state !== "avoid")
+			(category === "character" ? holdings : equipmentHoldings)[id] = state;
+	}
+	const addOwned = (
+		items: readonly string[],
+		category: InventoryFact["category"],
+	) => [
+		...new Set([
+			...items,
+			...facts
+				.filter((f) => f.category === category && f.state === "owned")
+				.map((f) => f.id),
+		]),
+	];
+	return {
+		...player,
+		holdings,
+		equipmentHoldings,
+		...(player.teammates
+			? { teammates: addOwned(player.teammates, "character") }
+			: {}),
+		...(player.equipment
+			? { equipment: addOwned(player.equipment, "equipment") }
+			: {}),
+	};
+}
 
 export function versionApplies(
 	version: string,
@@ -96,7 +196,7 @@ export type ScopeResolution =
 	| { readonly kind: "missing"; readonly fields: readonly ScopeField[] }
 	| {
 			readonly kind: "no_team";
-			readonly reason: "target_absent" | "no_teammates";
+			readonly reason: "target_absent" | "target_excluded" | "no_teammates";
 	  }
 	| { readonly kind: "ready"; readonly scope: QueryScope };
 
@@ -173,11 +273,82 @@ function teamMode(input: string): TeamMode | undefined {
 	return general === inventory ? undefined : general ? "general" : "inventory";
 }
 
+function splitInventoryClauses(
+	prompt: string,
+	terms: readonly TerminologyEntry[],
+) {
+	const questionParts: string[] = [];
+	const facts: InventoryFact[] = [];
+	let invalidFacts = false;
+	for (const [part] of normalize(prompt).matchAll(/[^,;。!?\n]+\??/gu)) {
+		const match =
+			/^(?:我(?:其实)?|本轮|这次)?\s*(没有|不持有|持有|有|不能用|不用|不使用|不要用)\s*(.+)$/u.exec(
+				part.trim(),
+			);
+		if (!match) {
+			questionParts.push(part);
+			continue;
+		}
+		const state = /^(?:没有|不持有)$/u.test(match[1] ?? "")
+			? "not_owned"
+			: /^(?:有|持有)$/u.test(match[1] ?? "")
+				? "owned"
+				: "avoid";
+		for (const entry of (match[2] ?? "").split("、")) {
+			const raw = entry.trim();
+			const typed = /^(队友|角色|装备|武器|圣遗物)\s*(.+)$/u.exec(raw);
+			const find = (s: string, categories: readonly TermCategory[]) =>
+				categories.flatMap((cat) =>
+					matchingNames(s, terms, cat, true).map((id) => ({
+						category:
+							cat === "character"
+								? ("character" as const)
+								: ("equipment" as const),
+						id,
+						state,
+					})),
+				);
+			const candidates = find(raw, ["character", "weapon", "artifact"]);
+			const fact = one(
+				candidates.length || !typed
+					? candidates
+					: find(
+							typed[2] ?? "",
+							/队友|角色/u.test(typed[1] ?? "")
+								? ["character"]
+								: typed[1] === "武器"
+									? ["weapon"]
+									: typed[1] === "圣遗物"
+										? ["artifact"]
+										: ["weapon", "artifact"],
+						),
+			);
+			if (
+				!fact ||
+				facts.some(
+					(f) =>
+						f.category === fact.category &&
+						f.id === fact.id &&
+						f.state !== "avoid" &&
+						state !== "avoid" &&
+						f.state !== state,
+				)
+			)
+				invalidFacts = true;
+			else facts.push({ ...fact, state });
+		}
+	}
+	return {
+		input: questionParts.join(" ").trim(),
+		facts: invalidFacts ? null : facts,
+	};
+}
+
 export function parseQuestion(
 	prompt: string,
 	terms: readonly TerminologyEntry[],
 ): ScopeDraft {
-	const input = normalize(prompt);
+	const { input, facts } = splitInventoryClauses(prompt, terms);
 	const entityId = one(matchingNames(input, terms, "character", false));
 	const versions = [
 		...new Set(
@@ -200,6 +371,11 @@ export function parseQuestion(
 	const mode = explicitMode ?? (goal && !ambiguousMode ? "general" : undefined);
 	const equipmentRequired = /按我的装备|限用装备/u.test(input);
 	return {
+		...(facts === null
+			? { inventoryFacts: null }
+			: facts.length
+				? { inventoryFacts: facts }
+				: {}),
 		...(entityId ? { entityId } : {}),
 		...(gameVersion ? { gameVersion } : {}),
 		...(goal ? { goal } : {}),
@@ -228,7 +404,7 @@ export function parseSupplement(
 	const seen = new Set<ScopeField>();
 	for (const part of parts) {
 		const [, label, given] =
-			/^(角色|版本|目标|模式|目标角色持有|队友|装备)\s*[:：]\s*(.*)$/u.exec(
+			/^(角色|版本|目标|模式|目标角色持有|队友|装备|库存约束)\s*[:：]\s*(.*)$/u.exec(
 				part,
 			) ?? [];
 		const value = given?.trim() ?? part;
@@ -243,6 +419,7 @@ export function parseSupplement(
 					目标角色持有: "holding",
 					队友: "teammates",
 					装备: "equipment",
+					库存约束: "inventoryFacts",
 				} as const
 			)[
 				label as
@@ -253,6 +430,7 @@ export function parseSupplement(
 					| "目标角色持有"
 					| "队友"
 					| "装备"
+					| "库存约束"
 			] ?? inferred;
 		if (!field || !fields.includes(field) || seen.has(field)) return undefined;
 		seen.add(field);
@@ -283,6 +461,14 @@ export function parseSupplement(
 			if (!holding) return undefined;
 			patch = { ...patch, holding };
 			changes.push(`目标角色持有：${holding === "owned" ? "持有" : "不持有"}`);
+		} else if (field === "inventoryFacts") {
+			const { facts, input } = splitInventoryClauses(value, terms);
+			if (!facts || (value !== "无" && (input || !facts.length)))
+				return undefined;
+			patch = { ...patch, inventoryFacts: facts };
+			changes.push(
+				`库存约束：${facts.map((f) => (f.state === "avoid" ? "本轮不用" : f.state === "owned" ? "持有" : "未持有") + f.id).join("、") || "无"}`,
+			);
 		} else {
 			if (!value) return undefined;
 			const parts = /^(无|没有|明确为空|\[\])$/u.test(value)
@@ -318,6 +504,29 @@ export function applySupplement(
 	current: ScopeDraft,
 	patch: ScopeDraft,
 ): ScopeDraft {
+	// 补答一件装备不能抹去原问题的“本轮不用某队友”；只替换被纠正的那项事实。
+	if (current.inventoryFacts?.length) {
+		const keep = current.inventoryFacts.filter((f) => {
+			if (
+				f.state !== "avoid" &&
+				(f.category === "equipment"
+					? patch.equipment?.length === 0 || patch.equipment?.includes(f.id)
+					: patch.teammates?.includes(f.id) ||
+						(patch.holding && f.id === (patch.entityId ?? current.entityId)))
+			)
+				return false;
+			return !patch.inventoryFacts?.some(
+				(n) =>
+					n.category === f.category &&
+					n.id === f.id &&
+					(n.state === "avoid") === (f.state === "avoid"),
+			);
+		});
+		patch = {
+			...patch,
+			inventoryFacts: [...keep, ...(patch.inventoryFacts ?? [])],
+		};
+	}
 	if (patch.entityId && patch.entityId !== current.entityId) {
 		const { holding: _scopedHolding, ...input } = current;
 		return { ...input, ...patch };
@@ -330,23 +539,58 @@ export function resolveScope(
 	player: PlayerInventory,
 ): ScopeResolution {
 	const { entityId, gameVersion, goal, teamMode } = input;
-	if (!entityId || !gameVersion || !goal || !teamMode) {
+	if (
+		!entityId ||
+		!gameVersion ||
+		!goal ||
+		!teamMode ||
+		input.inventoryFacts === null
+	) {
 		const fields: ScopeField[] = [];
 		if (!entityId) fields.push("entityId");
 		if (!gameVersion) fields.push("gameVersion");
 		if (!goal) fields.push("goal");
 		if (!teamMode && goal) fields.push("teamMode");
+		if (input.inventoryFacts === null) fields.push("inventoryFacts");
 		return { kind: "missing", fields };
 	}
+	const facts = input.inventoryFacts ?? [];
+	player = updatedInventory(player, facts);
+	const excluded = (
+		category: InventoryFact["category"],
+		holdings: Readonly<Record<string, Holding>>,
+	) => [
+		...new Set([
+			...Object.keys(holdings).filter((id) => holdings[id] === "not_owned"),
+			...facts
+				.filter((f) => f.category === category && f.state === "avoid")
+				.map((f) => f.id),
+		]),
+	];
+	const excludedCharacters = excluded("character", player.holdings);
+	const excludedEquipment = excluded(
+		"equipment",
+		player.equipmentHoldings ?? {},
+	);
+	const ownedEquipment = Object.entries(player.equipmentHoldings ?? {})
+		.filter(([, v]) => v === "owned")
+		.map(([id]) => id);
 	const targetHolding = input.holding ?? player.holdings[entityId] ?? "unknown";
 	const teammates = input.teammates ?? player.teammates;
-	const equipment = input.equipment;
+	const equipment = input.equipment ?? player.equipment;
+	if (
+		facts.some(
+			(f) =>
+				f.category === "character" && f.id === entityId && f.state === "avoid",
+		)
+	)
+		return { kind: "no_team", reason: "target_excluded" };
+	if (targetHolding === "not_owned")
+		return { kind: "no_team", reason: "target_absent" };
 	if (teamMode === "inventory") {
-		if (targetHolding === "not_owned")
-			return { kind: "no_team", reason: "target_absent" };
 		if (
 			teammates?.filter(
-				(id) => id !== entityId && player.holdings[id] !== "not_owned",
+				(id) => id !== entityId && !excludedCharacters.includes(id),
 			).length === 0
 		)
 			return { kind: "no_team", reason: "no_teammates" };
@@ -367,10 +611,15 @@ export function resolveScope(
 			teamMode,
 			guideKind: "team",
 			playerConstraints: {
+				...(teammates?.length === 0 ? { noTeammates: true } : {}),
+				...(input.equipmentRequired ? { limitEquipment: true } : {}),
+				...(excludedCharacters.length ? { excludedCharacters } : {}),
+				...(excludedEquipment.length ? { excludedEquipment } : {}),
+				...(ownedEquipment.length ? { ownedEquipment } : {}),
 				targetHolding,
 				teammates: inventory(
 					teammates?.filter(
-						(id) => id !== entityId && player.holdings[id] !== "not_owned",
+						(id) => id !== entityId && !excludedCharacters.includes(id),
 					),
 				),
 				equipment: inventory(equipment),
@@ -406,6 +655,18 @@ export function isScopeDraft(value: unknown): value is ScopeDraft {
 				return list(item);
 			case "equipmentRequired":
 				return typeof item === "boolean";
+			case "inventoryFacts":
+				return (
+					item === null ||
+					(Array.isArray(item) &&
+						item.every(
+							(f) =>
+								f &&
+								(f.category === "character" || f.category === "equipment") &&
+								text(f.id) &&
+								["owned", "not_owned", "avoid"].includes(f.state),
+						))
+				);
 			default:
 				return false;
 		}

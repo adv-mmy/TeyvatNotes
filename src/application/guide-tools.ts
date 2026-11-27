@@ -358,11 +358,18 @@ export function createGuideTools(
 					);
 					signal.throwIfAborted();
 					if (result.kind === "error") throw new TurnToolError(result.code);
+					const afterSupplement = recheck !== undefined;
 					const searched = recheck ?? query.trim();
 					recheck = undefined;
 					if (result.kind === "miss") {
 						lastMiss = searched;
-						return { content: { status: "miss" }, gap: true };
+						return {
+							content: {
+								status: "miss",
+								...(afterSupplement ? { reason: "recheck_miss" } : {}),
+							},
+							gap: true,
+						};
 					}
 					const summaries = result.candidates.map((candidate) => {
 						const candidateId = randomUUID();
@@ -473,21 +480,32 @@ export function createGuideTools(
 				evidence,
 				gap: gap && recheck === undefined,
 				readAllCandidates,
-				...(!candidates.size && isObject(web) && isSupplementGap(web.status)
-					? { supplementGap: web.status }
-					: {}),
+				...(!candidates.size &&
+				observations.some(
+					(o) =>
+						o.call.name === "search_guides" &&
+						isObject(o.content) &&
+						o.content.reason === "recheck_miss",
+				)
+					? { supplementGap: "recheck_miss" as const }
+					: !candidates.size && isObject(web) && isSupplementGap(web.status)
+						? { supplementGap: web.status }
+						: {}),
 			};
 		})(context);
 		return {
 			...env,
 			answerInstructions: [
-				"攻略回答只返回 JSON 对象，包含 recommendations 和 gaps 两个数组，二者只填一个。",
-				"recommendations 每项必须有 text、conditions、requiredEntityIds、evidenceIds；后三项为字符串数组。",
-				"先检索再在下一批回读。只能引用 read_guide 返回的 evidenceId；摘要不是证据。",
+				"工具阶段直接发出工具调用，不写答复。结束时只输出一个裸 JSON 对象：首字符是 {，末字符是 }。不要加 Markdown 代码围栏、开场白、结语或额外字段。",
+				"顶层必须同时有 recommendations 和 gaps，两个字段都必须是数组。能给建议时 recommendations 至少一项、gaps 必须是 []；资料不足、确需确认装备或证据冲突时 recommendations 必须是 []、gaps 必须恰好一项。不要省略空数组，不要同时填两个数组。",
+				"先检索再在下一批完整回读。摘要不是证据。所有 evidenceIds 都是非空字符串数组，使用 read_guide 返回的真实 evidenceId，不填候选 ID、链接或示例占位符。",
 				"只有查库明确 miss 后才可在不含查库的下一批用 search_web_guides 补查一次。query 仅用本轮角色、版本、配队。indexed 后必须用原范围重新查库、回读；其他状态说明具体缺口。",
-				"conditions 保留回读提供的明确适用前提。requiredEntityIds 是所引证据要求的角色与装备。",
-				"资料不足时 gaps 含 {kind: insufficient_evidence, text}；存在冲突时使用 {kind: conflict, sides}，两方分别给 conclusion、conditions、evidenceIds。",
-				"根据完整回读发现确有必要但持有未知的装备，且无可用替代时，gaps 可使用 {kind: equipment_required, equipmentId, evidenceIds}。",
+				"每项建议必须包含 text、conditions、requiredEntityIds、evidenceIds。conditions 保留回读给出的明确适用前提；requiredEntityIds 仅为所引证据的 requiredCharacterIds 和 requiredEquipmentIds 的去重并集。没有前提或必需实体时填 []。按库存配队时，只把已确认可用的队伍推荐为可用，不虚构原文未给出的结论。",
+				"以下是四种输出形状。只选一种，例文与占位符不能照抄进实际答复。",
+				'有建议：{"recommendations":[{"text":"有据可查的建议","conditions":[],"requiredEntityIds":[],"evidenceIds":["<本轮证据ID>"]}],"gaps":[]}',
+				'资料不足：{"recommendations":[],"gaps":[{"kind":"insufficient_evidence","text":"无法取得适用的完整证据"}]}',
+				'完整回读发现有必需但持有未知的装备且无可用替代：{"recommendations":[],"gaps":[{"kind":"equipment_required","equipmentId":"<必需装备标准名>","evidenceIds":["<本轮证据ID>"]}]}',
+				'回读后仍有冲突：{"recommendations":[],"gaps":[{"kind":"conflict","sides":[{"conclusion":"观点一","conditions":[],"evidenceIds":["<本轮甲方证据ID>"]},{"conclusion":"观点二","conditions":[],"evidenceIds":["<本轮乙方证据ID>"]}]}]}',
 			].join("\n"),
 			close() {
 				env.close();

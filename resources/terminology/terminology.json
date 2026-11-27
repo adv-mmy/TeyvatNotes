@@ -42,7 +42,9 @@
     {
       "category": "character",
       "name": "旅行者·冰",
-      "aliases": [],
+      "aliases": [
+        "冰主"
+      ],
       "confirmation": "2026-10-04 读取米游社原神Wiki图鉴目录的条目标题（非逐页详情审核）：https://baike.mihoyo.com/ys/obc/content/509226/detail?bbs_presentation_style=no_header；https://baike.mihoyo.com/ys/obc/content/509225/detail?bbs_presentation_style=no_header"
     },
     {
