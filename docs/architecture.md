@@ -154,7 +154,7 @@ V2 在 `adapters/web` 下通过既有 `GuideSource` 端口接入独立的 BWIKI 
 
 ## 7. Docker Compose 部署边界
 
-- **应用与依赖分开运行**。CLI 容器按需启动，保留终端交互；依赖容器在后台运行。CLI 通过 Compose 服务名访问依赖，默认不将服务端口映射到主机，不提供公网入口。[Compose 网络](https://docs.docker.com/compose/how-tos/networking/)
+- **应用与依赖分开运行**。Compose 只提供一个 `teyvatnotes` 应用服务，承载问答、会话和维护子命令；依赖容器在后台独立运行。CLI 通过服务名访问依赖，默认不映射服务端口，不提供公网入口。[Compose 网络](https://docs.docker.com/compose/how-tos/networking/)
 - **数据独立于容器**。Pi 会话、PostgreSQL 数据、ChromaDB 索引和 Ollama 模型分别挂载命名卷。Redis 用作可丢失缓存，停机或重建不会影响本地会话恢复。维护者导入目录单独只读挂载；凭据由部署环境以运行时密钥注入，不进入镜像或仓库。[Compose 数据卷](https://docs.docker.com/reference/compose-file/volumes/)
 - **启动与就绪分开判断**。需要攻略问答时先启动 V2 核心依赖，并验证数据库初始化、索引和指定 Embedding 模型已就绪。仅查看历史时不要求依赖容器或 DeepSeek 可用，Redis 也不是 CLI 启动条件。
 - **旧部署保持隔离**。新版 Compose 只编排新版 CLI 和所需依赖，使用新的项目和数据卷，不接管旧桌面服务的数据库或卷。配置、命令和停机步骤见[详细设计](design.md#8-compose-部署设计)。

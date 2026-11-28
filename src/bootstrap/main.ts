@@ -134,7 +134,7 @@ export async function startCli(
 					data,
 					terminology,
 					mode: "guide",
-					...(env.TEYVAT_SOURCE_POLICY_FILE ? { supplement } : {}),
+					supplement,
 				};
 			}
 		}

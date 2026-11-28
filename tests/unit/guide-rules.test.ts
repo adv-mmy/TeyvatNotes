@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createGuideTools } from "../../src/application/guide-tools.js";
 import type {
 	GuideChunkMetadata,
 	GuideData,
@@ -8,6 +9,8 @@ import {
 	defaultRetrievalLimits,
 	GuideRetrieval,
 } from "../../src/application/retrieve-guides.js";
+import { TurnBudget } from "../../src/application/turn-budget.js";
+import { readConfig } from "../../src/bootstrap/config.js";
 import {
 	type GuideConditionDetail,
 	type GuideEvidence,
@@ -38,6 +41,7 @@ const scope: FrozenQueryScope = {
 function pagedRetrieval(
 	expanding: "keyword" | "vector",
 	failOnSecondPage = false,
+	readBody?: string,
 ) {
 	const chunks = new Map<string, GuideChunkMetadata>(
 		["first", "second"].map((id) => [
@@ -84,8 +88,11 @@ function pagedRetrieval(
 					return entry ? [entry] : [];
 				});
 			},
-			async read() {
-				assert.fail("召回阶段不能读取正文");
+			async read(_snapshot, id) {
+				assert.ok(readBody !== undefined, "召回阶段不能读取正文");
+				const chunk = chunks.get(id);
+				assert.ok(chunk);
+				return { chunk, body: readBody, complete: true };
 			},
 			async assertSnapshot() {},
 		},
@@ -184,6 +191,7 @@ const reference: GuideEvidence = {
 	requiredCharacterIds: ["甲", "乙"],
 	requiredEquipmentIds: ["试验弓"],
 	conditions: ["须持有试验弓"],
+	excerpts: [],
 	citation: {
 		source: "原文",
 		url: "https://example.test/a",
@@ -224,7 +232,80 @@ const recommendation = {
 const draft = (items: unknown[], gaps: unknown[] = []) =>
 	JSON.stringify({ recommendations: items, gaps });
 
+test("完整回读未确认回送之前，片段编号不能用于答复", async () => {
+	const quote = "受控回读的原文。";
+	const { retrieval } = pagedRetrieval("keyword", false, quote);
+	const signal = new AbortController().signal;
+	const budget = new TurnBudget(readConfig({}).limits, signal);
+	const tools = createGuideTools(retrieval)({ turnId: "t1", scope, budget });
+	try {
+		const [hit] = await tools.executeBatch({
+			calls: [
+				{ id: "search", name: "search_guides", arguments: { query: "配队" } },
+			],
+			rejected: [],
+			signal,
+		});
+		assert.ok(hit?.ok);
+		const { candidates } = hit.content as {
+			candidates: { candidateId: string }[];
+		};
+		const first = candidates[0];
+		assert.ok(first);
+		tools.confirmDelivery(["search"]);
+		const [read] = await tools.executeBatch({
+			calls: [
+				{
+					id: "read",
+					name: "read_guide",
+					arguments: { candidateId: first.candidateId },
+				},
+			],
+			rejected: [],
+			signal,
+		});
+		assert.ok(read?.ok);
+		const { excerpts } = read.content as {
+			excerpts: { excerptId: string; text: string }[];
+		};
+		const part = excerpts[0];
+		assert.ok(part);
+		assert.equal(part.text, quote);
+		const evaluate = () => {
+			const view = tools.evidenceView().guide;
+			assert.ok(view);
+			return validateGuideAnswer(
+				JSON.stringify({
+					recommendations: [],
+					gaps: [],
+					observations: [
+						{ kind: "role", text: "总结隔离样本。", excerptId: part.excerptId },
+					],
+				}),
+				scope,
+				"t1",
+				view,
+			);
+		};
+		assert.deepEqual(evaluate(), {
+			status: "failed",
+			code: "INVALID_CITATION",
+			validationDetail: "citation:excerpt_not_authorized",
+			validationPath: "$.observations[0].excerptId",
+		});
+		tools.confirmDelivery(["read"]);
+		const answered = evaluate();
+		assert.ok(answered.status === "answered");
+		assert.equal(answered.citations[0]?.excerpt, quote);
+	} finally {
+		tools.close();
+		budget.close();
+	}
+});
+
 test("只提供分工资料也能回答；可附原文未作为整队列出的综合配队", () => {
+	const quote = "辅助位：丁可减抗。";
+	const firstLine = "队友候选：乙、丙。\n";
 	const source: GuideEvidence = {
 		...reference,
 		fromWeb: true,
@@ -232,16 +313,22 @@ test("只提供分工资料也能回答；可附原文未作为整队列出的�
 		conditions: [],
 		requiredCharacterIds: [],
 		requiredEquipmentIds: [],
+		excerpts: [
+			{
+				excerptId: "x-e1-2",
+				start: firstLine.length,
+				end: firstLine.length + quote.length,
+			},
+		],
 		citation: {
 			...reference.citation,
-			excerpt: "队友候选：乙、丙。\n辅助位：丁可减抗。",
+			excerpt: firstLine + quote,
 		},
 	};
 	const observation = {
 		kind: "role",
 		text: "辅助位可选丁，主要职责是降低敌方抗性。",
-		evidenceId: "e1",
-		excerpt: "辅助位：丁可减抗。",
+		excerptId: "x-e1-2",
 	};
 	const resolve = (item: object, teams: unknown[] = [], read = source) =>
 		validateGuideAnswer(
@@ -260,9 +347,7 @@ test("只提供分工资料也能回答；可附原文未作为整队列出的�
 	assert.match(summary.text, /^配队思路：\n位置分工：辅助位可选丁/u);
 	assert.match(summary.text, /适用条件未确认/u);
 	assert.doesNotMatch(summary.text, /辅助位：丁可减抗。|资料不足|参考配队/u);
-	assert.deepEqual(summary.citations, [
-		{ ...source.citation, excerpt: observation.excerpt },
-	]);
+	assert.deepEqual(summary.citations, [{ ...source.citation, excerpt: quote }]);
 
 	const withTeam = resolve(observation, [recommendation]);
 	assert.ok(withTeam.status === "answered");
@@ -276,16 +361,32 @@ test("只提供分工资料也能回答；可附原文未作为整队列出的�
 		{ status: "failed", code: "INVALID_CITATION" },
 	);
 	for (const invalid of [
-		resolve({ ...observation, excerpt: "辅助位：丙可减抗。" }),
-		resolve({ ...observation, evidenceId: "not-authorized" }),
+		resolve({ ...observation, excerptId: "not-authorized" }),
+		resolve({ ...observation, excerptId: "e1" }),
 		resolve(observation, [], { ...source, turnId: "old" }),
+		resolve(observation, [], { ...source, scopeId: "other" }),
 		resolve(observation, [], { ...source, windowComplete: false }),
+		resolve(observation, [], {
+			...source,
+			excerpts: [{ excerptId: "x-e1-2", start: 0, end: 900 }],
+		}),
 		resolve(observation, [], {
 			...source,
 			gameVersions: { from: "7.1", through: "7.1" },
 		}),
 	])
-		assert.deepEqual(invalid, { status: "failed", code: "INVALID_CITATION" });
+		assert.deepEqual(invalid, {
+			status: "failed",
+			code: "INVALID_CITATION",
+			validationDetail: "citation:excerpt_not_authorized",
+			validationPath: "$.observations[0].excerptId",
+		});
+	for (const extra of [{ excerpt: quote }, { evidenceId: "e1" }])
+		assert.deepEqual(resolve({ ...observation, ...extra }), {
+			status: "failed",
+			code: "INVALID_ANSWER_STRUCTURE",
+			validationDetail: "unexpected_fields:$.observations[0]",
+		});
 	for (const fake of ["你已经持有丁。", "建议见 https://example.test/forged"]) {
 		assert.deepEqual(resolve({ ...observation, text: fake }), {
 			status: "failed",

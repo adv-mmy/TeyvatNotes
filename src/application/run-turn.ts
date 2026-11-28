@@ -1,5 +1,6 @@
 import {
 	type GuideValidationDetail,
+	type GuideValidationPath,
 	validateGuideAnswer,
 } from "../domain/answer-validation.js";
 import type {
@@ -30,6 +31,7 @@ export interface TurnInput extends DialogueTurn {
 
 type TurnProposal = TurnOutcome & {
 	readonly validationDetail?: GuideValidationDetail;
+	readonly validationPath?: GuideValidationPath;
 };
 
 function validateAnswer(
@@ -171,6 +173,7 @@ export class RunTurn {
 				status: TurnOutcome["status"];
 				errorCode?: string;
 				validationDetail?: GuideValidationDetail;
+				validationPath?: GuideValidationPath;
 				elapsedMs: number;
 			},
 		) => void = () => {},
@@ -213,6 +216,7 @@ export class RunTurn {
 			const turnId = await session.begin(input.prompt);
 			let recorded: TurnOutcome = { status: "failed", code: "SESSION_FAILED" };
 			let validationDetail: GuideValidationDetail | undefined;
+			let validationPath: GuideValidationPath | undefined;
 			try {
 				// 确认写入失败属于会话故障；不调用模型，也不尝试补写正常终态。
 				if (input.confirmation && !budget.signal.aborted)
@@ -253,12 +257,10 @@ export class RunTurn {
 					...(clarification !== undefined ? { clarification } : {}),
 				});
 				recorded = committed.outcome;
-				if (
-					recorded.status === "failed" &&
-					(recorded.code === "INVALID_ANSWER_STRUCTURE" ||
-						recorded.code === "INVALID_ANSWER_CONDITIONS")
-				)
+				if (recorded.status === "failed") {
 					validationDetail = outcome.validationDetail;
+					validationPath = outcome.validationPath;
+				}
 				return committed;
 			} finally {
 				this.diagnose({
@@ -268,6 +270,7 @@ export class RunTurn {
 					status: recorded.status,
 					...(recorded.status === "failed" ? { errorCode: recorded.code } : {}),
 					...(validationDetail ? { validationDetail } : {}),
+					...(validationPath ? { validationPath } : {}),
 					elapsedMs: Math.round(performance.now() - started),
 				});
 			}

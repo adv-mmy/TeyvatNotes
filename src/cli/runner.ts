@@ -34,7 +34,7 @@ const messages: Readonly<Record<string, string>> = {
 	TOOL_FAILED: "工具执行失败。",
 	MODEL_OUTPUT_LIMIT: "回答达到输出上限，未生成完整答复。",
 	INVALID_ANSWER_STRUCTURE: "回答不符合格式，未展示。",
-	INVALID_CITATION: "回答引用了未经本轮回读的证据，未展示。",
+	INVALID_CITATION: "回答中有无效或未经本轮授权的引用，未展示。",
 	INVALID_ANSWER_CONDITIONS: "回答与已确认条件或证据前提不符，未展示。",
 	RETRIEVAL_INCOMPLETE: "攻略检索尚未查完，请调整查询或稍后再试。",
 	RETRIEVAL_UNAVAILABLE: "攻略检索或正文读取暂不可用。",

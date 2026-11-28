@@ -894,6 +894,8 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		let requests = 0;
 		let scripted: ((request: number, result: unknown) => object) | undefined;
 		let scriptError: unknown;
+		let sourcePolicyForCli: string | undefined;
+		let mockBwiki: typeof fetch | undefined;
 		const respond = (item: object, request: number) =>
 			new Response(
 				[
@@ -917,10 +919,13 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
 				const request = new Request(input, init);
 				if (request.url !== "https://model.invalid/responses") {
+					const url = new URL(request.url);
+					if (`${url.origin}${url.pathname}` === bwikiApi) {
+						assert.ok(mockBwiki, "未获准的测试不得发送 BWIKI 请求");
+						return mockBwiki(input, init);
+					}
 					assert.ok(
-						[storage.chroma.origin, storage.ollama.origin].includes(
-							new URL(request.url).origin,
-						),
+						[storage.chroma.origin, storage.ollama.origin].includes(url.origin),
 					);
 					return originalFetch(request);
 				}
@@ -1055,6 +1060,9 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						TEYVAT_MODEL_BASE_URL: "https://model.invalid",
 						TEYVAT_MODEL_ID: "deepseek-flash",
 						TEYVAT_MODEL_API_KEY_FILE: secret,
+						...(sourcePolicyForCli
+							? { TEYVAT_SOURCE_POLICY_FILE: sourcePolicyForCli }
+							: {}),
 						TEYVAT_TOOL_CALLS: String(toolLimit),
 						TEYVAT_MODEL_CALLS: String(modelLimit),
 						TEYVAT_CURRENT_GAME_VERSION: currentVersion,
@@ -1568,7 +1576,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		type Readback = {
 			status: string;
 			evidenceId: string;
-			body: string;
+			excerpts: { excerptId: string; text: string }[];
 			sourceUrl: string;
 			documentVersionId: string;
 			conditions: string[];
@@ -1611,8 +1619,9 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 					assert.equal(read.status, "complete");
 					assert.equal(read.documentVersionId, expected.versionId);
 					assert.equal(read.sourceUrl, expected.sourceUrl);
+					assert.ok(!Object.hasOwn(read, "body"));
 					assert.equal(
-						read.body,
+						read.excerpts.map(({ text }) => text).join("\n"),
 						expected.body.split("\n").slice(1).join("\n"),
 					);
 					reads.push(read);
@@ -1664,7 +1673,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			return id;
 		};
 		await t.test(
-			"V2-P05 · 补查后只给配队思路，重检引用及历史复用",
+			"V2-P05 · 同一正式入口完成补查、重检引用及历史复用",
 			async () => {
 				const target = "行秋";
 				const page = `${target}/${randomUUID()}/攻略`;
@@ -1680,27 +1689,26 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 					quote,
 				].join("\n");
 				const trace: string[] = [];
-				const pull = webSupplement({
-					...options,
-					source: new BwikiSource(async (input, init) => {
-						const params = wikiRequest(input, init);
-						if (params.get("action") === "opensearch") {
-							assert.equal(params.get("search"), target);
-							trace.push("search");
-							return Response.json([target, [page], [], [pageUrl]]);
-						}
-						const inspected = params.has("page");
-						trace.push(inspected ? "inspect" : "read");
-						return fakeWikiParse(page, wiki, inspected);
-					}),
-				});
+				const policyPath = join(temp, "source_policy.json");
+				await writeFile(policyPath, JSON.stringify([permit]), { mode: 0o600 });
+				sourcePolicyForCli = policyPath;
+				mockBwiki = async (input, init) => {
+					const params = wikiRequest(input, init);
+					if (params.get("action") === "opensearch") {
+						assert.equal(params.get("search"), target);
+						trace.push("search");
+						return Response.json([target, [page], [], [pageUrl]]);
+					}
+					const inspected = params.has("page");
+					trace.push(inspected ? "inspect" : "read");
+					return fakeWikiParse(page, wiki, inspected);
+				};
 				scripted = (n, value) => {
 					const result = value as
 						| {
 								status: string;
 								candidates?: { candidateId: string; preview: string }[];
-								evidenceId?: string;
-								body?: string;
+								excerpts?: Readback["excerpts"];
 								applicability?: string;
 						  }
 						| undefined;
@@ -1723,7 +1731,9 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 					}
 					assert.equal(result.status, "complete");
 					assert.equal(result.applicability, "unknown");
-					assert.ok(result.body?.includes(quote));
+					assert.ok(!Object.hasOwn(result, "body"));
+					const chosen = result.excerpts?.find(({ text }) => text === quote);
+					assert.ok(chosen);
 					return {
 						type: "message",
 						id: `msg_${n}`,
@@ -1738,8 +1748,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 										{
 											kind: "teammate",
 											text: summary,
-											evidenceId: result.evidenceId,
-											excerpt: quote,
+											excerptId: chosen.excerptId,
 										},
 									],
 								}),
@@ -1749,14 +1758,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				};
 				const warning = /该攻略版本未知，请注意时效性/u;
 				const run = () =>
-					playCli(
-						[
-							[/命令：/u, "/new"],
-							[/已创建会话/u, `${target}最新通用配队`],
-							[warning, "/exit"],
-						],
-						pull,
-					);
+					playCli([
+						[/命令：/u, "/new"],
+						[/已创建会话/u, `${target}最新通用配队`],
+						[warning, "/exit"],
+					]);
 				const labeled = (transcript: string) => {
 					assert.match(transcript, /配队思路：\n队友选择：辅助位可考虑香菱/u);
 					assert.equal(transcript.split(quote).length - 1, 1);
@@ -1780,14 +1786,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						[requests, trace],
 						[3, ["search", "inspect", "read"]],
 					);
-					const history = await playCli(
-						[
-							[/命令：/u, `/open ${sessionFrom(first)}`],
-							[/已打开会话/u, "/history"],
-							[warning, "/exit"],
-						],
-						pull,
-					);
+					const history = await playCli([
+						[/命令：/u, `/open ${sessionFrom(first)}`],
+						[/已打开会话/u, "/history"],
+						[warning, "/exit"],
+					]);
 					labeled(history);
 					assert.equal(requests, 0);
 					const rows = await pool.query(
@@ -1800,6 +1803,8 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 					]);
 				} finally {
 					scripted = undefined;
+					mockBwiki = undefined;
+					sourcePolicyForCli = undefined;
 				}
 			},
 		);
@@ -2083,8 +2088,10 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							kind: "conflict",
 							sides: reads.map((read, index) => {
 								assert.deepEqual(read.conditions, [prerequisite]);
+								const excerpt = read.excerpts[0];
+								assert.ok(excerpt);
 								return {
-									conclusion: read.body,
+									conclusion: excerpt.text,
 									conditions: read.conditions,
 									evidenceIds: [
 										useStale && index === 1 ? staleEvidence : read.evidenceId,

@@ -42,9 +42,19 @@ export const maxConfiguredContextTokens = 128_000;
 export const maxConfiguredOutputTokens = 16_384;
 
 export async function readWebConfig(env: NodeJS.ProcessEnv) {
-	const path = env.TEYVAT_SOURCE_POLICY_FILE;
-	if (!path) return undefined;
-	const permits: unknown = JSON.parse(await readFile(path, "utf8"));
+	const specifiedPath = env.TEYVAT_SOURCE_POLICY_FILE;
+	const path = specifiedPath ?? "/run/secrets/source_policy.json";
+	let permits: unknown;
+	try {
+		permits = JSON.parse(await readFile(path, "utf8"));
+	} catch (error) {
+		if (
+			specifiedPath === undefined &&
+			(error as NodeJS.ErrnoException).code === "ENOENT"
+		)
+			return undefined;
+		throw new Error("WEB_SOURCE_UNAVAILABLE");
+	}
 	if (
 		!Array.isArray(permits) ||
 		permits.length > 16 ||

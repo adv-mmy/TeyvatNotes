@@ -17,6 +17,15 @@ export interface GuideCitation {
 	readonly location: string;
 	readonly excerpt: string;
 }
+export const maxGuideExcerptCharacters = 360;
+
+/** 正文偏移为 JavaScript 字符串的半开区间，片段编号只在本轮可用。 */
+export interface GuideExcerpt {
+	readonly excerptId: string;
+	readonly start: number;
+	readonly end: number;
+}
+
 export interface GuideEvidence {
 	readonly evidenceId: string;
 	readonly turnId: string;
@@ -32,6 +41,7 @@ export interface GuideEvidence {
 	readonly requiredEquipmentIds: readonly string[];
 	readonly conditions: readonly string[];
 	readonly citation: GuideCitation;
+	readonly excerpts: readonly GuideExcerpt[];
 }
 
 const supplementGaps = [
@@ -73,7 +83,11 @@ export type GuideConditionDetail =
 	| "insufficient_evidence:evidence_not_used"
 	| "conflict:premise_not_matched_exactly";
 
-export type GuideValidationDetail = GuideStructureDetail | GuideConditionDetail;
+export type GuideValidationDetail =
+	| GuideStructureDetail
+	| GuideConditionDetail
+	| "citation:excerpt_not_authorized";
+export type GuideValidationPath = `$.observations[${number}].excerptId`;
 
 export type GuideValidation =
 	| {
@@ -99,11 +113,18 @@ export type GuideValidation =
 	| {
 			readonly status: "failed";
 			readonly code: "INVALID_CITATION";
+			readonly validationDetail?: "citation:excerpt_not_authorized";
+			readonly validationPath?: GuideValidationPath;
 	  };
 
-const invalidCitation = (): GuideValidation => ({
+const invalidCitation = (
+	validationPath?: GuideValidationPath,
+): GuideValidation => ({
 	status: "failed",
 	code: "INVALID_CITATION",
+	...(validationPath
+		? { validationDetail: "citation:excerpt_not_authorized", validationPath }
+		: {}),
 });
 const condition = (
 	validationDetail: GuideConditionDetail,
@@ -247,14 +268,6 @@ const observationLabels = {
 	restriction: "条件提示",
 } as const;
 
-function validExcerpt(value: unknown): value is string {
-	return (
-		text(value) &&
-		value.length <= 360 &&
-		!/\p{Cc}/u.test(value.replace(/[\n\t]/gu, ""))
-	);
-}
-
 function validObservation(value: unknown): value is string {
 	return (
 		text(value) &&
@@ -275,15 +288,22 @@ function prepareObservations(
 	| { error: GuideValidation } {
 	const output: string[] = [];
 	const citations = new Map<string, GuideCitation[]>();
+	const excerpts = new Map<
+		string,
+		{ evidenceId: string; span: GuideExcerpt } | null
+	>();
+	if (items.length) {
+		for (const [evidenceId, record] of view.evidence)
+			for (const span of record.excerpts)
+				excerpts.set(
+					span.excerptId,
+					excerpts.has(span.excerptId) ? null : { evidenceId, span },
+				);
+	}
 	for (const [i, item] of items.entries()) {
 		const at = `$.observations[${i}]`;
 		if (!object(item)) return { error: structure(`invalid_field:${at}`) };
-		const shape = fieldShape(item, at, [
-			"kind",
-			"text",
-			"evidenceId",
-			"excerpt",
-		]);
+		const shape = fieldShape(item, at, ["kind", "text", "excerptId"]);
 		if (shape) return { error: structure(shape) };
 		if (
 			item.kind !== "teammate" &&
@@ -293,16 +313,29 @@ function prepareObservations(
 			return { error: structure(`invalid_field:${at}.kind`) };
 		if (!validObservation(item.text))
 			return { error: structure(`invalid_field:${at}.text`) };
-		if (!validExcerpt(item.excerpt))
-			return { error: structure(`invalid_field:${at}.excerpt`) };
-		const source = refs([item.evidenceId], scope, turnId, view)?.[0];
-		if (!source?.citation.excerpt.includes(item.excerpt))
-			return { error: invalidCitation() };
+		if (!text(item.excerptId))
+			return { error: structure(`invalid_field:${at}.excerptId`) };
+		const entry = excerpts.get(item.excerptId);
+		const source = entry && refs([entry.evidenceId], scope, turnId, view)?.[0];
+		const body = source?.citation.excerpt;
+		const span = entry?.span;
+		if (
+			!source ||
+			body === undefined ||
+			!span ||
+			!Number.isInteger(span.start) ||
+			!Number.isInteger(span.end) ||
+			span.start < 0 ||
+			span.end <= span.start ||
+			span.end > body.length
+		)
+			return { error: invalidCitation(`$.observations[${i}].excerptId`) };
+		const excerpt = body.slice(span.start, span.end);
 		const line = `${observationLabels[item.kind]}：${item.text.trim()}`;
 		if (!output.includes(line)) output.push(line);
 		const entries = citations.get(source.evidenceId) ?? [];
-		if (!entries.some((cite) => cite.excerpt === item.excerpt))
-			entries.push({ ...source.citation, excerpt: item.excerpt });
+		if (!entries.some((cite) => cite.excerpt === excerpt))
+			entries.push({ ...source.citation, excerpt });
 		citations.set(source.evidenceId, entries);
 	}
 	return { output, citations };

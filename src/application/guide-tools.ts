@@ -2,8 +2,12 @@ import { randomUUID } from "node:crypto";
 import type {
 	GuideEvidence,
 	GuideEvidenceView,
+	GuideExcerpt,
 } from "../domain/answer-validation.js";
-import { isSupplementGap } from "../domain/answer-validation.js";
+import {
+	isSupplementGap,
+	maxGuideExcerptCharacters,
+} from "../domain/answer-validation.js";
 import type { FrozenQueryScope } from "../domain/query-scope.js";
 import {
 	type JsonObject,
@@ -275,6 +279,51 @@ function candidateWasDelivered(
 	);
 }
 
+/** 按结构和句界切分；偏移始终指向完整回读的同一份字符串。 */
+function guideExcerpts(body: string, evidenceId: string): GuideExcerpt[] {
+	const excerpts: GuideExcerpt[] = [];
+	const sentenceEnd = /[。！？；.!?;]/u;
+	function append(from: number, to: number) {
+		const raw = body.slice(from, to);
+		const trimmed = raw.trimStart();
+		const characters = [...trimmed.trimEnd()];
+		let offset = from + raw.length - trimmed.length;
+		for (let cursor = 0; cursor < characters.length; ) {
+			let end = Math.min(cursor + maxGuideExcerptCharacters, characters.length);
+			if (end < characters.length)
+				for (let at = end - 1; at >= cursor; at--) {
+					if (!sentenceEnd.test(characters[at] ?? "")) continue;
+					end = at + 1;
+					break;
+				}
+			const part = characters.slice(cursor, end).join("");
+			const next = offset + part.length;
+			if (part.trim()) {
+				excerpts.push({
+					excerptId: `x-${evidenceId}-${excerpts.length + 1}`,
+					start: offset,
+					end: next,
+				});
+			}
+			offset = next;
+			cursor = end;
+		}
+	}
+
+	let paragraph = 0;
+	for (const match of body.matchAll(/([^\r\n]*)(?:\r\n?|\n|$)/gu)) {
+		const line = match[1] ?? "";
+		const blank = !line.trim();
+		const structural = /^[ \t]*(?:[-+]\s|[*#;:|]|\d+[.)]\s)/u.test(line);
+		if (!blank && !structural) continue;
+		append(paragraph, match.index);
+		if (structural) append(match.index, match.index + line.length);
+		paragraph = match.index + match[0].length;
+	}
+	append(paragraph, body.length);
+	return excerpts;
+}
+
 export function createGuideTools(
 	retrieval: GuideRetrieval,
 	supplement?: WebSupplement,
@@ -384,7 +433,7 @@ export function createGuideTools(
 			{
 				definition: schemaOf(
 					"read_guide",
-					"读取上一批已回送候选的完整正文；仅引用工具返回的 evidenceId。",
+					"读取上一批已回送候选的完整正文；按用途使用返回的 evidenceId 或 excerpts 中的 excerptId。",
 					"candidateId",
 				),
 				denyCode: "CANDIDATE_NOT_AUTHORIZED",
@@ -413,6 +462,7 @@ export function createGuideTools(
 							? chunk.applicability
 							: undefined;
 					const evidenceId = randomUUID();
+					const excerpts = guideExcerpts(body, evidenceId);
 					const citation = {
 						source: chunk.title,
 						url: chunk.sourceUrl,
@@ -438,6 +488,7 @@ export function createGuideTools(
 						fromWeb: chunk.fromWeb === true,
 						applicabilityUnknown: chunk.applicability.kind === "unknown",
 						citation,
+						excerpts,
 						conditions: applicability?.conditions ?? [],
 						requiredCharacterIds: applicability?.requiredCharacterIds ?? [],
 						requiredEquipmentIds: applicability?.requiredEquipmentIds ?? [],
@@ -446,7 +497,10 @@ export function createGuideTools(
 						content: {
 							status: "complete",
 							evidenceId,
-							body,
+							excerpts: excerpts.map(({ excerptId, start, end }) => ({
+								excerptId,
+								text: body.slice(start, end),
+							})),
 							sourceUrl: chunk.sourceUrl,
 							documentVersionId: chunk.documentVersionId,
 							location: chunk.location,
@@ -559,12 +613,12 @@ export function createGuideTools(
 				"先检索再在下一批完整回读。摘要不是证据。所有 evidenceIds 都是非空字符串数组，使用 read_guide 返回的真实 evidenceId，不填候选 ID、链接或示例占位符。",
 				"先单独调用 search_guides。它若返回 miss 且 nextTool 是 search_web_guides，普通配队问题默认在下一批单独调用 search_web_guides，参数固定 {}，不要加字段，也不需要用户明确提出联网。没有这一提示、已命中或回读失败时不要联网。indexed 后使用 search_guides 重检，然后回读。版本未知不意味着适用当前或指定版本，时效提示由应用添加。",
 				"每项建议只能包含 team 和 evidenceIds。team 恰有四个不同角色且包含目标角色；每个槽位只写 characterId 和 equipmentIds，后者是实际选用的装备名数组，不选装备时必须填 []。一槽至多一把武器；不能把备选写在同一槽位。角色和装备使用标准名称。证据前提由应用提取，不重复写入 JSON。",
-				"用 observations 提炼可确认的队友选择、位置分工或限制。text 用自己的话直接回答建议及理由，不要只复述摘录，不要写链接、完整名单或声称用户已经持有／当前可用。excerpt 必须逐字摘录同条 evidenceId 的连续原文，仅用于引用。只给思路也是完整答复。",
+				"用 observations 提炼可确认的队友选择、位置分工或限制。text 用自己的话直接回答建议及理由，不要只复述摘录，不要写链接、完整名单或声称用户已经持有／当前可用。每条只选 read_guide 返回的 excerpts 中支持该条的 excerptId，不填 evidenceId、摘录或链接，也不自行编造编号。只给思路也是完整答复。",
 				"四人队是可选建议，可综合本轮回读，不必寻找或证实原文有同一队，不要把模型组合说成原文推荐。明确缺少或排除的方案只作参考；已知和未知前提由应用标注。没有可引用资料才用 insufficient_evidence。",
 				"以下示例只用于说明形状，例文与占位符不能照抄进实际答复。",
 				'有建议：{"recommendations":[{"team":[{"characterId":"<目标角色>","equipmentIds":[]},{"characterId":"<队友一>","equipmentIds":[]},{"characterId":"<队友二>","equipmentIds":[]},{"characterId":"<队友三>","equipmentIds":[]}],"evidenceIds":["<本轮证据ID>"]}],"gaps":[]}',
 				'资料不足：{"recommendations":[],"gaps":[{"kind":"insufficient_evidence","text":"无法取得适用的完整证据"}]}',
-				'只有思路：{"observations":[{"kind":"teammate","text":"<根据原文用自然语言说明队友选择和原因>","evidenceId":"<本轮证据ID>","excerpt":"<回读原文的连续摘录>"}],"recommendations":[],"gaps":[]}。也可以在同一个回答里同时填写 observations 和 recommendations。observations 每项 kind 只能是 teammate、role 或 restriction。',
+				'只有思路：{"observations":[{"kind":"teammate","text":"<根据原文用自然语言说明队友选择和原因>","excerptId":"<本轮回读返回的原文片段编号>"}],"recommendations":[],"gaps":[]}。也可以在同一个回答里同时填写 observations 和 recommendations。observations 每项 kind 只能是 teammate、role 或 restriction。',
 				'回读后仍有冲突：{"recommendations":[],"gaps":[{"kind":"conflict","sides":[{"conclusion":"观点一","conditions":[],"evidenceIds":["<本轮甲方证据ID>"]},{"conclusion":"观点二","conditions":[],"evidenceIds":["<本轮乙方证据ID>"]}]}]}',
 			].join("\n"),
 			close() {

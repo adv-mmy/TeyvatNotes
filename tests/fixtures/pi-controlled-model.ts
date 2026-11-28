@@ -166,6 +166,12 @@ const tools: readonly TurnTool[] = Object.entries({
 	},
 }));
 
+const excerptScenario =
+	scenario === "guides-observations" ||
+	scenario === "guides-observation-forged";
+const chosenExcerpt = "角色甲的队友备选：队友丙。";
+const longExcerpt = `${"甲".repeat(359)}😀`;
+
 function guideData(): GuideData {
 	const chunk: GuideChunkMetadata = {
 		id: "chunk-21",
@@ -173,7 +179,7 @@ function guideData(): GuideData {
 		entityId: "角色甲",
 		guideKind: "team",
 		gameVersions: { from: "7.1", through: "7.1" },
-		fromWeb: scenario === "guides-observations",
+		fromWeb: excerptScenario,
 		applicability:
 			scenario === "guides-constraints"
 				? {
@@ -222,9 +228,21 @@ function guideData(): GuideData {
 			requiredCharacterIds: ["队友丙"],
 			requiredEquipmentIds: ["试验弓"],
 		},
+		...(excerptScenario
+			? {
+					documentVersionId: chunk.documentVersionId,
+					title: chunk.title,
+					sourceUrl: chunk.sourceUrl,
+					applicability: chunk.applicability,
+					location: "第 8 段",
+					preview: "同一攻略的第二个分块",
+				}
+			: {}),
 	};
 	const inScope =
-		scenario === "guides-constraints" || scenario === "guides-condition-unread"
+		scenario === "guides-constraints" ||
+		scenario === "guides-condition-unread" ||
+		excerptScenario
 			? [chunk, alternate]
 			: [chunk];
 	const rows = [...wrong, ...inScope];
@@ -250,13 +268,15 @@ function guideData(): GuideData {
 				assert.ok(current);
 				return {
 					chunk: current,
-					body:
-						scenario === "guides-constraints"
+					body: excerptScenario
+						? id === alternate.id
+							? `${chosenExcerpt}\n\n辅助位置参考：队友丁。\n\n${longExcerpt}乙。\n* 列表原文\n| 表格原文 |`
+							: "只作测试的第一个证据窗口。"
+						: scenario === "guides-constraints"
 							? id === alternate.id
 								? "角色甲、队友丙、队友丁、队友戊组队，队友丙携带试验弓。"
 								: "角色甲、角色乙、队友丁、队友戊组队。"
-							: scenario === "guides-observations" ||
-									scenario === "guides-condition-unread"
+							: scenario === "guides-condition-unread"
 								? "角色甲的队友备选：队友丙。\n辅助位置参考：队友丁。"
 								: scenario === "guides-equipment"
 									? "阵容：角色甲＋队友丙＋队友丁＋队友戊；为队友丙装备试验弓。"
@@ -355,7 +375,7 @@ const runGuideModel: StreamFn = (model, context) => {
 			],
 		});
 	if (retrieved.status === "miss") return gap();
-	if (scenario === "guides-condition-unread")
+	if (scenario === "guides-condition-unread" || excerptScenario)
 		assert.equal(retrieved.candidates.length, 2);
 	else if (scenario !== "guides-constraints")
 		assert.equal(retrieved.candidates.length, 1);
@@ -401,27 +421,71 @@ const runGuideModel: StreamFn = (model, context) => {
 		});
 	if (scenario === "guides-forged") return rec(id);
 	const evidence = resultFor("body_2");
-	if (!evidence)
-		return controlledResponse(model, [
-			call("body_2", "read_guide", { candidateId: id }),
-		]);
-	if (evidence.status === "incomplete") return gap();
-	if (scenario === "guides-condition-unread") return gap();
-	if (scenario === "guides-observations")
+	if (excerptScenario) {
+		const second = candidates.find(
+			(item: { preview: string }) => item.preview === "同一攻略的第二个分块",
+		);
+		const first = candidates.find(
+			(item: { candidateId: string }) =>
+				item.candidateId !== second?.candidateId,
+		);
+		assert.ok(first && second);
+		const next = resultFor("body_3");
+		if (!evidence || !next)
+			return controlledResponse(model, [
+				call("body_2", "read_guide", { candidateId: first.candidateId }),
+				call("body_3", "read_guide", { candidateId: second.candidateId }),
+			]);
+		assert.equal(evidence.status, "complete");
+		assert.equal(next.status, "complete");
+		assert.ok(!Object.hasOwn(evidence, "body") && !Object.hasOwn(next, "body"));
+		assert.equal(evidence.documentVersionId, next.documentVersionId);
+		assert.notEqual(evidence.location, next.location);
+		assert.deepEqual(
+			next.excerpts.map(({ text }: { text: string }) => text),
+			[
+				chosenExcerpt,
+				"辅助位置参考：队友丁。",
+				longExcerpt,
+				"乙。",
+				"* 列表原文",
+				"| 表格原文 |",
+			],
+		);
+		const chosen = next.excerpts[0];
+		assert.ok(
+			chosen &&
+				!evidence.excerpts.some(
+					({ excerptId }: { excerptId: string }) =>
+						excerptId === chosen.excerptId,
+				),
+		);
 		return answer({
 			recommendations: [
-				{ team: team("队友丙"), evidenceIds: [evidence.evidenceId] },
+				{ team: team("队友丙"), evidenceIds: [next.evidenceId] },
 			],
 			observations: [
 				{
 					kind: "teammate",
 					text: "可以从队友丙入手，再给辅助位留出调整空间。",
-					evidenceId: evidence.evidenceId,
-					excerpt: "角色甲的队友备选：队友丙。",
+					excerptId:
+						scenario === "guides-observation-forged"
+							? "x-forged-test-id"
+							: chosen.excerptId,
 				},
 			],
 			gaps: [],
 		});
+	}
+	if (!evidence)
+		return controlledResponse(model, [
+			call("body_2", "read_guide", { candidateId: id }),
+		]);
+	if (evidence.status === "incomplete") {
+		assert.deepEqual(evidence, { status: "incomplete" });
+		return gap();
+	}
+	if (scenario === "guides-condition-unread") return gap();
 	const formatProbe = {
 		text: "不能进入普通诊断的模拟正文",
 		evidenceIds: [evidence.evidenceId],

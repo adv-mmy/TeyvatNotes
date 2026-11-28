@@ -153,7 +153,7 @@ for (const [scenario, detail] of [
 }
 
 test(
-	"真实 CLI＋Pi：先给带引用的配队思路，再给模型整理阵容，历史可恢复",
+	"真实 CLI＋Pi：按编号定位同篇攻略的第二个回读窗口，历史可恢复",
 	linux,
 	async (t) => {
 		const cli = await open(t, "guides-observations");
@@ -173,11 +173,39 @@ test(
 		const [trace, ...extra] = cli.diagnostics();
 		assert.equal(extra.length, 0);
 		assert.equal(trace.status, "answered");
-		assert.deepEqual([trace.modelCalls, trace.toolCalls], [3, 2]);
+		assert.deepEqual([trace.modelCalls, trace.toolCalls], [3, 3]);
 		assert.equal(cli.output().match(/引用：隔离攻略 G-01/gu)?.length, 2);
+		assert.equal(
+			cli.output().match(/引用：隔离攻略 G-01｜7.1｜第 8 段/gu)?.length,
+			2,
+		);
 		assert.equal(cli.output().match(/角色甲的队友备选：队友丙。/gu)?.length, 2);
-		assert.doesNotMatch(cli.output(), /资料不足：|INVALID_ANSWER_CONDITIONS/u);
+		assert.doesNotMatch(
+			cli.output(),
+			/资料不足：|INVALID_ANSWER_CONDITIONS|只作测试的第一个证据窗口/u,
+		);
 		assert.doesNotMatch(cli.errors(), /队友丙/u);
+	},
+);
+
+test(
+	"真实 CLI＋Pi：伪造片段拒绝，诊断只暴露规则和字段路径",
+	linux,
+	async (t) => {
+		const cli = await open(t, "guides-observation-forged");
+		cli.send("小甲 7.1 通用配队");
+		await cli.until(/INVALID_CITATION：回答中有无效或未经本轮授权的引用/u);
+		await cli.close();
+		const [trace, ...extra] = cli.diagnostics();
+		assert.equal(extra.length, 0);
+		assert.equal(trace.validationDetail, "citation:excerpt_not_authorized");
+		assert.equal(trace.validationPath, "$.observations[0].excerptId");
+		assert.deepEqual([trace.modelCalls, trace.toolCalls], [3, 3]);
+		assert.doesNotMatch(
+			cli.output(),
+			/配队思路：|引用：|x-forged-test-id|validationPath/u,
+		);
+		assert.doesNotMatch(cli.errors(), /x-forged-test-id|队友丙/u);
 	},
 );
 

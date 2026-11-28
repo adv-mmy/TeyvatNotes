@@ -243,7 +243,7 @@ V2 在 `RunTurn` 中用注入的工厂为每个可执行攻略轮次创建一个
 | 工具 | 输入 | 返回与授权 |
 | --- | --- | --- |
 | `search_guides` | `query`：非空检索词 | `hit` 返回当前已授权版本层的 `candidateId`、标题、适用版本区间或 `null` 及简要摘录；仅所有允许查询的版本层均正常查完且无合格候选才返回 `miss`。未查完返回 `RETRIEVAL_INCOMPLETE`；依赖故障返回 `RETRIEVAL_UNAVAILABLE`。均不授予引用资格。 |
-| `read_guide` | `candidateId`：本轮已回送的候选 | 应用核对候选、范围和版本，再从 PostgreSQL 读取原文窗口。成功完整回读才登记 `evidenceId`，并返回原文、位置和已有元数据。 |
+| `read_guide` | `candidateId`：本轮已回送的候选 | 应用核对候选、范围和版本，再从 PostgreSQL 读取原文窗口。成功完整回读才生成窗口 `evidenceId` 和有序引用片段 `excerpts: [{ excerptId, text }]`，附原文位置及已有元数据。 |
 | `search_web_guides` | 无参数（仅 `{}`） | 仅在 §3.1 的「可补查」状态且通过批次校验后执行；出站只用冻结范围的标准角色。区分 `indexed`、`no_results`、`source_restricted`、`no_readable_body`、`metadata_incomplete` 和故障；`indexed` 不授予引用资格。 |
 
 统一工具结果包含原 `toolCallId`、`status` 和对应的数据或错误码。应用拒绝未知工具、重复 ID、无效参数、旧轮次候选及越界调用。模型不能提交任意网页地址、向量或存储过滤表达式作为工具参数。
@@ -276,7 +276,11 @@ V2 在 `RunTurn` 中用注入的工厂为每个可执行攻略轮次创建一个
 | `evidenceIds` | 非空，只能引用本轮成功完整回读的证据。应用验证轮次、冻结范围、已授权版本层及引用定位；不检查四名角色是否在原文中同时出现，也不依赖原文识别整队或实际建议装备。 |
 | 证据中的适用前提 | 来自回读证据的 `conditions`、`requiredCharacterIds`、`requiredEquipmentIds`，由程序读取并校验，不再要求模型把证据前提复述为 `requiredEntityIds`。它们与 `team` 中实际使用的实体分别检查；模型不能靠省略显式前提绕过校验。 |
 
-**配队思路（FR-006、V2-P05）。** `observations` 每项含 `kind`（`teammate`、`role` 或 `restriction`）、`text`（模型用自己的话整理的一条建议或说明）、`evidenceId`、`excerpt`（支持该条的连续原文）。应用校验证据归属及摘录确实存在，正文只展示整理后的内容，原文由引用区展示；程序不把 `text` 当原文，不允许用它自行填链接、宣称玩家持有或标为可用。只有思路、没有整队时也按 `answered` 提交和恢复。
+**配队思路（FR-006、V2-P05）。** `observations` 每项只含 `kind`（`teammate`、`role` 或 `restriction`）、`text`（模型用自己的话整理的一条建议或说明）和 `excerptId`（支持该条的原文片段编号）。模型只选编号，不填窗口 `evidenceId`、摘录或链接，也不在解释里宣称玩家持有或当前可用。引用区由程序生成。只有思路、没有整队时也按 `answered` 提交和恢复。整队建议和冲突条目仍使用各自的 `evidenceIds` 协议。
+
+**引用片段的生成与解析。** 在现有 `src/application/guide-tools.ts` 中，完整合法回读后由程序按原文顺序划分非空的连续片段，每段最多 360 个 Unicode 字符；优先用段落、列表项或表格行的边界，过长时再按句子和长度拆分。不改写、不拼接不连续的文字，也不把搜索摘要登记为片段。同一轮的编号唯一并绑定多轮间不可复用的命名空间；登记时保留父窗口、正文偏移、冻结范围、文档版本与原文位置。模型侧只收到带编号的片段文本，不再额外复制一份 `body`；应用侧保留完整回读窗口供现有证据检查。工具回送仍受 §3.1 和 §7 约束：片段只有随所属批次成功回送后才可引用，回读截断、未回送、取消或超时的窗口不授予片段引用权限。
+
+`src/domain/answer-validation.ts` 只读本轮证据登记簿。收到 `excerptId` 后反查其唯一父窗口和原文偏移，重新核对轮次、冻结范围、版本和完整回读资格，再从登记内容生成引用链接、位置、版本及逐字摘录；无法可靠细化行号时沿用实际窗口位置。未知、旧轮或其他未授权片段统一拒绝为 `INVALID_CITATION`，不猜测、不替换、不追加模型请求；普通诊断仅记录固定细分原因和字段路径，例如 `citation:excerpt_not_authorized` 与 `$.observations[1].excerptId`，不记摘录或模型正文。旧会话仍按 §2.3 的引用快照展示，不重新校验一次性编号，也不赋予后续轮次引用权。选对编号只证明引用位置准确，不代替对摘要是否得到原文支持的质量验收。
 
 推荐区只由程序根据通过结构检查的槽位、装备和证据前提渲染。术语只认标准名或已审核别名；角色、装备类别不符或无法唯一解析时拒绝。模型生成的链接、搜索摘要、历史摘要和 Redis 内容都不能作为引用。结构或引用非法时拒绝，不自动重发。
 
@@ -404,20 +408,17 @@ Redis 仅在 V3 接入，不是持久化历史或问答授权的来源。键由�
 
 | Compose 服务 | 引入阶段 | 运行方式和挂载 |
 | --- | --- | --- |
-| `teyvatnotes` | V1 | 构建 CLI 镜像；V2 起用作数据库迁移与攻略导入、发布的维护入口。导入目录只读挂载到 `/imports`，不挂载回答模型密钥。 |
-| `teyvatnotes-offline` | V1 | 只查看本地会话历史，不接入网络，不挂载凭据。 |
-| `teyvatnotes-ask` | V2 | 本地攻略问答入口，挂载数据库和回答模型密钥；不挂载联网来源许可。 |
-| `teyvatnotes-web` | V2 | 联网验收的独立入口，额外挂载只读 BWIKI 来源许可配置；不使用搜索密钥。真实补查须满足 §5.1 及 AT-10 放行条件。 |
+| `teyvatnotes` | V1 | 唯一应用服务。用同一交互入口查看本地历史；V2 问答先查库，按 §5.1 和 AT-10 受控补查。数据库迁移、导入及发布走同一命令的显式子命令。 |
 | `postgres` | V2 | 后台服务；`pg_data` 保存正文、元数据和索引检查点。 |
 | `chromadb` | V2 | 后台服务；`chroma_data` 保存向量集合和索引。 |
 | `ollama` | V2 | 后台服务；`ollama_models` 保存已下载的 Embedding 模型。 |
 | `redis` | V3 | 后台服务；缓存可重建，默认不配置持久卷。CLI 不以 Redis 就绪作为启动条件。 |
 
-同一 Compose 项目的 CLI 入口复用同一镜像和会话卷 `session_data`（挂载到 `/data/sessions`）。攻略依赖通过内部 `backend` 网络和 `postgres`、`chromadb`、`ollama` 等服务名寻址，不以 CLI 容器里的 `localhost` 访问；默认不映射服务端口。问答入口经 `model_api` 网络通过 HTTPS 访问回答模型；仅联网入口获准访问 BWIKI API，按 §5.1 固定目标。Ollama 通过单独的 `model_download` 网络下载模型。数据库与回答模型凭据使用 Compose `secrets`，经 `/run/secrets/` 读取；秘密文件不进仓库或镜像，构建和日志不输出其内容。[Compose 网络](https://docs.docker.com/compose/how-tos/networking/) · [Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/)
+唯一的 CLI 服务挂载会话卷 `session_data`（`/data/sessions`）和只读导入目录（`/imports`）。攻略依赖通过内部 `backend` 网络和服务名寻址；默认不映射服务端口。CLI 经出站网络以 HTTPS 调用回答模型和 §5.1 许可的 BWIKI API；Ollama 通过独立的 `model_download` 网络下载模型。CLI 只读挂载本机专用配置目录（默认 `./secrets`，可用 `TEYVAT_CONFIG_DIR` 指定），没有某项配置文件时仍可启动本地历史；维护命令不读取模型密钥。PostgreSQL 只接收该目录下的数据库密码文件。凭据不进仓库、镜像或日志。[Compose 网络](https://docs.docker.com/compose/how-tos/networking/) · [Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/)
 
 1. **构建与校验**：部署主机安装 Docker 和 `docker compose`。用 `docker compose config --quiet` 校验配置，再 `docker compose build teyvatnotes`。V1 完成后即可运行 CLI；无需先启动 V2/V3 服务。
 2. **启动与初始化**：V2 用 `docker compose up -d --wait postgres chromadb ollama` 启动核心依赖，各服务配置健康检查。首次启动后显式运行 `docker compose run --rm -T teyvatnotes db migrate` 初始化新版库；操作者用 `docker compose exec ollama ollama pull <模型标签>` 拉取配置中固定的模型。容器健康不代表数据库架构已更新或模型已安装，首次问答和导入前分别检查。V3 用 `docker compose up -d redis` 加入缓存。
-3. **日常使用**：攻略问答用 `docker compose run --rm teyvatnotes-ask`，离线历史用 `docker compose run --rm teyvatnotes-offline`；数据库迁移、攻略导入与发布使用 `teyvatnotes`。具体命令见 [README 快速启动](../README.md#快速启动)。缺核心依赖、数据库未初始化或模型缺失时，仅禁用相应操作并显示错误，不转入联网补查。[Compose `run`](https://docs.docker.com/reference/cli/docker/compose/run/) · [Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/)
+3. **日常使用**：用 `docker compose run --rm teyvatnotes`，输入自然语言提问；仅看历史用同一入口的 `/open` 和 `/history`，不启动依赖、不调用模型或联网来源。维护使用 `teyvatnotes db migrate`、`teyvatnotes guides import` 或 `teyvatnotes guides publish`。缺少必要配置或依赖时仅反馈涉及的操作；没有有效来源许可时不发外部补查请求。见 [README 快速启动](../README.md#快速启动)。[Compose `run`](https://docs.docker.com/reference/cli/docker/compose/run/) · [Compose `up`](https://docs.docker.com/reference/cli/docker/compose/up/)
 4. **停止、重建与升级**：标准停机使用 `docker compose down` 并保留命名卷。升级前备份会话和 PostgreSQL 数据，保留 ChromaDB 索引或记录重建方式；固定项目名和卷关联，重建后核对历史、索引与已下载模型。数据库结构升级显式执行，不在日常启动时自动迁移旧数据。不将删卷操作作为升级步骤。[Compose 数据卷](https://docs.docker.com/reference/compose-file/volumes/) · [Compose `down`](https://docs.docker.com/reference/cli/docker/compose/down/)
 
 ## 9. 设计验收
@@ -458,6 +459,7 @@ Redis 仅在 V3 接入，不是持久化历史或问答授权的来源。键由�
 | AT-10 · 来源失败不是无结果 | 模拟 HTTP 567 加 HTML、成功状态返回 HTML、API 错误、同源和跨源重定向、修订或章节与请求不对应；对照有效的空候选列表。 | 故障均返回 `WEB_SOURCE_UNAVAILABLE`，不跟随、不重试、不改用其他渠道，不写正文；仅有效空列表为 `no_results`。 |
 | AT-10／AT-03 · `V2-P03` 与预算 | 模拟 OpenSearch、Parse 目录与 Parse 章节并变换标题、修订号和章节 index。测试缺版本、无可读正文、角色或类型不能确认、明确版本声明冲突、索引未就绪，以及两次 Parse 之间和重检前预算耗尽。 | 第二次 Parse 使用实返修订与索引。未声明版本可按 `null` 发布，但不算指定版本命中；不符合 FR-005 最低证据或索引不可查时不发布。核对需求 §8.4 的请求轨迹和停止后零后续请求；只有按授权重检且完整回读才引用。 |
 | AT-10 · 候选顺序与本轮适用性 | 对照同角色、同版本但有库存冲突的候选及错角色、错版本。 | 库存冲突仍可入库并按授权重检；错范围仍不能用于本轮，不发送库存。 |
-| AT-05／AT-06／AT-10 · `V2-P05` 配队思路 | 模拟只有队友、位置、限制的正文；提交摘要、可选综合阵容；对照虚构摘录、跨轮引用及前提未知。 | 合格正文照常发布、重检、回读；思路可单独展示及恢复，不重复贴原文；综合阵容不需四人同段。伪造摘录和非法引用拒绝，未知前提只做提示且不能标为库存可用。 |
+| AT-05／AT-06／AT-10 · `V2-P05` 配队思路 | 模拟只有队友、位置、限制的正文；提交带片段编号的摘要、可选综合阵容；对照非法编号及前提未知。 | 合格正文照常发布、重检、回读；思路可单独展示及恢复，不重复贴原文；综合阵容不需四人同段。非法引用拒绝，未知前提只做提示且不能标为库存可用。 |
+| AT-06 · 片段编号与原文绑定 | 同轮完整回读同篇攻略的两个不同窗口，选择第二个窗口的片段编号。另测伪造、旧轮及未获授权编号，截断窗口，以及草稿擅自附加摘录字段。 | 应用直接用所选片段所属窗口生成正确的位置和逐字摘录，无需模型配对。截断结果不返回可引用编号，非法编号或额外摘录字段拒绝，不重读原文或重发模型。历史恢复原有引用快照。 |
 
 部署验收使用独立的 Compose 项目名（`docker compose -p <验收项目名>`），命名卷随项目隔离，不挂载正式或旧版数据卷。固定用例以[需求 §8.3](requirements.md#83-v2-固定回归样本与通过标准)为准；报告记录语料修订与哈希，区分模拟模型、模拟 BWIKI API、真实隔离存储与真实外部服务。付费模型和真实站点验收另行授权；来源许可及元数据放行条件见[需求 §8.5](requirements.md#85-待决项与建议)。具体 Embedding 标签与维度、分块上限、上下文阈值、Redis TTL 和终端范围留待隔离验收细化，不阻塞 V1。
