@@ -68,33 +68,49 @@ function safeReference(value: unknown): boolean {
 	}
 }
 
+function validCitations(citations: unknown, caution: unknown): boolean {
+	return (
+		Array.isArray(citations) &&
+		citations.length > 0 &&
+		citations.every(
+			(item: unknown) =>
+				object(item) &&
+				nonempty(item.source) &&
+				(item.version === null || nonempty(item.version)) &&
+				(item.url === undefined || safeReference(item.url)) &&
+				(item.documentVersionId === undefined ||
+					nonempty(item.documentVersionId)) &&
+				nonempty(item.location) &&
+				nonempty(item.excerpt),
+		) &&
+		(citations.some((item) => item.version === null)
+			? caution === true
+			: caution === undefined)
+	);
+}
+
 function validOutcome(value: unknown): value is TurnOutcome {
 	if (!object(value)) return false;
 	switch (value.status) {
 		case "answered":
 			return (
 				nonempty(value.text) &&
-				Array.isArray(value.citations) &&
-				value.citations.length > 0 &&
-				value.citations.every(
-					(item: unknown) =>
-						object(item) &&
-						nonempty(item.source) &&
-						nonempty(item.version) &&
-						(item.url === undefined || safeReference(item.url)) &&
-						(item.documentVersionId === undefined ||
-							nonempty(item.documentVersionId)) &&
-						nonempty(item.location) &&
-						nonempty(item.excerpt),
-				)
+				validCitations(value.citations, value.versionCaution)
 			);
 		case "needs_clarification":
-			return nonempty(value.text);
+			return (
+				nonempty(value.text) &&
+				(value.referencePrompt === undefined || value.referencePrompt === true)
+			);
 		case "insufficient_evidence":
 			return (
 				nonempty(value.text) &&
-				(value.supplementGap === undefined ||
-					isSupplementGap(value.supplementGap))
+				(value.citations === undefined
+					? value.versionCaution === undefined &&
+						(value.supplementGap === undefined ||
+							isSupplementGap(value.supplementGap))
+					: value.supplementGap === undefined &&
+						validCitations(value.citations, value.versionCaution))
 			);
 		case "failed":
 			return (
@@ -129,6 +145,12 @@ function validClarification(value: unknown): value is PendingClarification {
 		(value.state === "waiting" || value.state === "ready") &&
 		(value.scope === undefined || isScopeDraft(value.scope)) &&
 		(value.equipmentId === undefined || nonempty(value.equipmentId)) &&
+		(value.versionReference === undefined ||
+			((value.versionReference === "offer" ||
+				value.versionReference === "accepted") &&
+				isScopeDraft(value.scope) &&
+				!!value.scope.gameVersion &&
+				(value.versionReference !== "offer" || value.state === "waiting"))) &&
 		(value.fields === undefined ||
 			(Array.isArray(value.fields) &&
 				value.fields.every(

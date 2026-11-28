@@ -10,7 +10,7 @@ import { createResponsesRuntime } from "../adapters/pi/runtime.js";
 import { PiSessionStore } from "../adapters/pi/session-store.js";
 import { PostgreSqlGuideRepository } from "../adapters/postgres/guide-repository.js";
 import { migrate } from "../adapters/postgres/migrate.js";
-import { DeepSeekSource } from "../adapters/web/deepseek-source.js";
+import { BwikiSource } from "../adapters/web/bwiki-source.js";
 import { parseWebGuide } from "../adapters/web/metadata-parser.js";
 import { Clarification } from "../application/clarification.js";
 import {
@@ -126,7 +126,7 @@ export async function startCli(
 						});
 						if (!config) return "source_restricted";
 						return webSupplement({
-							source: new DeepSeekSource(config.key),
+							source: new BwikiSource(),
 							permits: config.permits,
 							terms: terminology,
 							parse: parseWebGuide,
@@ -157,7 +157,7 @@ export async function startCli(
 						if (env.TEYVAT_DIAGNOSTICS === "1")
 							process.stderr.write(`${JSON.stringify(info)}\n`);
 					},
-					new Clarification(terms),
+					new Clarification(terms, config.currentGameVersion),
 					terms,
 				),
 			};

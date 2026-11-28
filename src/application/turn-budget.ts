@@ -103,6 +103,17 @@ export class TurnBudget {
 	recordRejection(count = 1): void {
 		this.rejected += count;
 	}
+
+	get canStartSource(): boolean {
+		return (
+			this.searches < (this.limits.searchCalls ?? 1) && this.canReadSourcePage
+		);
+	}
+
+	get canReadSourcePage(): boolean {
+		return (this.limits.fetchCalls ?? 3) - this.fetches >= 2;
+	}
+
 	startSource(operation: "search" | "fetch"): AbortSignal | undefined {
 		this.signal.throwIfAborted();
 		if (operation === "search") {

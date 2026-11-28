@@ -9,6 +9,7 @@ import {
 	GuideRetrieval,
 } from "../../src/application/retrieve-guides.js";
 import {
+	type GuideConditionDetail,
 	type GuideEvidence,
 	type GuideEvidenceView,
 	validateGuideAnswer as validateAnswer,
@@ -23,7 +24,7 @@ import {
 const scope: FrozenQueryScope = {
 	scopeId: "s1",
 	entityId: "甲",
-	gameVersion: "7.10",
+	versionScope: { kind: "exact", version: "7.10" },
 	goal: "配队",
 	guideKind: "team",
 	teamMode: "general",
@@ -46,7 +47,7 @@ function pagedRetrieval(
 				documentVersionId: id,
 				entityId: scope.entityId,
 				guideKind: "team",
-				gameVersions: { from: scope.gameVersion, through: scope.gameVersion },
+				gameVersions: { from: "7.10", through: "7.10" },
 				applicability: { kind: "unrestricted" },
 				published: true,
 				indexReady: true,
@@ -59,9 +60,11 @@ function pagedRetrieval(
 	);
 	const keywordCursors: (string | null)[] = [];
 	const vectorLimits: number[] = [];
+	const versionLayers: (string | null)[] = [];
 	const data: GuideData = {
 		repository: {
-			async snapshot() {
+			async snapshot(filter) {
+				versionLayers.push(filter.gameVersion);
 				return { revision: "r1", embeddingId: "isolated" };
 			},
 			async keywords(_filter, _snapshot, _query, cursor) {
@@ -119,6 +122,7 @@ function pagedRetrieval(
 		}),
 		keywordCursors,
 		vectorLimits,
+		versionLayers,
 	};
 }
 
@@ -155,6 +159,19 @@ test("已部分命中时后续关键词页故障，仍报告依赖故障而非�
 	);
 });
 
+test("当前版本检索故障不进入未知版本层", async () => {
+	const { retrieval, versionLayers } = pagedRetrieval("keyword", true);
+	assert.deepEqual(
+		await retrieval.searchGuides(
+			{ ...scope, versionScope: { kind: "latest", currentVersion: "7.10" } },
+			"配队",
+			new AbortController().signal,
+		),
+		{ kind: "error", code: "RETRIEVAL_UNAVAILABLE" },
+	);
+	assert.deepEqual(versionLayers, ["7.10"]);
+});
+
 const reference: GuideEvidence = {
 	evidenceId: "e1",
 	turnId: "t1",
@@ -173,13 +190,13 @@ const reference: GuideEvidence = {
 		version: "7.10",
 		documentVersionId: "d1",
 		location: "第 2 段",
-		excerpt: "完整样本",
+		excerpt: "示例阵容：甲＋乙＋丙＋丁。\n辅助位：丁。",
 	},
 };
 const testView = (...records: GuideEvidence[]): GuideEvidenceView => ({
 	evidence: new Map(records.map((record) => [record.evidenceId, record])),
 	gap: true,
-	readAllCandidates: true,
+	hasUnreadCandidates: false,
 });
 const terms: readonly TerminologyEntry[] = [
 	...["甲", "乙", "丙", "丁", "戊"].map((name) => ({
@@ -206,6 +223,178 @@ const recommendation = {
 };
 const draft = (items: unknown[], gaps: unknown[] = []) =>
 	JSON.stringify({ recommendations: items, gaps });
+
+test("只提供分工资料也能回答；可附原文未作为整队列出的综合配队", () => {
+	const source: GuideEvidence = {
+		...reference,
+		fromWeb: true,
+		applicabilityUnknown: true,
+		conditions: [],
+		requiredCharacterIds: [],
+		requiredEquipmentIds: [],
+		citation: {
+			...reference.citation,
+			excerpt: "队友候选：乙、丙。\n辅助位：丁可减抗。",
+		},
+	};
+	const observation = {
+		kind: "role",
+		text: "辅助位可选丁，主要职责是降低敌方抗性。",
+		evidenceId: "e1",
+		excerpt: "辅助位：丁可减抗。",
+	};
+	const resolve = (item: object, teams: unknown[] = [], read = source) =>
+		validateGuideAnswer(
+			JSON.stringify({
+				observations: [item],
+				recommendations: teams,
+				gaps: [],
+			}),
+			scope,
+			"t1",
+			testView(read),
+		);
+
+	const summary = resolve(observation);
+	assert.ok(summary.status === "answered");
+	assert.match(summary.text, /^配队思路：\n位置分工：辅助位可选丁/u);
+	assert.match(summary.text, /适用条件未确认/u);
+	assert.doesNotMatch(summary.text, /辅助位：丁可减抗。|资料不足|参考配队/u);
+	assert.deepEqual(summary.citations, [
+		{ ...source.citation, excerpt: observation.excerpt },
+	]);
+
+	const withTeam = resolve(observation, [recommendation]);
+	assert.ok(withTeam.status === "answered");
+	assert.match(
+		withTeam.text,
+		/^配队思路：[\s\S]+配队建议（模型整理）：\n参考配队：甲＋乙＋丙＋丁/u,
+	);
+	assert.deepEqual(withTeam.citations, summary.citations);
+	assert.deepEqual(
+		resolve(observation, [{ ...recommendation, evidenceIds: ["forged"] }]),
+		{ status: "failed", code: "INVALID_CITATION" },
+	);
+	for (const invalid of [
+		resolve({ ...observation, excerpt: "辅助位：丙可减抗。" }),
+		resolve({ ...observation, evidenceId: "not-authorized" }),
+		resolve(observation, [], { ...source, turnId: "old" }),
+		resolve(observation, [], { ...source, windowComplete: false }),
+		resolve(observation, [], {
+			...source,
+			gameVersions: { from: "7.1", through: "7.1" },
+		}),
+	])
+		assert.deepEqual(invalid, { status: "failed", code: "INVALID_CITATION" });
+	for (const fake of ["你已经持有丁。", "建议见 https://example.test/forged"]) {
+		assert.deepEqual(resolve({ ...observation, text: fake }), {
+			status: "failed",
+			code: "INVALID_ANSWER_STRUCTURE",
+			validationDetail: "invalid_field:$.observations[0].text",
+		});
+	}
+});
+
+test("装备和命座由独立前提判定，不要求原文出现整队", () => {
+	const inventory: FrozenQueryScope = {
+		...scope,
+		teamMode: "inventory",
+		playerConstraints: {
+			targetHolding: "owned",
+			teammates: { kind: "known", items: ["乙", "丙", "丁"] },
+			equipment: { kind: "unknown" },
+		},
+	};
+	const source = {
+		...reference,
+		requiredCharacterIds: [],
+		requiredEquipmentIds: [],
+		conditions: ["甲需达到二命"],
+		citation: { ...reference.citation, excerpt: "辅助位：丁可减抗。" },
+	};
+	const result = validateGuideAnswer(
+		draft([recommendation]),
+		inventory,
+		"t1",
+		testView(source),
+	);
+	assert.ok(result.status === "answered");
+	assert.match(result.text, /参考配队：[\s\S]*适用前提：甲需达到二命/u);
+	assert.doesNotMatch(result.text, /可用配队/u);
+});
+
+const conditionFailure = (validationDetail: GuideConditionDetail) => ({
+	status: "failed",
+	code: "INVALID_ANSWER_CONDITIONS",
+	validationDetail,
+});
+
+test("目标遗漏仍拒绝，有依据但缺人或缺装备标为参考", () => {
+	const clean = {
+		...reference,
+		requiredCharacterIds: [],
+		requiredEquipmentIds: [],
+	};
+	const missingTarget = {
+		...recommendation,
+		team: recommendation.team.map((slot) =>
+			slot.characterId === "甲" ? { ...slot, characterId: "戊" } : slot,
+		),
+	};
+	assert.deepEqual(
+		validateGuideAnswer(draft([missingTarget]), scope, "t1", testView(clean)),
+		conditionFailure("recommendation:target_missing"),
+	);
+	const excluded = {
+		...scope,
+		playerConstraints: {
+			...scope.playerConstraints,
+			excludedCharacters: ["乙"],
+			excludedEquipment: ["试验弓"],
+		},
+	};
+	const excludedTeam = validateGuideAnswer(
+		draft([recommendation]),
+		excluded,
+		"t1",
+		testView({ ...reference, requiredCharacterIds: [] }),
+	);
+	assert.ok(excludedTeam.status === "answered");
+	assert.match(excludedTeam.text, /参考配队/u);
+	assert.match(excludedTeam.text, /尚未持有角色「乙」/u);
+	assert.match(excludedTeam.text, /尚未持有装备「试验弓」/u);
+	assert.doesNotMatch(excludedTeam.text, /可用配队/u);
+});
+
+test("资料不足诊断区分候选没读完、缺口未确认和已有可用方案", () => {
+	const proposal = draft(
+		[],
+		[{ kind: "insufficient_evidence", text: "不进入诊断的模型正文" }],
+	);
+	assert.deepEqual(
+		validateGuideAnswer(proposal, scope, "t1", {
+			...testView({
+				...reference,
+				citation: { ...reference.citation, excerpt: "辅助位：丁。" },
+			}),
+			gap: false,
+			hasUnreadCandidates: true,
+		}),
+		conditionFailure("insufficient_evidence:unread_candidates"),
+	);
+	assert.deepEqual(
+		validateGuideAnswer(proposal, scope, "t1", {
+			...testView(),
+			gap: false,
+		}),
+		conditionFailure("insufficient_evidence:gap_not_established"),
+	);
+
+	assert.deepEqual(
+		validateGuideAnswer(proposal, scope, "t1", testView(reference)),
+		conditionFailure("insufficient_evidence:evidence_not_used"),
+	);
+});
 
 test("RRF 跨通道合并，同一路重复不叠加，平分按稳定 ID", () => {
 	assert.deepEqual(
@@ -349,7 +538,18 @@ test("有效引用不能替代实际阵容的库存校验；标准名、别名�
 				excludedEquipment: [excluded],
 			},
 		};
-		const read = testView({ ...source, entityId: target });
+		const unconfirmed = target === "甲" ? "替代弓" : "试验弓";
+		const excerpt = [
+			...[owned[0], excluded, unconfirmed].map(
+				(id) => `阵容：甲＋乙＋丙＋丁；为${target}装备${id}。`,
+			),
+			"阵容：甲＋乙＋丙＋（丁/戊）。",
+		].join("\n");
+		const read = testView({
+			...source,
+			entityId: target,
+			citation: { ...source.citation, excerpt },
+		});
 		const submit = (item: unknown, selected = inventory) =>
 			validateGuideAnswer(draft([item]), selected, "t1", read);
 		const withGear = (equipmentIds: string[]) => ({
@@ -362,22 +562,45 @@ test("有效引用不能替代实际阵容的库存校验；标准名、别名�
 		});
 		const ok = submit(withGear([target === "甲" ? "小弓" : "小套"]));
 		assert.equal(ok.status, "answered");
-		if (ok.status === "answered")
-			assert.ok(ok.text.includes(`${target}（${owned[0]}）`));
+		assert.ok(ok.status === "answered");
+		assert.match(ok.text, /可用配队/u);
+		assert.ok(ok.text.includes(`${target}（${owned[0]}）`));
+		const alternate = {
+			...recommendation,
+			team: recommendation.team.map((slot) =>
+				slot.characterId === "丁" ? { ...slot, characterId: "戊" } : slot,
+			),
+		};
 		for (const item of [
 			withGear([excluded]),
-			withGear([target === "甲" ? "替代弓" : "试验弓"]),
-			{
-				...recommendation,
-				team: recommendation.team.map((slot) =>
-					slot.characterId === "丁" ? { ...slot, characterId: "戊" } : slot,
-				),
-			},
-		])
-			assert.deepEqual(submit(item), {
-				status: "failed",
-				code: "INVALID_ANSWER_CONDITIONS",
-			});
+			withGear([unconfirmed]),
+			alternate,
+		]) {
+			const answer = submit(item);
+			assert.ok(answer.status === "answered");
+			assert.match(answer.text, /参考配队/u);
+			assert.doesNotMatch(answer.text, /可用配队/u);
+		}
+		const ordered = validateGuideAnswer(
+			draft([withGear([excluded]), withGear([owned[0]])]),
+			inventory,
+			"t1",
+			read,
+		);
+		assert.ok(ordered.status === "answered");
+		assert.match(
+			ordered.text,
+			/^配队建议（模型整理）：\n可用配队：[\s\S]+参考配队：/u,
+		);
+		const unconfirmedSlot = submit({
+			...recommendation,
+			team: recommendation.team.map((slot) =>
+				slot.characterId === "丙" ? { ...slot, characterId: "戊" } : slot,
+			),
+		});
+		assert.ok(unconfirmedSlot.status === "answered");
+		assert.match(unconfirmedSlot.text, /参考配队/u);
+		assert.doesNotMatch(unconfirmedSlot.text, /可用配队/u);
 		assert.equal(
 			submit(recommendation, {
 				...inventory,
@@ -408,7 +631,7 @@ test("有效引用不能替代实际阵容的库存校验；标准名、别名�
 	}
 });
 
-test("按库存先用满足条件的替代；找不到且确有依据才追问未知装备", () => {
+test("必需装备持有未知时仍给参考，未知前提不能标可用", () => {
 	const inventory: FrozenQueryScope = {
 		...scope,
 		teamMode: "inventory",
@@ -418,64 +641,30 @@ test("按库存先用满足条件的替代；找不到且确有依据才追问�
 			equipment: { kind: "unknown" },
 		},
 	};
-	const alternative = {
-		...reference,
-		evidenceId: "e2",
-		chunkId: "c2",
-		requiredEquipmentIds: [],
-		conditions: [],
-	};
-	const question = draft(
-		[],
-		[
-			{
-				kind: "equipment_required",
-				equipmentId: "试验弓",
-				evidenceIds: ["e1"],
-			},
-		],
-	);
-	assert.equal(
-		validateGuideAnswer(question, inventory, "t1", testView(reference)).status,
-		"needs_clarification",
-	);
-	assert.equal(
-		validateGuideAnswer(question, inventory, "t1", {
-			...testView(reference),
-			readAllCandidates: false,
-		}).status,
-		"failed",
-	);
-	assert.equal(
-		validateGuideAnswer(
-			question,
-			inventory,
-			"t1",
-			testView(reference, alternative),
-		).status,
-		"failed",
-	);
-	const noEquipment: FrozenQueryScope = {
+	const input = draft([recommendation]);
+	const only = validateGuideAnswer(input, inventory, "t1", testView(reference));
+	assert.ok(only.status === "answered");
+	assert.match(only.text, /参考配队/u);
+	assert.match(only.text, /持有状态未确认/u);
+	const held = {
 		...inventory,
 		playerConstraints: {
 			...inventory.playerConstraints,
-			equipment: { kind: "known", items: [] },
+			ownedEquipment: ["试验弓"],
 		},
 	};
-	assert.equal(
-		validateGuideAnswer(question, noEquipment, "t1", testView(reference))
-			.status,
-		"failed",
+	const available = validateGuideAnswer(input, held, "t1", testView(reference));
+	assert.ok(available.status === "answered");
+	assert.match(available.text, /可用配队/u);
+	const unknown = validateGuideAnswer(
+		input,
+		held,
+		"t1",
+		testView({ ...reference, applicabilityUnknown: true }),
 	);
-	assert.equal(
-		validateGuideAnswer(
-			draft([recommendation]),
-			inventory,
-			"t1",
-			testView(reference),
-		).status,
-		"failed",
-	);
+	assert.ok(unknown.status === "answered");
+	assert.match(unknown.text, /适用条件未确认/u);
+	assert.doesNotMatch(unknown.text, /可用配队/u);
 });
 
 test("同范围冲突要分别引用双方，不用同一段原文冒充两个观点", () => {
@@ -504,6 +693,34 @@ test("同范围冲突要分别引用双方，不用同一段原文冒充两个�
 		assert.match(result.text, /不能给出唯一结论/u);
 		assert.equal(result.citations.length, 2);
 	}
+	const paraphrase = sides.map((side) => ({
+		...side,
+		conditions: ["必须拥有试验弓"],
+	}));
+	assert.deepEqual(
+		validateGuideAnswer(
+			draft([], [{ kind: "conflict", sides: paraphrase }]),
+			scope,
+			"t1",
+			testView(reference, second),
+		),
+		conditionFailure("conflict:premise_not_matched_exactly"),
+	);
+	assert.equal(
+		validateGuideAnswer(
+			input,
+			{
+				...scope,
+				playerConstraints: {
+					...scope.playerConstraints,
+					excludedEquipment: ["试验弓"],
+				},
+			},
+			"t1",
+			testView(reference, second),
+		).status,
+		"answered",
+	);
 	assert.deepEqual(
 		validateGuideAnswer(
 			input,

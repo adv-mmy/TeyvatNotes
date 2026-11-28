@@ -21,10 +21,14 @@ const visible = `FROM guide_chunk c
 	JOIN guide_index_checkpoint i ON i.version_id = v.id
 	WHERE i.embedding_id = $1 AND i.ready AND v.status = 'published'`;
 const inScope = `AND v.entity_id = $2 AND v.guide_kind = $3
-	AND $4 BETWEEN v.game_from_key AND v.game_through_key`;
+	AND (CASE WHEN $4::integer IS NULL THEN v.game_from_key IS NULL
+		ELSE $4 BETWEEN v.game_from_key AND v.game_through_key END)`;
+const gameVersions = `CASE WHEN v.game_from IS NULL THEN NULL
+	ELSE jsonb_build_object('from', v.game_from, 'through', v.game_through) END AS "gameVersions"`;
 const readColumns = `c.id, v.id AS "documentVersionId", v.entity_id AS "entityId",
-	v.guide_kind AS "guideKind", jsonb_build_object('from', v.game_from, 'through', v.game_through) AS "gameVersions",
+	v.guide_kind AS "guideKind", ${gameVersions},
 	v.applicability, true AS published, true AS "indexReady", v.title,
+	v.web_evidence IS NOT NULL AS "fromWeb",
 	(SELECT source_url FROM guide_source WHERE id = v.source_id) AS "sourceUrl",
 	c.location, left(c.body, 180) AS preview`;
 
@@ -39,7 +43,7 @@ function scopeParams(embeddingId: string, filter: GuideFilter) {
 		embeddingId,
 		filter.entityId,
 		filter.guideKind,
-		versionKey(filter.gameVersion),
+		filter.gameVersion === null ? null : versionKey(filter.gameVersion),
 	];
 }
 
@@ -190,7 +194,7 @@ export class PostgreSqlGuideRepository
 					page.content,
 					page.permission,
 					page.title,
-					JSON.stringify(page.proofs),
+					JSON.stringify({ fields: page.proofs, revision: page.revision }),
 					page.reasons,
 				],
 			);
@@ -235,10 +239,12 @@ export class PostgreSqlGuideRepository
 					document.contentHash,
 					document.processingVersion,
 					document.entityId,
-					document.gameVersions.from,
-					document.gameVersions.through,
-					versionKey(document.gameVersions.from),
-					versionKey(document.gameVersions.through),
+					document.gameVersions?.from ?? null,
+					document.gameVersions?.through ?? null,
+					document.gameVersions ? versionKey(document.gameVersions.from) : null,
+					document.gameVersions
+						? versionKey(document.gameVersions.through)
+						: null,
 					JSON.stringify(document.applicability),
 					document.webEvidence ? JSON.stringify(document.webEvidence) : null,
 				],
@@ -280,7 +286,7 @@ export class PostgreSqlGuideRepository
 	): Promise<StoredGuide | null> {
 		const [row] = await this.rows<StoredGuide & { expected: string[] }>(
 			`SELECT v.id, v.entity_id AS "entityId", v.status = 'published' AS published,
-				jsonb_build_object('from', v.game_from, 'through', v.game_through) AS "gameVersions",
+				${gameVersions},
 				i.ready AS indexed, i.expected_ids AS expected,
 				jsonb_agg(jsonb_build_object('id', c.id, 'body', c.body) ORDER BY c.ordinal) AS chunks
 			FROM guide_version v JOIN guide_index_checkpoint i ON i.version_id = v.id
@@ -336,7 +342,10 @@ export class PostgreSqlGuideRepository
 				JOIN guide_index_checkpoint i ON i.version_id = v.id
 				WHERE v.id = $1 AND i.embedding_id = $2 AND i.ready
 				AND (v.processing_version = 'team-1' OR (v.web_evidence IS NOT NULL AND v.web_evidence->>'parser'=v.processing_version))
-				AND v.status IN ('pending', 'published') AND v.applicability->>'kind' IN ('known', 'unrestricted')
+				AND v.status IN ('pending', 'published')
+				AND (v.applicability->>'kind' IN ('known', 'unrestricted') OR
+					(v.applicability->>'kind' = 'unknown' AND v.web_evidence IS NOT NULL
+					AND v.web_evidence->>'parser' = v.processing_version))
 				FOR UPDATE OF v`,
 				[id, embeddingId],
 			);

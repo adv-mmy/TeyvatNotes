@@ -1,9 +1,9 @@
 import { rankGuides } from "../domain/guide-ranking.js";
 import {
 	hasKnownPremise,
-	inventoryFit,
+	matchesVersionLayer,
 	type QueryScope,
-	versionApplies,
+	versionLayers,
 } from "../domain/query-scope.js";
 import {
 	type GuideChunkMetadata,
@@ -34,6 +34,7 @@ export const defaultRetrievalLimits: RetrievalLimits = {
 export interface AuthorizedCandidate {
 	readonly chunk: GuideChunkMetadata;
 	readonly snapshot: GuideSnapshot;
+	readonly versionLayer: string | null;
 }
 export type RetrievalError = "RETRIEVAL_INCOMPLETE" | "RETRIEVAL_UNAVAILABLE";
 export type GuideSearchOutcome =
@@ -51,10 +52,10 @@ export type GuideReadOutcome =
 			readonly code: RetrievalError | "CANDIDATE_NOT_AUTHORIZED";
 	  };
 
-function filterOf(scope: QueryScope): GuideFilter {
+function filterOf(scope: QueryScope, versionLayer: string | null): GuideFilter {
 	return {
 		entityId: scope.entityId,
-		gameVersion: scope.gameVersion,
+		gameVersion: versionLayer,
 		guideKind: scope.guideKind,
 	};
 }
@@ -68,14 +69,18 @@ function validUrl(value: string): boolean {
 	}
 }
 
-function matches(scope: QueryScope, item: GuideChunkMetadata): boolean {
+function matches(
+	scope: QueryScope,
+	item: GuideChunkMetadata,
+	versionLayer: string | null,
+): boolean {
 	if (
 		!item.published ||
 		!item.indexReady ||
 		item.entityId !== scope.entityId ||
 		item.guideKind !== scope.guideKind ||
-		!versionApplies(scope.gameVersion, item.gameVersions) ||
-		item.applicability.kind === "unknown" ||
+		!matchesVersionLayer(versionLayer, item.gameVersions) ||
+		(item.applicability.kind === "unknown" && !item.fromWeb) ||
 		!item.id.trim() ||
 		!item.documentVersionId.trim() ||
 		!item.title.trim() ||
@@ -85,7 +90,6 @@ function matches(scope: QueryScope, item: GuideChunkMetadata): boolean {
 		return false;
 	if (item.applicability.kind === "known") {
 		if (!hasKnownPremise(item.applicability)) return false;
-		if (inventoryFit(scope, item.applicability) === "unavailable") return false;
 	}
 	return true;
 }
@@ -152,8 +156,66 @@ export class GuideRetrieval {
 		scope: QueryScope,
 		query: string,
 		signal: AbortSignal,
+		lockedLayer?: string | null,
 	): Promise<GuideSearchOutcome> {
-		const filter = filterOf(scope);
+		const layers = versionLayers(scope.versionScope);
+		if (lockedLayer !== undefined && !layers.includes(lockedLayer))
+			return { kind: "error", code: "RETRIEVAL_UNAVAILABLE" };
+		for (const layer of lockedLayer === undefined ? layers : [lockedLayer]) {
+			const result = await this.searchLayer(scope, query, signal, layer);
+			if (result.kind !== "miss") return result;
+		}
+		return { kind: "miss" };
+	}
+
+	/** 只探测候选是否存在，不读取正文、不授予候选 ID。 */
+	async hasUnknownReference(
+		scope: QueryScope,
+		signal: AbortSignal,
+	): Promise<boolean> {
+		const filter = filterOf(scope, null);
+		const { repository, vectorIndex } = this.data;
+		try {
+			const snapshot = await repository.snapshot(filter, signal);
+			const eligible = await this.walk(
+				(cursor, limit) =>
+					repository.eligibleIds(filter, snapshot, cursor, limit, signal),
+				async (ids) => {
+					if (!ids.length) return [];
+					const values = await repository.metadata(snapshot, ids, signal);
+					if (
+						values.length !== ids.length ||
+						new Set(values.map((item) => item.id)).size !== ids.length ||
+						values.some((item) => !ids.includes(item.id))
+					)
+						throw new Error("INVALID_METADATA");
+					return values
+						.filter((item) => matches(scope, item, null))
+						.map(({ id }) => id);
+				},
+				signal,
+				true,
+				1,
+			);
+			const [id] = eligible.ranked;
+			if (id && !(await vectorIndex.hasAll(snapshot.embeddingId, [id], signal)))
+				throw new Error("MISSING_INDEX_VECTOR");
+			await repository.assertSnapshot(filter, snapshot, signal);
+			if (!id && !eligible.exhausted) throw new GuideSnapshotChanged();
+			return id !== undefined;
+		} catch (error) {
+			signal.throwIfAborted();
+			throw new Error(errorCode(error));
+		}
+	}
+
+	private async searchLayer(
+		scope: QueryScope,
+		query: string,
+		signal: AbortSignal,
+		versionLayer: string | null,
+	): Promise<GuideSearchOutcome> {
+		const filter = filterOf(scope, versionLayer);
 		const branches = new AbortController();
 		const branchSignal = AbortSignal.any([signal, branches.signal]);
 		try {
@@ -179,7 +241,7 @@ export class GuideRetrieval {
 					if (!unique.has(item.id) || received.has(item.id))
 						throw new Error("INVALID_METADATA");
 					received.add(item.id);
-					if (matches(scope, item)) {
+					if (matches(scope, item, versionLayer)) {
 						chunks.set(item.id, item);
 						qualified.add(item.id);
 					}
@@ -203,7 +265,7 @@ export class GuideRetrieval {
 			);
 			const candidates = ranked.flatMap(({ id }) => {
 				const chunk = chunks.get(id);
-				return chunk ? [{ chunk, snapshot }] : [];
+				return chunk ? [{ chunk, snapshot, versionLayer }] : [];
 			});
 			if (candidates.length) return { kind: "hit", candidates };
 			return keywords.exhausted && semantic.exhausted
@@ -224,8 +286,12 @@ export class GuideRetrieval {
 	): Promise<GuideReadOutcome> {
 		try {
 			signal.throwIfAborted();
-			const filter = filterOf(scope);
-			if (!matches(scope, candidate.chunk))
+			const { versionLayer } = candidate;
+			const filter = filterOf(scope, versionLayer);
+			if (
+				!versionLayers(scope.versionScope).includes(versionLayer) ||
+				!matches(scope, candidate.chunk, versionLayer)
+			)
 				return { kind: "error", code: "CANDIDATE_NOT_AUTHORIZED" };
 			const row = await this.data.repository.read(
 				candidate.snapshot,
@@ -237,7 +303,7 @@ export class GuideRetrieval {
 			if (
 				row.chunk.id !== candidate.chunk.id ||
 				row.chunk.documentVersionId !== candidate.chunk.documentVersionId ||
-				!matches(scope, row.chunk)
+				!matches(scope, row.chunk, versionLayer)
 			)
 				return { kind: "error", code: "CANDIDATE_NOT_AUTHORIZED" };
 			await this.data.repository.assertSnapshot(
@@ -390,8 +456,9 @@ export class GuideRetrieval {
 		select: (ids: readonly string[]) => Promise<string[]>,
 		signal: AbortSignal,
 		stopWhenEnough = true,
+		targetCount = this.limits.maxCandidates,
 	): Promise<Branch> {
-		const { pageSize, maxScanned, maxPages, maxCandidates } = this.limits;
+		const { pageSize, maxScanned, maxPages } = this.limits;
 		const ids = new Set<string>();
 		const cursors = new Set<string>();
 		const ranked: string[] = [];
@@ -409,7 +476,7 @@ export class GuideRetrieval {
 			ranked.push(...(await select(fresh)));
 			if (result.next === null) return { ranked, exhausted: true };
 			if (
-				(stopWhenEnough && ranked.length >= maxCandidates) ||
+				(stopWhenEnough && ranked.length >= targetCount) ||
 				cursors.has(result.next)
 			)
 				return { ranked, exhausted: false };

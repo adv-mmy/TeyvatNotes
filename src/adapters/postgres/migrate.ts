@@ -29,7 +29,12 @@ export async function transaction<T>(
 	}
 }
 
-const names = ["001_guide_store", "002_web_guide_evidence"];
+const names = [
+	"001_guide_store",
+	"002_web_guide_evidence",
+	"003_nullable_guide_game_versions",
+	"004_allow_unknown_bwiki_applicability",
+];
 
 export async function migrate(
 	pool: Pool,

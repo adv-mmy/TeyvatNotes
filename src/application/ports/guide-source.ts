@@ -6,13 +6,27 @@ import type { ImportDocument } from "./guide-data.js";
 
 export interface SourcePermit {
 	readonly origin: string;
+	readonly api: string;
 	readonly path: string;
 	readonly reference: string;
-	readonly access: "link" | "fetch_store_cite";
+	readonly access: "fetch_store_cite";
+}
+export interface SourceCandidate {
+	readonly title: string;
+	readonly url: string;
+}
+export interface SourceRevision {
+	readonly id: number;
+	readonly section: {
+		readonly index: string;
+		readonly title: string;
+		readonly anchor: string;
+	};
 }
 export interface PageBody {
 	readonly title: string;
 	readonly content: string;
+	readonly revision: SourceRevision;
 }
 export interface FieldProof {
 	readonly location: string;
@@ -36,7 +50,6 @@ export type ParsePage = (
 	terms: readonly TerminologyEntry[],
 ) => ParsedPage;
 
-/** 只向供应商传递公开检索词，不把会话或玩家清单放到这个接口上。 */
 export type SupplementStatus =
 	| "indexed"
 	| Exclude<
@@ -50,14 +63,43 @@ export type WebSupplement = (
 ) => Promise<SupplementStatus>;
 
 export interface GuideSource {
-	search(query: string, signal: AbortSignal): Promise<readonly string[]>;
-	/** 供应商能否在读取正文前保证每一跳都受许可和网络边界约束。 */
-	canFetch(permit: SourcePermit): boolean;
+	search(
+		query: string,
+		requests: SourceRequestBudget,
+	): Promise<readonly SourceCandidate[]>;
+	/** 不提供候选时，只检查是否存在获准且可控的读取路径。 */
+	canFetch(permit: SourcePermit, candidate?: SourceCandidate): boolean;
 	fetch(
-		url: string,
+		candidate: SourceCandidate,
 		permit: SourcePermit,
-		signal: AbortSignal,
-	): Promise<PageBody>;
+		requests: SourceRequestBudget,
+	): Promise<PageBody | undefined>;
+}
+
+export interface SourceRequestBudget {
+	begin(operation: "discover" | "read"): AbortSignal;
+}
+
+function normalizedPath(path: string): string | undefined {
+	if (!path.startsWith("/") || path.length > 2048 || path.includes("//"))
+		return;
+	try {
+		const parts = path.slice(1).split("/");
+		const decoded = parts.map(decodeURIComponent);
+		if (
+			decoded.some(
+				(part, i) =>
+					(part === "" && i !== decoded.length - 1) ||
+					part === "." ||
+					part === ".." ||
+					!/^[\p{L}\p{M}\p{N} _.()·—-]*$/u.test(part),
+			)
+		)
+			return;
+		return `/${decoded.map((part) => part.replaceAll(" ", "_")).join("/")}`;
+	} catch {
+		return;
+	}
 }
 
 export function validPermit(value: unknown): value is SourcePermit {
@@ -65,10 +107,11 @@ export function validPermit(value: unknown): value is SourcePermit {
 	const p = value as Partial<SourcePermit>;
 	if (
 		typeof p.origin !== "string" ||
+		typeof p.api !== "string" ||
 		typeof p.path !== "string" ||
 		typeof p.reference !== "string" ||
 		!p.reference.trim() ||
-		!["link", "fetch_store_cite"].includes(p.access ?? "")
+		p.access !== "fetch_store_cite"
 	)
 		return false;
 	try {
@@ -79,7 +122,9 @@ export function validPermit(value: unknown): value is SourcePermit {
 			!u.port &&
 			/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/u.test(u.hostname) &&
 			!/(^|\.)(?:localhost|local|internal|lan|home|test)$/u.test(u.hostname) &&
-			/^\/(?:[a-zA-Z0-9_-]+\/)*$/u.test(p.path)
+			p.api.startsWith(`${p.origin}/`) &&
+			/^\/[a-zA-Z0-9_/-]+\.php$/u.test(p.api.slice(p.origin.length)) &&
+			normalizedPath(p.path) !== undefined
 		);
 	} catch {
 		return false;
@@ -90,28 +135,12 @@ export function permittedUrl(
 	raw: string,
 	permit: SourcePermit,
 ): string | undefined {
-	if (
-		!validPermit(permit) ||
-		permit.access !== "fetch_store_cite" ||
-		raw.length > 2048 ||
-		/[%\\\s\p{Cc}]/u.test(raw) ||
-		/\/\.{1,2}(?:\/|$)/u.test(raw)
-	)
+	if (!validPermit(permit) || !raw.startsWith(`${permit.origin}/`)) return;
+	// 先检查原始路径，避免 URL 构造器先折叠点路径或反斜杠。
+	const path = normalizedPath(raw.slice(permit.origin.length));
+	const allowed = normalizedPath(permit.path);
+	if (!path || !allowed || path.endsWith("/")) return;
+	if (allowed.endsWith("/") ? !path.startsWith(allowed) : path !== allowed)
 		return;
-	try {
-		const u = new URL(raw);
-		if (
-			u.origin !== permit.origin ||
-			u.username ||
-			u.password ||
-			u.search ||
-			!u.pathname.startsWith(permit.path) ||
-			u.pathname.includes("//")
-		)
-			return;
-		u.hash = "";
-		return u.href;
-	} catch {
-		return;
-	}
+	return new URL(path, permit.origin).href;
 }

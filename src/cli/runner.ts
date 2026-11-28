@@ -146,17 +146,27 @@ export async function runCli(
 	let closing = false;
 
 	function show(outcome: TurnOutcome, allowReply = false) {
+		function showCitations(
+			value: Extract<
+				TurnOutcome,
+				{ status: "answered" | "insufficient_evidence" }
+			>,
+		) {
+			for (const cite of value.citations ?? [])
+				print(
+					`引用：${cite.source}｜${cite.version ?? "版本未知"}｜${cite.location}\n${cite.excerpt}${cite.url ? `\n原文：${cite.url}` : ""}`,
+				);
+			if (value.versionCaution) print("该攻略版本未知，请注意时效性");
+		}
 		switch (outcome.status) {
 			case "answered":
 				print(outcome.text);
-				for (const cite of outcome.citations)
-					print(
-						`引用：${cite.source}｜${cite.version}｜${cite.location}\n${cite.excerpt}${cite.url ? `\n原文：${cite.url}` : ""}`,
-					);
+				showCitations(outcome);
 				break;
 			case "needs_clarification":
 				print(`需要补充条件：${outcome.text}`);
-				if (allowReply) print("请直接输入要补充的条件。");
+				if (allowReply && !outcome.referencePrompt)
+					print("请直接输入要补充的条件。");
 				break;
 			case "insufficient_evidence":
 				print(
@@ -167,7 +177,7 @@ export async function runCli(
 									source_restricted: "没有获准且可读取正文的攻略来源。",
 									no_readable_body: "找到了攻略链接，但没有可读取的正文。",
 									metadata_incomplete:
-										"攻略缺少明确的适用信息或存在歧义，未发布。",
+										"攻略的目标角色、类型或适用版本声明无法核对，未发布。",
 									scope_mismatch: "找到的攻略不适用于本轮角色或游戏版本。",
 									inventory_mismatch:
 										"找到的攻略不符合本轮已确认的库存或排除条件。",
@@ -177,6 +187,7 @@ export async function runCli(
 							: outcome.text
 					}`,
 				);
+				showCitations(outcome);
 				break;
 			case "failed":
 				error(outcome.code);

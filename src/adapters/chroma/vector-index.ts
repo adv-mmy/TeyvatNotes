@@ -51,21 +51,28 @@ export class ChromaVectorIndex implements VectorWritePort {
 	) {
 		const collection = await this.existing(embeddingId, signal);
 		if (!collection) return [];
-		const version = filter ? gameVersionKey(filter.gameVersion) : undefined;
-		if (filter && version === undefined)
+		const version =
+			filter?.gameVersion == null
+				? undefined
+				: gameVersionKey(filter.gameVersion);
+		if (filter && filter.gameVersion !== null && version === undefined)
 			throw new Error("INVALID_GAME_VERSION");
 		const result = await collection.query({
 			queryEmbeddings: [[...vector]],
 			nResults: limit,
 			include: [IncludeEnum.distances],
-			...(filter && version !== undefined
+			...(filter
 				? {
 						where: {
 							$and: [
 								{ entity: { $eq: filter.entityId } },
 								{ kind: { $eq: filter.guideKind } },
-								{ game_from: { $lte: version } },
-								{ game_through: { $gte: version } },
+								...(version === undefined
+									? [{ version_unknown: { $eq: true } }]
+									: [
+											{ game_from: { $lte: version } },
+											{ game_through: { $gte: version } },
+										]),
 							],
 						},
 					}
@@ -122,9 +129,13 @@ export class ChromaVectorIndex implements VectorWritePort {
 		signal: AbortSignal,
 	): Promise<void> {
 		const { client, ...options } = this.options(embeddingId, signal);
-		const from = gameVersionKey(guide.gameVersions.from);
-		const through = gameVersionKey(guide.gameVersions.through);
-		if (from === undefined || through === undefined)
+		const from = guide.gameVersions
+			? gameVersionKey(guide.gameVersions.from)
+			: undefined;
+		const through = guide.gameVersions
+			? gameVersionKey(guide.gameVersions.through)
+			: undefined;
+		if (guide.gameVersions && (from === undefined || through === undefined))
 			throw new Error("INVALID_GAME_VERSION");
 		const collection = await client.getOrCreateCollection({
 			...options,
@@ -144,8 +155,9 @@ export class ChromaVectorIndex implements VectorWritePort {
 				metadatas: ids.map(() => ({
 					entity: guide.entityId,
 					kind: "team",
-					game_from: from,
-					game_through: through,
+					...(from === undefined || through === undefined
+						? { version_unknown: true }
+						: { game_from: from, game_through: through }),
 				})),
 			});
 		}

@@ -1,5 +1,5 @@
 import {
-	type GuideStructureDetail,
+	type GuideValidationDetail,
 	validateGuideAnswer,
 } from "../domain/answer-validation.js";
 import type {
@@ -29,8 +29,7 @@ export interface TurnInput extends DialogueTurn {
 }
 
 type TurnProposal = TurnOutcome & {
-	readonly equipmentId?: string;
-	readonly validationDetail?: GuideStructureDetail;
+	readonly validationDetail?: GuideValidationDetail;
 };
 
 function validateAnswer(
@@ -100,6 +99,7 @@ function freezeScope(scope: QueryScope, turnId: string): FrozenQueryScope {
 	return Object.freeze({
 		...scope,
 		scopeId: turnId,
+		versionScope: Object.freeze({ ...scope.versionScope }),
 		playerConstraints: Object.freeze({
 			...(scope.playerConstraints.noTeammates ? { noTeammates: true } : {}),
 			...(scope.playerConstraints.limitEquipment
@@ -119,10 +119,31 @@ function freezeScope(scope: QueryScope, turnId: string): FrozenQueryScope {
 						]),
 					}
 				: {}),
+			...(scope.playerConstraints.ownedCharacters
+				? {
+						ownedCharacters: Object.freeze([
+							...scope.playerConstraints.ownedCharacters,
+						]),
+					}
+				: {}),
 			...(scope.playerConstraints.ownedEquipment
 				? {
 						ownedEquipment: Object.freeze([
 							...scope.playerConstraints.ownedEquipment,
+						]),
+					}
+				: {}),
+			...(scope.playerConstraints.avoidedCharacters
+				? {
+						avoidedCharacters: Object.freeze([
+							...scope.playerConstraints.avoidedCharacters,
+						]),
+					}
+				: {}),
+			...(scope.playerConstraints.avoidedEquipment
+				? {
+						avoidedEquipment: Object.freeze([
+							...scope.playerConstraints.avoidedEquipment,
 						]),
 					}
 				: {}),
@@ -149,7 +170,7 @@ export class RunTurn {
 				turnId: string;
 				status: TurnOutcome["status"];
 				errorCode?: string;
-				validationDetail?: GuideStructureDetail;
+				validationDetail?: GuideValidationDetail;
 				elapsedMs: number;
 			},
 		) => void = () => {},
@@ -191,7 +212,7 @@ export class RunTurn {
 		try {
 			const turnId = await session.begin(input.prompt);
 			let recorded: TurnOutcome = { status: "failed", code: "SESSION_FAILED" };
-			let validationDetail: GuideStructureDetail | undefined;
+			let validationDetail: GuideValidationDetail | undefined;
 			try {
 				// 确认写入失败属于会话故障；不调用模型，也不尝试补写正常终态。
 				if (input.confirmation && !budget.signal.aborted)
@@ -208,22 +229,23 @@ export class RunTurn {
 					: budget.deadline.aborted
 						? { status: "failed", code: "TURN_TIMEOUT" }
 						: proposed;
-				const equipmentId =
-					outcome.status === "needs_clarification"
-						? outcome.equipmentId
-						: undefined;
-				const clarification = this.clarification.finish(
-					input,
-					turnId,
-					outcome,
-					equipmentId,
-				);
+				const clarification = this.clarification.finish(input, turnId, outcome);
 				const persisted: TurnOutcome =
 					outcome.status === "needs_clarification"
-						? { status: "needs_clarification", text: outcome.text }
+						? {
+								status: "needs_clarification",
+								text: outcome.text,
+								...(outcome.referencePrompt
+									? { referencePrompt: true as const }
+									: {}),
+							}
 						: outcome.status === "failed"
 							? { status: "failed", code: outcome.code }
-							: outcome;
+							: (outcome.status === "answered" ||
+										outcome.status === "insufficient_evidence") &&
+									outcome.citations?.some((cite) => cite.version === null)
+								? { ...outcome, versionCaution: true }
+								: outcome;
 				// 运行取消不能打断持久化。
 				const committed = await session.commit({
 					turnId,
@@ -233,7 +255,8 @@ export class RunTurn {
 				recorded = committed.outcome;
 				if (
 					recorded.status === "failed" &&
-					recorded.code === "INVALID_ANSWER_STRUCTURE"
+					(recorded.code === "INVALID_ANSWER_STRUCTURE" ||
+						recorded.code === "INVALID_ANSWER_CONDITIONS")
 				)
 					validationDetail = outcome.validationDetail;
 				return committed;
@@ -316,21 +339,36 @@ export class RunTurn {
 				return { status: "failed", code: result.code };
 			if (result.status === "cancelled") return { status: "cancelled" };
 			const { citations, gap, guide } = tools.evidenceView();
-			if (scope && guide)
-				return validateGuideAnswer(
+			if (scope && guide) {
+				const answer = validateGuideAnswer(
 					result.text,
 					scope,
 					turnId,
 					guide,
 					this.terminology,
 				);
+				if (
+					answer.status === "insufficient_evidence" &&
+					input.scopeDraft &&
+					scope.versionScope.kind === "exact" &&
+					(await tools.unknownReferenceAvailable?.())
+				)
+					return {
+						status: "needs_clarification",
+						text: `没找到适用于 ${scope.versionScope.version} 的攻略，是否查看版本未知的参考？输入「接受」或「拒绝」。`,
+						referencePrompt: true,
+					};
+				return answer;
+			}
 			const validated = validateAnswer(result.text, citations, gap);
 			// 攻略轮次尚未接入领域校验，不能凭未校验的模型文字创建证据驱动追问。
 			return scope && validated.status === "needs_clarification"
 				? { status: "failed", code: "INVALID_ANSWER_STRUCTURE" }
 				: validated;
-		} catch {
-			return terminal ? { status: "failed", code: terminal } : runtimeFailure();
+		} catch (error) {
+			const code =
+				terminal ?? (error instanceof TurnToolError ? error.code : undefined);
+			return code ? { status: "failed", code } : runtimeFailure();
 		} finally {
 			environment?.close();
 		}

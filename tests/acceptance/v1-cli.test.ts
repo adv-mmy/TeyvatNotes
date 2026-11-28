@@ -725,3 +725,25 @@ test("输出限制默认 8192，可在受控模型支持范围内调整", () => 
 		/TEYVAT_MAX_OUTPUT_TOKENS/,
 	);
 });
+
+test("默认模型调用允许 16 次，拒绝第 17 次，显式配置仍可覆盖", () => {
+	const limits = readConfig({}).limits;
+	assert.equal(limits.modelCalls, 16);
+	assert.equal(readConfig({ TEYVAT_MODEL_CALLS: "6" }).limits.modelCalls, 6);
+	const signal = new AbortController().signal;
+	const budget = new TurnBudget(limits, signal);
+	const request = { serializedContext: "{}", signal };
+	try {
+		for (let i = 0; i < 16; i++) {
+			assert.equal(budget.prepare(request).allowed, true);
+			assert.equal(budget.recordUsage(10), true);
+		}
+		assert.deepEqual(budget.prepare(request), {
+			allowed: false,
+			code: "BUDGET_EXHAUSTED",
+		});
+		assert.equal(budget.summary().modelCalls, 16);
+	} finally {
+		budget.close();
+	}
+});

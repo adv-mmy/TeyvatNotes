@@ -9,6 +9,7 @@
 !migrations/
 !migrations/001_guide_store.sql
 !migrations/002_web_guide_evidence.sql
+!migrations/003_nullable_guide_game_versions.sql
 !resources/
 !resources/terminology/
 !resources/terminology/terminology.json

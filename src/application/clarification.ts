@@ -56,7 +56,7 @@ function isNewTeamQuestion(input: string): boolean {
 
 const questions: Readonly<Record<ScopeField, string>> = {
 	entityId: "角色：标准名或已登记别名",
-	gameVersion: "版本：明确版本号",
+	gameVersion: "版本：明确版本号或「最新」",
 	goal: "目标：配队",
 	teamMode: "模式：通用 / 按库存",
 	holding: "目标角色持有：持有 / 不持有",
@@ -94,11 +94,16 @@ function notice(text: string): Notice {
 export class Clarification {
 	private readonly drafts = new WeakMap<WritableSession, Draft>();
 
-	constructor(private readonly terms?: readonly TerminologyEntry[]) {}
+	constructor(
+		private readonly terms?: readonly TerminologyEntry[],
+		private readonly currentGameVersion: string | null = null,
+	) {}
 
 	current(session: WritableSession): string | undefined {
 		const pending = session.history().clarification;
 		if (!pending) return undefined;
+		if (pending.versionReference === "offer")
+			return `需要补充条件：${pending.text}`;
 		return pending.state === "waiting"
 			? `需要补充条件：${pending.text}\n请直接输入要补充的条件。`
 			: readyText;
@@ -139,6 +144,46 @@ export class Clarification {
 				return notice(readyText);
 			}
 			return this.fresh(line, history);
+		}
+
+		if (pending.versionReference === "offer" && pending.scope && this.terms) {
+			const choices = line
+				.normalize("NFKC")
+				.trim()
+				.replace(/[。！!]+$/u, "");
+			if (/^(?:接受(?:参考)?|同意|可以|确认|是)$/u.test(choices)) {
+				const accepted = {
+					...pending,
+					state: "ready",
+					versionReference: "accepted",
+					text: readyText,
+				} as const;
+				return {
+					...this.evaluate(
+						pending.prompt,
+						pending.scope,
+						playerFrom(history),
+						accepted,
+					),
+					confirmation: { conditions: {}, clarification: accepted },
+				};
+			}
+			if (/^(?:拒绝|不接受|不同意|不看|否)$/u.test(choices))
+				return {
+					kind: "run",
+					prompt: pending.prompt,
+					continuing: pending,
+					preflight: {
+						status: "insufficient_evidence",
+						text: "没有找到适用于指定版本的攻略，未使用版本未知的参考。",
+					},
+				};
+			const incoming = parseQuestion(line, this.terms);
+			if (isNewTeamQuestion(line) || (incoming.entityId && incoming.goal)) {
+				await session.abandonClarification(pending.questionTurnId);
+				return this.fresh(line, history);
+			}
+			return notice(pending.text);
 		}
 
 		if (line === "取消")
@@ -207,6 +252,11 @@ export class Clarification {
 						state: "ready",
 						text: readyText,
 						scope: draft.input,
+						...(pending.versionReference === "accepted" &&
+						draft.input.gameVersion === pending.scope?.gameVersion &&
+						draft.input.entityId === pending.scope?.entityId
+							? { versionReference: "accepted" as const }
+							: {}),
 					};
 			return {
 				...next,
@@ -249,18 +299,16 @@ export class Clarification {
 		turn: DialogueTurn,
 		turnId: string,
 		outcome: TurnOutcome,
-		equipmentId?: string,
 	): PendingClarification | null | undefined {
 		if (outcome.status === "needs_clarification") {
-			if (equipmentId && turn.scopeDraft)
+			if (outcome.referencePrompt && turn.scopeDraft)
 				return {
 					questionTurnId: turn.continuing?.questionTurnId ?? turnId,
 					prompt: turn.continuing?.prompt ?? turn.prompt,
 					text: outcome.text,
 					state: "waiting",
 					scope: turn.scopeDraft,
-					fields: ["equipment"],
-					equipmentId,
+					versionReference: "offer",
 				};
 			if (turn.waiting)
 				return {
@@ -312,7 +360,7 @@ export class Clarification {
 		player: PlayerInventory,
 		continuing?: PendingClarification,
 	): DialogueTurn {
-		const result = resolveScope(scope, player);
+		const result = resolveScope(scope, player, this.currentGameVersion);
 		const turn = {
 			kind: "run",
 			prompt,
@@ -320,19 +368,24 @@ export class Clarification {
 		} as const;
 		switch (result.kind) {
 			case "ready":
-				return { ...turn, scope: result.scope, scopeDraft: scope };
-			case "no_team":
 				return {
 					...turn,
-					preflight: {
-						status: "insufficient_evidence",
-						text:
-							result.reason === "target_absent"
-								? "已确认未持有目标角色，无法提供当前可用的该角色队伍。"
-								: result.reason === "target_excluded"
-									? "本轮明确不使用目标角色，无法以该角色组队。"
-									: "已确认没有可用的队友，无法按库存提供配队。",
-					},
+					scopeDraft: scope,
+					scope:
+						continuing?.versionReference === "accepted" &&
+						result.scope.versionScope.kind === "exact" &&
+						continuing.scope?.entityId === scope.entityId &&
+						continuing.scope?.gameVersion === scope.gameVersion &&
+						continuing.scope?.goal === scope.goal &&
+						continuing.scope?.teamMode === scope.teamMode
+							? {
+									...result.scope,
+									versionScope: {
+										...result.scope.versionScope,
+										kind: "unknown_reference",
+									},
+								}
+							: result.scope,
 				};
 			case "missing": {
 				const text = `请补充以下条件：${result.fields.map((field) => questions[field]).join("；")}。`;

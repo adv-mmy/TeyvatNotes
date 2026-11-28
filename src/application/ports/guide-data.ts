@@ -1,7 +1,9 @@
-/** 仅传入可安全前置筛选的范围，不把玩家库存交给存储或 Embedding。 */
+import type { GameVersions } from "../../domain/query-scope.js";
+
+/** 仅传入可安全前置筛选的范围；null 只查版本未知层。 */
 export interface GuideFilter {
 	readonly entityId: string;
-	readonly gameVersion: string;
+	readonly gameVersion: string | null;
 	readonly guideKind: "team";
 }
 
@@ -24,7 +26,8 @@ export interface GuideChunkMetadata {
 	readonly documentVersionId: string;
 	readonly entityId: string;
 	readonly guideKind: "team";
-	readonly gameVersions: { readonly from: string; readonly through: string };
+	readonly gameVersions: GameVersions;
+	readonly fromWeb?: boolean;
 	readonly applicability:
 		| { readonly kind: "unrestricted" }
 		| { readonly kind: "unknown" }
@@ -130,6 +133,8 @@ export interface ImportDocument {
 		readonly permission: string;
 		readonly parser: string;
 		readonly fields: import("./guide-source.js").FieldProofs;
+		readonly revision: import("./guide-source.js").SourceRevision;
+		readonly unknownGameVersionReason?: "not_stated";
 	};
 	readonly id: string;
 	readonly title: string;
@@ -139,10 +144,7 @@ export interface ImportDocument {
 	readonly processingVersion: string;
 	readonly entityId: string;
 	readonly gameVersions: GuideChunkMetadata["gameVersions"];
-	readonly applicability: Exclude<
-		GuideChunkMetadata["applicability"],
-		{ kind: "unknown" }
-	>;
+	readonly applicability: GuideChunkMetadata["applicability"];
 	readonly chunks: readonly ImportedChunk[];
 }
 

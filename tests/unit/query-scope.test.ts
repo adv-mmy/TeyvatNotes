@@ -210,12 +210,27 @@ test("不从最新版、相邻版本或冲突库存意图推断已确认条件",
 		undefined,
 	);
 	assert.deepEqual(
-		resolveScope(parseQuestion("小甲怎么配队", terms), { holdings: {} }),
+		resolveScope(parseQuestion("小甲 7.1 或 7.2 怎么配队", terms), {
+			holdings: {},
+		}),
 		{
 			kind: "missing",
 			fields: ["gameVersion"],
 		},
 	);
+	for (const question of ["小甲怎么配队", "小甲最新版怎么配队"]) {
+		const result = resolveScope(
+			parseQuestion(question, terms),
+			{ holdings: {} },
+			"7.3",
+		);
+		assert.equal(result.kind, "ready");
+		if (result.kind === "ready")
+			assert.deepEqual(result.scope.versionScope, {
+				kind: "latest",
+				currentVersion: "7.3",
+			});
+	}
 });
 
 test("库存未知和明确为空不同，通用模式不要求库存", () => {
@@ -227,21 +242,20 @@ test("库存未知和明确为空不同，通用模式不要求库存", () => {
 			kind: "unknown",
 		});
 	const personal = parseQuestion("小甲 7.1 按库存配队", terms);
-	assert.deepEqual(resolveScope(personal, { holdings: {} }), {
-		kind: "missing",
-		fields: ["holding", "teammates"],
+	const unknown = resolveScope(personal, { holdings: {} });
+	assert.ok(unknown.kind === "ready");
+	assert.deepEqual(unknown.scope.playerConstraints.teammates, {
+		kind: "unknown",
 	});
-	assert.deepEqual(resolveScope(personal, { holdings: {}, teammates: [] }), {
-		kind: "no_team",
-		reason: "no_teammates",
+	const empty = resolveScope(personal, { holdings: {}, teammates: [] });
+	assert.ok(empty.kind === "ready");
+	assert.deepEqual(empty.scope.playerConstraints.teammates, {
+		kind: "known",
+		items: [],
 	});
-	assert.deepEqual(
-		resolveScope(personal, { holdings: { 角色甲: "not_owned" } }),
-		{
-			kind: "no_team",
-			reason: "target_absent",
-		},
-	);
+	const absent = resolveScope(personal, { holdings: { 角色甲: "not_owned" } });
+	assert.ok(absent.kind === "ready");
+	assert.equal(absent.scope.playerConstraints.targetHolding, "not_owned");
 	const notOwned = { holdings: { 角色甲: "not_owned" as const } };
 	const reference = resolveScope(general, notOwned);
 	assert.equal(reference.kind, "ready");
@@ -252,28 +266,29 @@ test("库存未知和明确为空不同，通用模式不要求库存", () => {
 				requiredCharacterIds: ["角色甲"],
 				requiredEquipmentIds: [],
 			}),
-			"usable",
+			"unavailable",
 		);
 	}
-	assert.deepEqual(
-		resolveScope(
-			parseQuestion("小甲 7.1 通用配队本轮不用小甲", terms),
-			notOwned,
-		),
-		{ kind: "no_team", reason: "target_excluded" },
+	const excluded = resolveScope(
+		parseQuestion("小甲 7.1 通用配队本轮不用小甲", terms),
+		notOwned,
 	);
+	assert.ok(excluded.kind === "ready");
+	assert.deepEqual(excluded.scope.playerConstraints.avoidedCharacters, [
+		"角色甲",
+	]);
 });
 
-test("仅在用户限制装备时追问，按已确认状态过滤不能使用的队友而不是推断其余库存", () => {
+test("限制装备但清单未知时仍建立参考范围；明确未持有的队友保留为限制", () => {
 	const draft = parseQuestion("小甲 7.1 按我的装备配队", terms);
 	const inventory = {
 		holdings: { 角色甲: "owned", 角色乙: "not_owned" },
 		teammates: ["角色甲", "角色乙", "队友丙"],
 	} as const;
-	assert.deepEqual(resolveScope(draft, inventory), {
-		kind: "missing",
-		fields: ["equipment"],
-	});
+	const unknown = resolveScope(draft, inventory);
+	assert.ok(unknown.kind === "ready");
+	assert.equal(unknown.scope.playerConstraints.equipment.kind, "unknown");
+	assert.equal(unknown.scope.playerConstraints.limitEquipment, true);
 	const result = resolveScope({ ...draft, equipment: [] }, inventory);
 	assert.equal(result.kind, "ready");
 	if (result.kind === "ready") {

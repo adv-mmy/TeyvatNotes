@@ -153,56 +153,102 @@ for (const [scenario, detail] of [
 }
 
 test(
-	"同一会话未持有目标：按库存不编队，通用配队仍可给引用与持有前提",
+	"真实 CLI＋Pi：先给带引用的配队思路，再给模型整理阵容，历史可恢复",
 	linux,
 	async (t) => {
-		const cli = await open(t, "guides-reference");
-		cli.send("小甲 7.1 按库存配队我没有小甲");
-		await cli.until(/已确认未持有目标角色/u);
+		const cli = await open(t, "guides-observations");
 		cli.send("小甲 7.1 通用配队");
-		await cli.until(/参考配队：角色甲＋队友丙＋队友丁＋队友戊/u);
-		await cli.until(/尚未持有目标角色「角色甲」/u);
-		await cli.until(/原文：https:\/\/example\.test\/guide/u);
-		cli.send("小甲 7.1 通用配队本轮不用小甲");
-		await cli.until(/本轮明确不使用目标角色/u);
+		const readAnswer = async () => {
+			await cli.until(/配队思路：\n队友选择：可以从队友丙入手/u);
+			await cli.until(
+				/配队建议（模型整理）：\n参考配队：角色甲＋队友丙＋队友丁＋队友戊/u,
+			);
+			await cli.until(/原文：https:\/\/example\.test\/guide/u);
+		};
+		await readAnswer();
+		cli.send("/history");
+		await cli.until(/问题：小甲 7.1 通用配队/u);
+		await readAnswer();
 		await cli.close();
-		assert.deepEqual(
-			cli.diagnostics().map(({ modelCalls }) => modelCalls),
-			[0, 3, 0],
-		);
+		const [trace, ...extra] = cli.diagnostics();
+		assert.equal(extra.length, 0);
+		assert.equal(trace.status, "answered");
+		assert.deepEqual([trace.modelCalls, trace.toolCalls], [3, 2]);
+		assert.equal(cli.output().match(/引用：隔离攻略 G-01/gu)?.length, 2);
+		assert.equal(cli.output().match(/角色甲的队友备选：队友丙。/gu)?.length, 2);
+		assert.doesNotMatch(cli.output(), /资料不足：|INVALID_ANSWER_CONDITIONS/u);
+		assert.doesNotMatch(cli.errors(), /队友丙/u);
 	},
 );
 
-test(
-	"按库存配队回读后追问必要装备，确认后新开一轮再检索和回读",
-	linux,
-	async (t) => {
-		const cli = await open(t, "guides-equipment");
-		cli.send("小甲 7.1 按库存配队");
-		await cli.until(/目标角色持有：持有/u);
-		cli.send("目标角色持有：持有；队友：队友丙、队友丁、队友戊");
-		await cli.until(/补充条件待确认/u);
-		cli.send("确认");
-		await cli.until(/回读的配队方案需要「试验弓」/u);
-		cli.send("装备：小弓");
-		await cli.until(/补充条件待确认：装备：试验弓/u);
-		cli.send("确认");
-		await cli.until(/适用前提：需持有试验弓/u);
-		await cli.until(/引用：隔离攻略 G-01/u);
-		await cli.close();
-		const rows = cli.diagnostics();
-		assert.deepEqual(
-			rows.map(({ status, modelCalls, toolCalls }) => [
-				status,
-				modelCalls,
-				toolCalls,
-			]),
-			[
-				["needs_clarification", 0, 0],
-				["needs_clarification", 3, 2],
-				["answered", 3, 2],
-			],
-		);
-		assert.equal(new Set(rows.map(({ turnId }) => turnId)).size, 3);
-	},
-);
+test("真实 CLI＋Pi：候选没读完仍拒绝把实际命中当资料不足", linux, async (t) => {
+	const cli = await open(t, "guides-condition-unread");
+	cli.send("小甲 7.1 通用配队；不公开的模拟问题标记");
+	const terminal =
+		/INVALID_ANSWER_CONDITIONS：回答与已确认条件或证据前提不符，未展示。/u;
+	await cli.until(terminal);
+	cli.send("/history");
+	await cli.until(/问题：小甲 7.1 通用配队/u);
+	await cli.until(terminal);
+	await cli.close();
+	const [trace, ...extra] = cli.diagnostics();
+	assert.equal(extra.length, 0);
+	assert.equal(trace.errorCode, "INVALID_ANSWER_CONDITIONS");
+	assert.equal(
+		trace.validationDetail,
+		"insufficient_evidence:unread_candidates",
+	);
+	assert.deepEqual([trace.modelCalls, trace.toolCalls], [3, 2]);
+	assert.doesNotMatch(
+		cli.output(),
+		/引用：|validationDetail|不公开的模拟模型原文/u,
+	);
+	assert.doesNotMatch(cli.errors(), /不公开的模拟|队友丙/u);
+});
+
+test("未持有或本轮排除目标时，两种模式仍展示原文参考", linux, async (t) => {
+	const cli = await open(t, "guides-reference");
+	cli.send("小甲 7.1 按库存配队我没有小甲");
+	await cli.until(/参考配队：角色甲＋队友丙＋队友丁＋队友戊/u);
+	await cli.until(/尚未持有角色「角色甲」/u);
+	await cli.until(/原文：https:\/\/example\.test\/guide/u);
+	cli.send("小甲 7.1 通用配队本轮不用小甲");
+	await cli.until(/本轮排除角色「角色甲」/u);
+	await cli.until(/原文：https:\/\/example\.test\/guide/u);
+	await cli.close();
+	assert.deepEqual(
+		cli
+			.diagnostics()
+			.map(({ modelCalls, searchCalls }) => [modelCalls, searchCalls]),
+		[
+			[3, 0],
+			[3, 0],
+		],
+	);
+});
+
+test("必需装备未知先给参考，确认持有后新轮可展示可用配队", linux, async (t) => {
+	const cli = await open(t, "guides-equipment");
+	cli.send("小甲 7.1 按库存配队；我有小甲、队友丙、队友丁、队友戊");
+	await cli.until(/参考配队：/u);
+	await cli.until(/必要装备持有状态未确认/u);
+	await cli.until(/引用：隔离攻略 G-01/u);
+	cli.send("小甲 7.1 按库存配队；我有小弓");
+	await cli.until(/可用配队：/u);
+	await cli.until(/适用前提：需持有试验弓/u);
+	await cli.until(/引用：隔离攻略 G-01/u);
+	await cli.close();
+	const rows = cli.diagnostics();
+	assert.deepEqual(
+		rows.map(({ status, modelCalls, toolCalls }) => [
+			status,
+			modelCalls,
+			toolCalls,
+		]),
+		[
+			["answered", 3, 2],
+			["answered", 3, 2],
+		],
+	);
+	assert.equal(new Set(rows.map(({ turnId }) => turnId)).size, 2);
+});

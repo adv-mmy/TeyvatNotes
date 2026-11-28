@@ -89,7 +89,7 @@ async function events(root: string, id: string) {
 }
 
 test(
-	"明确未持有跨进程保留，本轮禁用不跨轮；过滤后回读替代攻略，无解不编队",
+	"明确未持有跨进程保留，本轮禁用不跨轮；有库存冲突的原文仍可展示",
 	options,
 	async (t) => {
 		const root = await isolated(t);
@@ -103,7 +103,9 @@ test(
 		resumed.send(`/open ${id}`);
 		await resumed.receive(/已打开会话/u);
 		resumed.send("小甲 7.1 怎么配队？本轮不用小弓");
-		await resumed.receive(/资料不足/u);
+		await resumed.receive(/参考配队：/u);
+		await resumed.receive(/本轮排除装备「试验弓」/u);
+		await resumed.receive(/原文：https:\/\/example\.test\/alternative/u);
 		resumed.send("小甲 7.1 怎么配队");
 		await resumed.receive(/原文：https:\/\/example.test\/alternative/u);
 		resumed.send("小甲 7.1 怎么配队？我有角色乙，本轮不用小弓");
@@ -112,7 +114,7 @@ test(
 		assert.deepEqual(
 			resumed.diagnostics().map((r) => [r.status, r.toolCalls, r.searchCalls]),
 			[
-				["insufficient_evidence", 1, 0],
+				["answered", 2, 0],
 				["answered", 2, 0],
 				["answered", 2, 0],
 			],
@@ -121,13 +123,13 @@ test(
 );
 
 test(
-	"V2 装配从仓库术语资源读取角色别名，缺版本时仍不调用模型",
+	"V2 装配从仓库术语资源读取角色别名，版本冲突时仍不调用模型",
 	options,
 	async (t) => {
 		const root = await isolated(t);
 		const client = cli(t, root, "v2-local-terminology");
 		const id = await create(client);
-		client.send("奥萝塔怎么配队");
+		client.send("奥萝塔 7.1 或 7.2 怎么配队");
 		await client.receive(/需要补充条件：请补充以下条件：版本：明确版本号/u);
 		await client.exit();
 		const rows = await events(root, id);
@@ -147,31 +149,21 @@ test(
 		const root = await isolated(t);
 		const first = cli(t, root, "v2-fail");
 		const id = await create(first);
-		first.send("小甲按库存配队");
+		first.send("小甲 7.1 或 7.2 按库存配队");
 		await first.receive(/需要补充条件：请补充以下条件：版本：明确版本号/u);
 		first.send("版本：7.1");
 		await first.receive(/补充条件待确认：版本：7.1/u);
-		first.send("确认");
-		await first.receive(/需要补充条件：.*目标角色持有：持有.*队友：名字列表/u);
-		first.send("目标角色持有：持有；队友：队友丙");
-		await first.receive(/补充条件待确认：目标角色持有：持有；队友：队友丙/u);
 		first.send("确认");
 		await first.receive(/MODEL_FAILED/u);
 		await first.exit();
 		assert.deepEqual(
 			first.diagnostics().map(({ modelCalls }) => modelCalls),
-			[0, 0, 1],
+			[0, 1],
 		);
 		const rows = await events(root, id);
 		const originalId = rows[0].turnId;
-		const confirmed = rows.find(
-			({ type, conditions }) =>
-				type === "conditions_confirmed" && conditions.holdings,
-		);
-		assert.deepEqual(confirmed.conditions, {
-			holdings: { 角色甲: "owned" },
-			teammates: ["队友丙"],
-		});
+		const confirmed = rows.find(({ type }) => type === "conditions_confirmed");
+		assert.equal(confirmed.clarification.scope.gameVersion, "7.1");
 		assert.equal(confirmed.clarification.questionTurnId, originalId);
 		assert.equal(confirmed.clarification.state, "ready");
 		assert.equal(rows.at(-1).outcome.code, "MODEL_FAILED");
@@ -202,13 +194,13 @@ test(
 		const root = await isolated(t);
 		const client = cli(t, root, "v2-switch");
 		const id = await create(client);
-		client.send("小甲 7.1 按库存配队");
-		await client.receive(/需要补充条件：.*目标角色持有/u);
+		client.send("小甲 7.1 或 7.2 按库存配队");
+		await client.receive(/需要补充条件：.*版本/u);
 		const pending = await events(root, id);
 		client.send("确认前还能修改吗？");
 		await client.receive(/未能明确识别补充条件，未保存/u);
 		assert.deepEqual(await events(root, id), pending);
-		client.send("目标角色持有：持有；队友：队友丙");
+		client.send("版本：7.1");
 		await client.receive(/补充条件待确认/u);
 		client.send("新问题：角色乙 7.2 怎么配队");
 		await client.receive(/引用：TeyvatNotes 隔离测试样本/u);
@@ -234,12 +226,8 @@ test(
 		const client = cli(t, root, "v2-inheritance");
 		const id = await create(client);
 		client.send(
-			"小甲 7.1 按库存配队，限用装备，我有角色甲，我没有角色乙，本轮不用小弓",
+			"小甲 7.1 按库存配队，限用装备，我有角色甲、队友丙，我没有角色乙，本轮不用小弓",
 		);
-		await client.receive(/需要补充条件：.*队友：.*装备：/u);
-		client.send("队友：队友丙；装备：无");
-		await client.receive(/补充条件待确认：队友：队友丙；装备：明确为空/u);
-		client.send("确认");
 		await client.receive(/引用：TeyvatNotes 隔离测试样本/u);
 		for (const input of [
 			"小甲 7.2 按库存配队",
@@ -259,7 +247,6 @@ test(
 					toolCalls,
 				]),
 			[
-				["needs_clarification", 0, 0],
 				["answered", 3, 2],
 				["answered", 3, 2],
 				["answered", 3, 2],
@@ -271,44 +258,40 @@ test(
 		);
 		assert.ok(confirmed.length > 0);
 		assert.deepEqual(confirmed.at(-1)?.conditions, {
-			holdings: { 角色甲: "owned", 角色乙: "not_owned" },
-			equipment: [],
-			teammates: ["队友丙"],
+			holdings: { 角色甲: "owned", 角色乙: "not_owned", 队友丙: "owned" },
+			equipmentHoldings: {},
 		});
 	},
 );
 
 test(
-	"V2 放弃追问不会写入草稿，明确空库存不再追问也不调用模型",
+	"V2 放弃版本草稿不写入会话，明确排除候选角色也不拒绝查证",
 	options,
 	async (t) => {
 		const root = await isolated(t);
 		const client = cli(t, root, "v2-never");
 		const id = await create(client);
-		client.send("小甲 7.1 按库存配队");
+		client.send("小甲 7.1 或 7.2 按库存配队");
 		await client.receive(/需要补充条件/u);
-		client.send("目标角色持有：持有");
+		client.send("版本：7.2");
 		await client.receive(/补充条件待确认/u);
 		client.send("放弃");
 		await client.receive(/已放弃当前追问/u);
-		client.send("小甲 7.1 按库存配队");
-		await client.receive(/需要补充条件/u);
-		client.send("队友：无");
-		await client.receive(/补充条件待确认：队友：明确为空/u);
-		client.send("确认");
-		await client.receive(/已确认没有可用的队友/u);
+		client.send("小甲 7.1 按库存配队，我没有队友丙");
+		await client.receive(/引用：TeyvatNotes 隔离测试样本/u);
 		await client.exit();
 		const rows = await events(root, id);
 		const confirmations = rows.filter(
 			({ type }) => type === "conditions_confirmed",
 		);
-		assert.deepEqual(
-			confirmations.map(({ conditions }) => conditions),
-			[{ teammates: [] }],
+		assert.ok(
+			confirmations.every(
+				({ clarification }) => clarification?.scope?.gameVersion !== "7.2",
+			),
 		);
 		assert.deepEqual(
 			client.diagnostics().map(({ modelCalls }) => modelCalls),
-			[0, 0, 0],
+			[0, 3],
 		);
 	},
 );

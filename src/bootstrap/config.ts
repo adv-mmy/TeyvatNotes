@@ -7,11 +7,15 @@ import {
 	validPermit,
 } from "../application/ports/guide-source.js";
 import type { TurnLimits } from "../application/turn-budget.js";
-import type { TerminologyEntry } from "../domain/query-scope.js";
+import {
+	gameVersionKey,
+	type TerminologyEntry,
+} from "../domain/query-scope.js";
 
 export interface Config {
 	readonly sessionDirectory: string;
 	readonly limits: TurnLimits;
+	readonly currentGameVersion: string | null;
 }
 
 function integer(
@@ -47,15 +51,8 @@ export async function readWebConfig(env: NodeJS.ProcessEnv) {
 		!permits.every(validPermit)
 	)
 		throw new Error("WEB_SOURCE_UNAVAILABLE");
-	if (!permits.some((p) => p.access === "fetch_store_cite")) return undefined;
-	const key = (
-		await readFile(
-			env.TEYVAT_SEARCH_API_KEY_FILE ?? "/run/secrets/search_api_key",
-			"utf8",
-		)
-	).trim();
-	if (!/^[\x21-\x7e]+$/u.test(key)) throw new Error("WEB_SOURCE_UNAVAILABLE");
-	return { key, permits: permits as SourcePermit[] };
+	if (!permits.length) return undefined;
+	return { permits: permits as readonly SourcePermit[] };
 }
 
 export async function readAnswerConfig(env: NodeJS.ProcessEnv) {
@@ -159,6 +156,14 @@ export async function readTerminology(
 }
 
 export function readConfig(env: NodeJS.ProcessEnv): Config {
+	const currentGameVersion = env.TEYVAT_CURRENT_GAME_VERSION?.trim() || null;
+	if (
+		currentGameVersion !== null &&
+		gameVersionKey(currentGameVersion) === undefined
+	)
+		throw new Error(
+			"配置 TEYVAT_CURRENT_GAME_VERSION 必须是已核实的游戏版本号",
+		);
 	const output = integer(
 		env,
 		"TEYVAT_MAX_OUTPUT_TOKENS",
@@ -168,16 +173,17 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
 	);
 	return {
 		sessionDirectory: resolve(env.TEYVAT_SESSION_DIR ?? "/data/sessions"),
+		currentGameVersion,
 		limits: {
 			turnMs: integer(env, "TEYVAT_TURN_MS", 30_000, 1, 300_000),
 			modelMs: integer(env, "TEYVAT_MODEL_MS", 10_000, 1, 120_000),
 			toolMs: integer(env, "TEYVAT_TOOL_MS", 3_000, 1, 60_000),
 			searchMs: integer(env, "TEYVAT_SEARCH_MS", 3_000, 1, 60_000),
 			fetchMs: integer(env, "TEYVAT_FETCH_MS", 3_000, 1, 60_000),
-			modelCalls: integer(env, "TEYVAT_MODEL_CALLS", 6, 1, 30),
+			modelCalls: integer(env, "TEYVAT_MODEL_CALLS", 16, 1, 30),
 			toolCalls: integer(env, "TEYVAT_TOOL_CALLS", 8, 1, 100),
 			searchCalls: integer(env, "TEYVAT_SEARCH_CALLS", 1, 0, 1),
-			fetchCalls: integer(env, "TEYVAT_FETCH_CALLS", 3, 0, 3),
+			fetchCalls: integer(env, "TEYVAT_FETCH_CALLS", 3, 0, 6),
 			contextTokens: integer(
 				env,
 				"TEYVAT_CONTEXT_TOKENS",

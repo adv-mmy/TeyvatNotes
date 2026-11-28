@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import {
 	gameVersionKey,
 	hasKnownPremise,
-	inventoryFit,
+	matchesVersionLayer,
 	resolveTerm,
 	type TermCategory,
 	type TerminologyEntry,
 	versionApplies,
+	versionLayers,
 } from "../domain/query-scope.js";
 import { TurnToolError } from "./guide-tools.js";
 import { untilAborted } from "./ports/agent.js";
@@ -25,6 +26,7 @@ import {
 	type ParsePage,
 	permittedUrl,
 	type SourcePermit,
+	type SourceRequestBudget,
 	type SupplementStatus,
 	validPermit,
 	type WebSupplement,
@@ -245,6 +247,11 @@ export function prepareGuide(
 	format: "json" | "markdown",
 	terms: readonly TerminologyEntry[],
 	processingVersion = manualProcessingVersion,
+	options?: {
+		projectBody: (content: string) => string;
+		allowUnknownVersion: boolean;
+		allowUnknownApplicability?: boolean;
+	},
 ): ImportDocument {
 	const normalized = raw.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
 	if (normalized.length > maxBody * 2 || normalized.includes("\0"))
@@ -263,23 +270,34 @@ export function prepareGuide(
 	const url = sourceUrl(value.sourceUrl);
 	const entityId = requiredTerm(value.entityId, terms, ["character"]);
 	const range = value.gameVersions;
-	if (!object(range) || value.guideKind !== "team") return incomplete();
+	if (value.guideKind !== "team") return incomplete();
 	const version = (input: unknown) => {
 		const text = string(input) ?? incomplete();
 		if (gameVersionKey(text) === undefined) return incomplete();
 		const [major, minor, patch] = text.split(".").map(Number);
 		return patch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
 	};
-	const gameVersions = {
-		from: version(range.from),
-		through: version(range.through),
-	};
-	if (!versionApplies(gameVersions.from, gameVersions)) return incomplete();
+	const gameVersions = object(range)
+		? {
+				from: version(range.from),
+				through: version(range.through),
+			}
+		: range === null && options?.allowUnknownVersion
+			? null
+			: incomplete();
+	if (gameVersions && !versionApplies(gameVersions.from, gameVersions))
+		return incomplete();
 	const data = value.applicability;
 	if (!object(data)) return incomplete();
 	let applicability: ImportDocument["applicability"];
 	if (data.kind === "unrestricted" && Object.keys(data).length === 1)
 		applicability = { kind: "unrestricted" };
+	else if (
+		options?.allowUnknownApplicability &&
+		data.kind === "unknown" &&
+		Object.keys(data).length === 1
+	)
+		applicability = { kind: "unknown" };
 	else if (data.kind === "known") {
 		const conditions = list(data.conditions);
 		const requiredCharacterIds = [
@@ -340,7 +358,13 @@ export function prepareGuide(
 		content,
 		contentHash,
 		processingVersion,
-		chunks: chunksFor(content, offset + start, id, entityId, terms),
+		chunks: chunksFor(
+			options?.projectBody(content) ?? content,
+			offset + start,
+			id,
+			entityId,
+			terms,
+		),
 	};
 }
 
@@ -384,6 +408,8 @@ export class IngestGuide {
 		publish: boolean,
 		signal: AbortSignal,
 	) {
+		if (document.applicability.kind === "unknown" && !document.webEvidence)
+			throw new IngestError("GUIDE_METADATA_INCOMPLETE");
 		const guide = await this.repository.save(document, this.config, signal);
 		try {
 			if (!guide.indexed || !(await this.visible(guide, signal))) {
@@ -441,66 +467,70 @@ export function webSupplement(options: {
 	ingest: IngestGuide;
 	archive: (page: IncompletePage, signal: AbortSignal) => Promise<void>;
 }): WebSupplement {
-	return async (scope, budget, signal) => {
+	return async (scope, budget, toolSignal) => {
+		const signal = AbortSignal.any([toolSignal, budget.signal]);
 		signal.throwIfAborted();
 		const permits = options.permits.filter(
-			(p) =>
-				validPermit(p) &&
-				p.access === "fetch_store_cite" &&
-				options.source.canFetch(p),
+			(p) => validPermit(p) && options.source.canFetch(p),
 		);
 		if (!permits.length) return "source_restricted";
-		// 仅由已确认范围构造出站参数，不转发模型自由文本、玩家条件或历史。
-		const domains = [
-			...new Set(permits.map((p) => `site:${new URL(p.origin).hostname}`)),
-		];
-		const query = [
-			scope.entityId,
-			scope.gameVersion,
-			"配队",
-			domains.join(" OR "),
-		].join(" ");
-		if (Array.from(query).length > 128)
-			throw new TurnToolError("WEB_SOURCE_UNAVAILABLE");
-		const request = async <T>(
-			op: "search" | "fetch",
-			run: (signal: AbortSignal) => Promise<T>,
+		if (!budget.canStartSource) throw new TurnToolError("BUDGET_EXHAUSTED");
+		const runSource = async <T>(
+			run: (requests: SourceRequestBudget) => Promise<T>,
 		) => {
-			signal.throwIfAborted();
-			const timeout = budget.startSource(op);
-			if (!timeout) throw new TurnToolError("BUDGET_EXHAUSTED");
-			const active = AbortSignal.any([signal, budget.signal, timeout]);
+			let timeout: AbortSignal | undefined;
+			const requests: SourceRequestBudget = {
+				begin(operation) {
+					signal.throwIfAborted();
+					const step = budget.startSource(
+						operation === "discover" ? "search" : "fetch",
+					);
+					if (!step) throw new TurnToolError("BUDGET_EXHAUSTED");
+					timeout = step;
+					return AbortSignal.any([signal, step]);
+				},
+			};
 			try {
-				return await untilAborted(() => run(active), active);
-			} catch {
+				return await untilAborted(() => run(requests), signal);
+			} catch (error) {
 				signal.throwIfAborted();
-				budget.signal.throwIfAborted();
+				if (error instanceof TurnToolError) throw error;
 				throw new TurnToolError(
-					timeout.aborted ? "TOOL_TIMEOUT" : "WEB_SOURCE_UNAVAILABLE",
+					timeout?.aborted ? "TOOL_TIMEOUT" : "WEB_SOURCE_UNAVAILABLE",
 				);
 			}
 		};
-		const links = await request("search", (s) =>
-			options.source.search(query, s),
+		// 网站只接收标准角色名；版本和库存由应用在本地核验。
+		const candidates = await runSource((requests) =>
+			options.source.search(scope.entityId, requests),
 		);
-		if (!links.length) return "no_results";
+		if (!candidates.length) return "no_results";
 		let outcome: SupplementStatus = "source_restricted";
-		let sawInventoryMismatch = false;
+		let publishedFallback = false;
+		const layers = versionLayers(scope.versionScope);
 		const seen = new Set<string>();
-		for (const link of links) {
+		for (const candidate of candidates) {
 			signal.throwIfAborted();
-			const permit = permits.find(
-				(p) => permittedUrl(link, p) && options.source.canFetch(p),
-			);
+			const permit = permits.find((p) => options.source.canFetch(p, candidate));
 			if (!permit) continue;
-			const url = permittedUrl(link, permit);
+			const url = permittedUrl(candidate.url, permit);
 			if (!url || seen.has(url)) continue;
 			if (seen.size >= 3) break;
+			if (!budget.canReadSourcePage) {
+				// 剩余一次调用只能读目录，无法读完新候选。若已确认元数据缺口，
+				// 保留该结果，不用预期中的预算不足盖掉它。
+				if (publishedFallback || outcome === "metadata_incomplete") break;
+				throw new TurnToolError("BUDGET_EXHAUSTED");
+			}
 			seen.add(url);
-			const page = await request("fetch", (s) =>
-				options.source.fetch(url, permit, s),
+			const page = await runSource((requests) =>
+				options.source.fetch({ ...candidate, url }, permit, requests),
 			);
 			signal.throwIfAborted();
+			if (!page) {
+				if (outcome === "source_restricted") outcome = "no_readable_body";
+				continue;
+			}
 			const parsed = options.parse(page, url, permit.reference, options.terms);
 			if (parsed.kind === "unreadable") {
 				if (outcome === "source_restricted") outcome = "no_readable_body";
@@ -515,9 +545,12 @@ export function webSupplement(options: {
 				continue;
 			}
 			const doc = parsed.document;
+			const tier = layers.findIndex((layer) =>
+				matchesVersionLayer(layer, doc.gameVersions),
+			);
 			if (
 				doc.entityId !== scope.entityId ||
-				!versionApplies(scope.gameVersion, doc.gameVersions)
+				(tier < 0 && doc.gameVersions !== null)
 			) {
 				outcome = "scope_mismatch";
 				continue;
@@ -537,15 +570,16 @@ export function webSupplement(options: {
 						: "RETRIEVAL_UNAVAILABLE",
 				);
 			}
-			if (
-				doc.applicability.kind === "known" &&
-				inventoryFit(scope, doc.applicability) === "unavailable"
-			) {
-				sawInventoryMismatch = true;
+			if (tier < 0) {
+				outcome = "scope_mismatch";
+				continue;
+			}
+			if (tier > 0) {
+				publishedFallback = true;
 				continue;
 			}
 			return "indexed";
 		}
-		return sawInventoryMismatch ? "inventory_mismatch" : outcome;
+		return publishedFallback ? "indexed" : outcome;
 	};
 }

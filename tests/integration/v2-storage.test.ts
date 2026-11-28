@@ -16,7 +16,7 @@ import { OllamaEmbedder } from "../../src/adapters/ollama/embedder.js";
 import { createResponsesRuntime } from "../../src/adapters/pi/runtime.js";
 import { PostgreSqlGuideRepository } from "../../src/adapters/postgres/guide-repository.js";
 import { migrate } from "../../src/adapters/postgres/migrate.js";
-import { DeepSeekSource } from "../../src/adapters/web/deepseek-source.js";
+import { BwikiSource, bwikiApi } from "../../src/adapters/web/bwiki-source.js";
 import { parseWebGuide } from "../../src/adapters/web/metadata-parser.js";
 import { createGuideTools } from "../../src/application/guide-tools.js";
 import {
@@ -63,65 +63,152 @@ const fixture = {
 	guideKind: "team",
 	gameVersions: { from: "7.2", through: "7.10" },
 	applicability: { kind: "unrestricted" },
-	body: "## 配队\n隔离验收正文：钟离、班尼特、香菱、行秋组队，示例角色带黑缨枪。\n\n| 前提 | 示例 |\n| --- | --- |\n| 验收 | 虚构 |\n\n## 注意\n这段正文用于检验引用定位。",
+	body: "## 配队\n示例阵容为钟离、班尼特、香菱、行秋。\n\n| 前提 | 示例 |\n| --- | --- |\n| 装备 | 黑缨枪 |\n\n## 注意\n这段正文用于检验引用定位。",
 };
 
-test("DeepSeek 接口只检索链接；重定向能力未经验证时不发正文请求", async (t) => {
-	const permit = {
-		origin: "https://example.invalid",
-		path: "/guides/",
-		reference: "隔离",
-		access: "fetch_store_cite",
-	} as const;
-	for (const url of [
-		"https://127.0.0.1/guides/a",
-		"http://example.invalid/guides/a",
-		"https://example.invalid/outside",
-		"https://u@example.invalid/guides/a",
-		"https://example.invalid/guides/%2e%2e/u",
-		"https://example.invalid/guides/a?next=elsewhere",
-	]) {
-		assert.equal(permittedUrl(url, permit), undefined);
-	}
-	let calls = 0;
-	const url = `${permit.origin}/guides/1`;
-	t.mock.method(
-		globalThis,
-		"fetch",
-		async (_url: string, init: RequestInit) => {
-			calls++;
-			assert.equal(_url, "https://api.deepseek.com/v1/tools/search");
-			assert.deepEqual(JSON.parse(String(init.body)), {
-				query: "钟离 7.1 配队 site:example.invalid",
-				count: 10,
-				need_content: false,
-			});
-			return Response.json({
-				results: [{ url, content: "意外正文", snippet: "摘要" }],
-			});
+const permit = {
+	origin: "https://wiki.biligame.com",
+	api: bwikiApi,
+	path: "/ys/",
+	reference: "仅用于隔离测试的虚构许可",
+	access: "fetch_store_cite",
+} as const;
+const revision = {
+	id: 81743,
+	section: { index: "13", title: "阵容搭配", anchor: "阵容搭配" },
+};
+function wikiUrl(title: string) {
+	return new URL(`/ys/${title}`, permit.origin).href;
+}
+function fakeWikiParse(
+	title: string,
+	content: string,
+	inspected: boolean,
+	id = revision.id,
+) {
+	return Response.json({
+		parse: {
+			title,
+			revid: id,
+			wikitext: { "*": content },
+			...(inspected
+				? {
+						sections: [
+							{ index: "2", line: "培养", anchor: "培养" },
+							{
+								index: revision.section.index,
+								line: revision.section.title,
+								anchor: revision.section.anchor,
+							},
+						],
+					}
+				: {}),
 		},
-	);
-	const api = new DeepSeekSource("isolated-only");
-	const signal = new AbortController().signal;
-	assert.deepEqual(
-		await api.search("钟离 7.1 配队 site:example.invalid", signal),
-		[url],
-	);
-	await assert.rejects(api.fetch(url, permit, signal), {
-		message: "SOURCE_RESTRICTED",
 	});
-	assert.equal(calls, 1);
+}
+function wikiRequest(input: URL | RequestInfo, init?: RequestInit) {
+	const request = new URL(String(input));
+	assert.equal(request.origin + request.pathname, bwikiApi);
+	assert.equal(init?.redirect, "error");
+	assert.equal(init?.credentials, "omit");
+	assert.equal(init?.method, "GET");
+	const headers = new Headers(init?.headers);
+	assert.equal(headers.get("authorization"), null);
+	assert.equal(headers.get("cookie"), null);
+	assert.equal(request.searchParams.get("format"), "json");
+	return request.searchParams;
+}
+
+test("BWIKI 只访问固定原生 API，匹配标题和路径，按实返修订及章节单独计数", async () => {
+	const title = "钟离/攻略";
+	const url = wikiUrl(title);
+	const scoped = { ...permit, path: "/ys/钟离/" };
+	assert.equal(permittedUrl(url, scoped), url);
+	const pages = [
+		"https://127.0.0.1/ys/钟离/攻略",
+		"http://wiki.biligame.com/ys/钟离/攻略",
+		wikiUrl("薇斯纳/攻略"),
+		`${permit.origin}/ys/钟离/%2e%2e/攻略`,
+		`${permit.origin}/ys/钟离/%2F攻略`,
+		`${permit.origin}/ys/钟离/%252e%252e/攻略`,
+		`${url}?next=elsewhere`,
+		`${url}#other`,
+	];
+	for (const page of pages) assert.equal(permittedUrl(page, scoped), undefined);
+	const requests: Record<string, string>[] = [];
+	const oldGuide = "钟离/旧版/攻略";
+	const otherTitles = ["钟离", "钟离/培养素材", "钟离/其他资料"];
+	const upstream = [...otherTitles, oldGuide, title];
+	const source = new BwikiSource(async (input, init) => {
+		const params = wikiRequest(input, init);
+		requests.push(Object.fromEntries(params));
+		if (params.get("action") === "opensearch")
+			return Response.json(["钟离", upstream, [], upstream.map(wikiUrl)]);
+		return fakeWikiParse(
+			title,
+			"== 阵容搭配 ==\n参考正文。",
+			params.has("page"),
+		);
+	});
+	const counts: string[] = [];
+	const budget = {
+		begin(op: string) {
+			counts.push(op);
+			return new AbortController().signal;
+		},
+	};
+	const candidates = await source.search("钟离", budget);
+	assert.deepEqual(candidates, [
+		{ title, url },
+		{ title: oldGuide, url: wikiUrl(oldGuide) },
+		...otherTitles.map((title) => ({ title, url: wikiUrl(title) })),
+	]);
+	await assert.rejects(
+		source.fetch({ title: "另一个角色/攻略", url }, scoped, budget),
+		{ message: "SOURCE_RESTRICTED" },
+	);
+	assert.equal(
+		source.canFetch({ ...scoped, api: `${permit.origin}/wiki/api.php` }),
+		false,
+	);
+	assert.deepEqual(await source.fetch({ title, url }, scoped, budget), {
+		title,
+		content: "== 阵容搭配 ==\n参考正文。",
+		revision,
+	});
+	assert.deepEqual(counts, ["discover", "read", "read"]);
+	assert.deepEqual(
+		requests.map(({ action, search, page, oldid, section }) => [
+			action,
+			search,
+			page,
+			oldid,
+			section,
+		]),
+		[
+			["opensearch", "钟离", undefined, undefined, undefined],
+			["parse", undefined, title, undefined, undefined],
+			[
+				"parse",
+				undefined,
+				undefined,
+				String(revision.id),
+				revision.section.index,
+			],
+		],
+	);
 });
 
-test("网页元数据保留依据，只索引建议；不把相互矛盾的声明、未知前提或占位内容当成攻略", () => {
-	const title = "钟离配队";
+test("Wiki 章节保留版本与前提依据，只索引可核对正文；不发布冲突或模板与图片占位", () => {
+	const title = "钟离/攻略";
 	const header =
-		"# 钟离配队\n适用版本：7.1\n目标角色：钟离\n攻略类型：配队\n适用条件：持有装备 史莱姆枪";
-	const content = `${header}\n\n## 配队建议\n钟离可与虚构队友配队。`;
+		"== 阵容搭配 ==\n适用版本：7.1\n目标角色：钟离\n攻略类型：配队\n适用条件：持有装备 史莱姆枪";
+	const advice = "示例阵容：[[钟离]]＋班尼特＋香菱＋行秋。";
+	const content = `${header}\n\n=== 示例 ===\n${advice}`;
 	const parse = (content: string) =>
 		parseWebGuide(
-			{ title, content },
-			fixture.sourceUrl,
+			{ title, content, revision },
+			wikiUrl(title),
 			"测试许可",
 			terminology,
 		);
@@ -130,7 +217,7 @@ test("网页元数据保留依据，只索引建议；不把相互矛盾的声�
 	if (parsed.kind !== "ready") return;
 	assert.deepEqual(
 		parsed.document.chunks.map((c) => c.body),
-		["钟离可与虚构队友配队。"],
+		["示例阵容：钟离＋班尼特＋香菱＋行秋。"],
 	);
 	assert.equal(parsed.document.content, content);
 	assert.equal(
@@ -139,7 +226,7 @@ test("网页元数据保留依据，只索引建议；不把相互矛盾的声�
 	);
 	assert.equal(
 		parsed.document.webEvidence?.fields.conditions?.location,
-		"钟离配队 · 第 5 行",
+		"阵容搭配 · 第 5 行",
 	);
 	assert.deepEqual(parsed.document.applicability, {
 		kind: "known",
@@ -149,12 +236,178 @@ test("网页元数据保留依据，只索引建议；不把相互矛盾的声�
 	});
 	for (const invalid of [
 		content.replace("适用版本：7.1", "适用版本：7.1\n适用版本：7.2"),
-		content.replace("持有装备 史莱姆枪", "未知\n必需装备：黑缨枪"),
-		content.replace("钟离可与虚构队友配队。", "| --- | --- |"),
-		content.replace("# 钟离配队", "# 未知角色配队"),
-		content.replace("目标角色：钟离", "<!--\n目标角色：钟离\n-->"),
+		content.replace("目标角色：钟离", "目标角色：香菱"),
 	])
 		assert.equal(parse(invalid).kind, "incomplete");
+	assert.equal(
+		parse(
+			content.replace(
+				advice,
+				"{{配队|钟离|班尼特|香菱|行秋}}\n[[文件:配队.png]]",
+			),
+		).kind,
+		"unreadable",
+	);
+	const unknownPremise = parse(
+		content.replace("持有装备 史莱姆枪", "未知\n必需装备：黑缨枪"),
+	);
+	assert.ok(unknownPremise.kind === "ready");
+	assert.deepEqual(unknownPremise.document.applicability, { kind: "unknown" });
+	assert.match(
+		unknownPremise.document.chunks.map((c) => c.body).join("\n"),
+		/必需装备：黑缨枪/u,
+	);
+	assert.equal(
+		parse("== 阵容搭配 ==\n{{配队}}\n[[文件:配队.png]]").kind,
+		"unreadable",
+	);
+	assert.deepEqual(parsed.document.webEvidence?.revision, revision);
+	for (const missing of ["<!--\n适用版本：7.1\n-->", "适用版本：未知"]) {
+		const unknown = parse(content.replace("适用版本：7.1", missing));
+		assert.ok(unknown.kind === "ready");
+		assert.equal(unknown.document.gameVersions, null);
+		assert.equal(
+			unknown.document.webEvidence?.unknownGameVersionReason,
+			"not_stated",
+		);
+	}
+	const fromTable = parse(
+		content
+			.replace("适用版本：7.1", "{|\n|-\n| 适用版本 || 7.1\n|}")
+			.replace("\n攻略类型：配队", ""),
+	);
+	assert.ok(fromTable.kind === "ready");
+	assert.deepEqual(fromTable.document.webEvidence?.fields.kind, {
+		location: "阵容搭配 · 第 1 行",
+		excerpt: "== 阵容搭配 ==",
+	});
+});
+
+test("BWIKI 排版与角色模板可投影为带行号的阵容，不拼接备选栏位", () => {
+	const title = "钟离/攻略";
+	const team =
+		"<b>阵容示例</b> || {{颜色|岩|{{图标/攻略|角色|岩王帝君}}}}＋<strong>{{图标/攻略|班尼特}}</strong>＋{{图标|角色|香菱}}＋{{图标/攻略|行秋}}";
+	const container =
+		'<div id="layout-root" style="width:90%;min-width:342px;margin-top:10px;margin-bottom:10px;overflow:auto">';
+	const lines = [
+		"== 阵容搭配 ==",
+		container,
+		"适用版本：7.1<br />适用条件：持有装备 史莱姆枪",
+		"{{切换板|开始}}",
+		"{{切换板|默认显示|配队一}}",
+		"{{切换板|默认折叠|配队二}}",
+		"{{切换板|显示内容}}",
+		'<center><div class="tabber-table"><tabber>',
+		"完整阵容=",
+		'{| class="wikitable"',
+		`| ${team}`,
+		"|}",
+		"|-|备选队友=",
+		"{|",
+		"! 角色",
+		"| {{图标/攻略|角色|钟离}}",
+		"| {{图标/攻略|行秋}}",
+		"|}",
+		"</tabber></div></center>",
+		"{{切换板|内容结束}}",
+		"{{切换板|折叠内容}}",
+		"<b>",
+		"班尼特＋香菱",
+		"</b>",
+		"{{切换板|内容结束}}",
+		"{{切换板|结束}}",
+		"</div>",
+	];
+	const parse = (content: string) =>
+		parseWebGuide(
+			{ title, content, revision },
+			wikiUrl(title),
+			"仅限测试",
+			terminology,
+		);
+	const content = lines.join("\n");
+	const result = parse(content);
+	assert.ok(result.kind === "ready");
+	assert.equal(result.document.content, content);
+	assert.deepEqual(
+		result.document.chunks
+			.filter(({ section }) => section.endsWith("完整阵容"))
+			.map(({ body }) => body),
+		["阵容示例：钟离＋班尼特＋香菱＋行秋"],
+	);
+	assert.equal(
+		result.document.chunks[0]?.location,
+		"阵容搭配 / 配队一 / 完整阵容 · 第 11–11 行",
+	);
+	assert.deepEqual(result.document.webEvidence?.fields.roster, {
+		location: "完整阵容 · 第 11 行",
+		excerpt: `| ${team}`,
+	});
+	assert.equal(
+		result.document.webEvidence?.fields.conditions?.location,
+		"阵容搭配 · 第 3 行",
+	);
+	const unclosed = content.replace(
+		"完整阵容=",
+		"未闭合表格=\n{|\n| 推荐阵容 || 钟离＋班尼特＋香菱＋行秋\n|-|完整阵容=",
+	);
+	const resumed = parse(unclosed);
+	assert.ok(resumed.kind === "ready");
+	assert.deepEqual(
+		resumed.document.chunks
+			.filter(({ section }) => section.endsWith("完整阵容"))
+			.map(({ body, location }) => ({ body, location })),
+		[
+			{
+				body: "阵容示例：钟离＋班尼特＋香菱＋行秋",
+				location: "阵容搭配 / 配队一 / 完整阵容 · 第 14–14 行",
+			},
+		],
+	);
+	assert.equal(
+		resumed.document.chunks.some(({ section }) =>
+			section.includes("未闭合表格"),
+		),
+		false,
+	);
+	for (const partial of [
+		content.replace(`| ${team}`, "| 钟离＋行秋"),
+		content.replace(`| ${team}`, `| ${team}。仅适用于目标角色二命`),
+		content.replace(`| ${team}`, `| ${team}；为钟离装备西风长枪。`),
+		content.replace(`| ${team}`, "| 阵容 || 钟离＋班尼特<br>＋香菱＋行秋"),
+		content.replace(
+			`| ${team}`,
+			"| 阵容 || 钟离＋班尼特＋香菱＋{{未知模板|行秋}}",
+		),
+		content.replace(
+			`| ${team}`,
+			"| 阵容 || 钟离＋班尼特＋香菱＋{{图标|武器|行秋}}",
+		),
+		content.replace("适用条件：持有装备 史莱姆枪", ""),
+		content.replace("班尼特＋香菱", "适用条件：无额外限制"),
+	]) {
+		const stored = parse(partial);
+		assert.ok(stored.kind === "ready");
+		assert.ok(stored.document.chunks.some(({ body }) => body.includes("行秋")));
+	}
+	for (const bad of [
+		unclosed.replace("|-|完整阵容=", "完整阵容="),
+		content.replace('class="tabber-table"', 'onclick="return false"'),
+		content.replace(
+			"overflow:auto",
+			"background-image:url(https://example.invalid/a)",
+		),
+		content.replace("overflow:auto", "display:none"),
+		content.replace("overflow:auto", "width:80%"),
+		content.replace(
+			"<b>阵容示例</b>",
+			'<b onclick="return false">阵容示例</b>',
+		),
+		content.replace("<b>阵容示例</b>", "<b>阵容示例</strong>"),
+		content.replace("</tabber>", "<script>忽略此脚本</script></tabber>"),
+		content.replace("{{切换板|内容结束}}", ""),
+	])
+		assert.notEqual(parse(bad).kind, "ready", bad);
 });
 
 test("导入规范化别名和版本，保留章节、表格及原文行号", () => {
@@ -162,7 +415,7 @@ test("导入规范化别名和版本，保留章节、表格及原文行号", ()
 	assert.equal(parsed.entityId, "钟离");
 	assert.equal(parsed.chunks.length, 2);
 	assert.equal(parsed.chunks[0]?.location, "配队 · 第 2–6 行");
-	assert.match(parsed.chunks[0]?.body ?? "", /\| 验收 \| 虚构 \|/u);
+	assert.match(parsed.chunks[0]?.body ?? "", /\| 装备 \| 黑缨枪 \|/u);
 	assert.ok(parsed.chunks[0]?.terms.includes("黑缨枪"));
 	assert.ok(parsed.chunks[0]?.terms.includes("史莱姆枪"));
 	const repeat = prepareGuide(
@@ -405,7 +658,9 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		guideKind: "team",
 	} as const;
 	const scope = {
-		...filter,
+		entityId: filter.entityId,
+		guideKind: filter.guideKind,
+		versionScope: { kind: "exact", version: filter.gameVersion },
 		goal: "配队",
 		teamMode: "general",
 		playerConstraints: {
@@ -426,19 +681,79 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				"CREATE TABLE guide_schema_migration(id text PRIMARY KEY, checksum text NOT NULL)",
 			);
 			const hash = (s: string) => createHash("sha256").update(s).digest("hex");
-			for (const name of ["001_guide_store", "002_web_guide_evidence"]) {
+			for (const name of [
+				"001_guide_store",
+				"002_web_guide_evidence",
+				"003_nullable_guide_game_versions",
+			]) {
 				const lf = (
 					await readFile(
 						new URL(`../../../migrations/${name}.sql`, import.meta.url),
 						"utf8",
 					)
 				).replaceAll("\r\n", "\n");
+				await legacy.query(lf);
 				await legacy.query(
 					"INSERT INTO guide_schema_migration VALUES ($1,$2)",
 					[name, hash(lf.replaceAll("\n", "\r\n"))],
 				);
 			}
+			await legacy.query(`
+				INSERT INTO guide_source(source_url, title, source_type)
+				VALUES ('https://example.invalid/migration-fixture', '隔离升级样本', 'manual');
+				INSERT INTO guide_version(id, source_id, title, content, content_hash,
+					processing_version, entity_id, guide_kind, game_from, game_through,
+					game_from_key, game_through_key, applicability, status)
+				SELECT 'legacy-known', id, title, '隔离正文', 'legacy-hash', 'team-1', '钟离',
+					'team', '7.1', '7.2', 7001000, 7002000, '{"kind":"unrestricted"}', 'published'
+				FROM guide_source WHERE source_url='https://example.invalid/migration-fixture';
+				INSERT INTO guide_source(source_url, title, source_type, permission_ref)
+				VALUES ('https://example.invalid/legacy-web', '隔离联网样本', 'web', 'fixture');
+				INSERT INTO guide_version(id, source_id, title, content, content_hash,
+					processing_version, entity_id, guide_kind, applicability, status, web_evidence)
+				SELECT 'legacy-web', id, title, '隔离联网正文', 'legacy-web-hash', 'bwiki-team-3',
+					'钟离', 'team', '{"kind":"unrestricted"}', 'published',
+					'{"permission":"fixture","parser":"bwiki-team-3","fields":{"entity":{},"kind":{},"conditions":{}},"unknownGameVersionReason":"not_stated"}'
+				FROM guide_source WHERE source_url='https://example.invalid/legacy-web';
+			`);
+			assert.equal(await migrate(legacy, signal), true);
 			assert.equal(await migrate(legacy, signal), false);
+			assert.deepEqual(
+				(
+					await legacy.query(
+						`SELECT id, game_from, game_through, status, web_evidence->>'parser' AS parser
+						 FROM guide_version ORDER BY id`,
+					)
+				).rows,
+				[
+					{
+						id: "legacy-known",
+						game_from: "7.1",
+						game_through: "7.2",
+						status: "published",
+						parser: null,
+					},
+					{
+						id: "legacy-web",
+						game_from: null,
+						game_through: null,
+						status: "published",
+						parser: "bwiki-team-3",
+					},
+				],
+			);
+			for (const [id, constraint] of [
+				["legacy-known", "guide_version_publishable_applicability"],
+				["legacy-web", "guide_web_evidence_valid"],
+			]) {
+				await assert.rejects(
+					legacy.query(
+						`UPDATE guide_version SET applicability='{"kind":"unknown"}' WHERE id=$1`,
+						[id],
+					),
+					{ code: "23514", constraint },
+				);
+			}
 			await legacy.query(
 				"UPDATE guide_schema_migration SET checksum=$1 WHERE id='002_web_guide_evidence'",
 				[hash("SELECT 42;")],
@@ -456,7 +771,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		});
 		assert.deepEqual(
 			await retrieval.searchGuides(
-				{ ...scope, gameVersion: "991.1" },
+				{ ...scope, versionScope: { kind: "exact", version: "991.1" } },
 				"钟离配队黑缨枪",
 				signal,
 			),
@@ -546,12 +861,12 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				/^https:\/\/example\.invalid\/mock-team\//u,
 			);
 			assert.match(read.window.chunk.location, /第 \d+–\d+ 行/u);
-			assert.match(read.window.body, /隔离验收正文|引用定位/u);
+			assert.match(read.window.body, /示例阵容|引用定位/u);
 		}
 		assert.equal(
 			(
 				await retrieval.searchGuides(
-					{ ...scope, gameVersion: "991.1" },
+					{ ...scope, versionScope: { kind: "exact", version: "991.1" } },
 					"钟离配队黑缨枪",
 					signal,
 				)
@@ -650,6 +965,10 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							: content.status === "hit"
 								? "read_guide"
 								: undefined;
+				const candidate =
+					content?.candidates?.find((item: { preview: string }) =>
+						item.preview.includes("示例阵容"),
+					) ?? content?.candidates?.[0];
 				const item = tool
 					? {
 							type: "function_call",
@@ -659,7 +978,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							arguments: JSON.stringify(
 								tool !== "read_guide"
 									? { query: "钟离配队" }
-									: { candidateId: content.candidates[0].candidateId },
+									: { candidateId: candidate?.candidateId },
 							),
 						}
 					: {
@@ -703,6 +1022,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			supplement?: WebSupplement,
 			toolLimit = 8,
 			modelLimit = 6,
+			currentVersion = "",
 		) => {
 			requests = 0;
 			scriptError = undefined;
@@ -735,6 +1055,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						TEYVAT_MODEL_API_KEY_FILE: secret,
 						TEYVAT_TOOL_CALLS: String(toolLimit),
 						TEYVAT_MODEL_CALLS: String(modelLimit),
+						TEYVAT_CURRENT_GAME_VERSION: currentVersion,
 					},
 					supplement
 						? async (context) => ({
@@ -846,13 +1167,8 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		} finally {
 			await ingest.import(drift, true, signal);
 		}
-		const permit = {
-			origin: "https://example.invalid",
-			path: "/allowed/",
-			reference: "隔离夹具许可",
-			access: "fetch_store_cite",
-		} as const;
-		const url = permit.origin + permit.path + randomUUID();
+		const title = `钟离/${randomUUID()}/攻略`;
+		const url = wikiUrl(title);
 		// 复用隔离卷时选一个尚无样本的范围，不清表，也不靠随机数避开旧命中。
 		const freeRange = await pool.query<{ minor: number }>(`
 			SELECT minor FROM generate_series(0,999) AS minor
@@ -861,28 +1177,66 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			ORDER BY minor LIMIT 1`);
 		assert.ok(freeRange.rows[0]);
 		let webVersion = `978.${freeRange.rows[0].minor}.1`;
-		const webScope = { ...filter, gameVersion: webVersion };
+		const webScope = {
+			versionScope: { kind: "exact", version: webVersion },
+		} as const;
 		const content =
-			"# 钟离配队\n适用游戏版本：" +
+			"== 阵容搭配 ==\n适用游戏版本：" +
 			webVersion +
-			"\n目标角色：钟离\n攻略类型：配队\n适用条件：无额外限制\n\n## 配队建议\n隔离样本阵容为钟离、班尼特、香菱、行秋。";
-		let markdown = content;
+			"\n目标角色：钟离\n攻略类型：配队\n适用条件：无额外限制\n\n=== 示例 ===\n示例阵容为钟离、班尼特、香菱、行秋。";
+		let wikitext = content;
 		let searches = 0;
 		let fetches = 0;
+		let empty = false;
+		let restricted = false;
+		let profileFirst = false;
+		let fault:
+			| ((
+					isSearch: boolean,
+					isRead: boolean,
+					signal: AbortSignal | null | undefined,
+			  ) => Response | Promise<Response> | undefined)
+			| undefined;
 		const options = {
-			source: {
-				async search(query: string) {
-					searches++;
-					assert.equal(query, `钟离 ${webVersion} 配队 site:example.invalid`);
-					return ["https://other.invalid/disallowed", url, url];
-				},
-				canFetch: () => true,
-				async fetch(candidate: string) {
-					fetches++;
-					assert.equal(candidate, url);
-					return { title: "钟离配队", content: markdown };
-				},
-			},
+			source: new BwikiSource(async (input, init) => {
+				const params = wikiRequest(input, init);
+				const isSearch = params.get("action") === "opensearch";
+				const isRead = params.has("oldid");
+				if (isSearch) searches++;
+				else fetches++;
+				const injected = fault?.(isSearch, isRead, init?.signal);
+				if (injected) return injected;
+				if (isSearch) {
+					assert.equal(params.get("search"), "钟离");
+					if (empty) return Response.json(["钟离", [], [], []]);
+					if (profileFirst) {
+						return Response.json([
+							"钟离",
+							["钟离", title],
+							[],
+							[wikiUrl("钟离"), url],
+						]);
+					}
+					return Response.json([
+						"钟离",
+						restricted ? ["其他"] : ["其他", title, title],
+						[],
+						restricted
+							? ["https://other.invalid/disallowed"]
+							: ["https://other.invalid/disallowed", url, url],
+					]);
+				}
+				if (params.has("page")) assert.equal(params.get("page"), title);
+				else {
+					assert.equal(params.get("oldid"), String(revision.id));
+					assert.equal(params.get("section"), revision.section.index);
+				}
+				return fakeWikiParse(
+					title,
+					isRead ? wikitext : "== 阵容搭配 ==\n目录定位样本",
+					!isRead,
+				);
+			}),
 			permits: [permit],
 			parse: parseWebGuide,
 			terms: terminology,
@@ -966,34 +1320,27 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		);
 		assert.deepEqual([searches, fetches], [0, 0]);
 		await assert.rejects(check(supplement, 0), { message: "BUDGET_EXHAUSTED" });
-		assert.deepEqual([searches, fetches], [1, 0]);
+		await assert.rejects(check(supplement, 1), { message: "BUDGET_EXHAUSTED" });
+		assert.deepEqual([searches, fetches], [0, 0]);
+		empty = true;
+		assert.equal(await check(supplement), "no_results");
+		empty = false;
+		restricted = true;
+		assert.equal(await check(supplement), "source_restricted");
+		restricted = false;
 		assert.equal(
 			await check(
 				webSupplement({
 					...options,
-					source: {
-						...options.source,
-						async search() {
-							return [];
-						},
-					},
-				}),
-			),
-			"no_results",
-		);
-		assert.equal(
-			await check(
-				webSupplement({
-					...options,
-					source: { ...options.source, canFetch: () => false },
+					permits: [{ ...permit, api: `${permit.origin}/wiki/api.php` }],
 				}),
 			),
 			"source_restricted",
 		);
 		assert.deepEqual(
 			[searches, fetches],
-			[1, 0],
-			"适配器不能读取正文时连 Search 也不发起",
+			[2, 0],
+			"不读取越权候选，也不为不受支持的 API 发起搜索",
 		);
 		for (const op of ["search", "fetch"] as const) {
 			const budget = new TurnBudget(
@@ -1001,16 +1348,14 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				signal,
 			);
 			let observed: AbortSignal | undefined;
-			const hang = (...args: unknown[]): Promise<never> => {
-				observed = args.at(-1) as AbortSignal;
-				return new Promise(() => {});
+			fault = (isSearch, _isRead, active) => {
+				if (isSearch !== (op === "search")) return;
+				observed = active ?? undefined;
+				return new Promise<Response>(() => {});
 			};
 			try {
 				await assert.rejects(
-					webSupplement({
-						...options,
-						source: { ...options.source, [op]: hang },
-					})(
+					supplement(
 						{ ...scope, ...webScope, scopeId: "fixture" },
 						budget,
 						budget.signal,
@@ -1021,15 +1366,51 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 				assert.equal(budget.summary().searchCalls, 1);
 				assert.equal(budget.summary().fetchCalls, Number(op === "fetch"));
 			} finally {
+				fault = undefined;
 				budget.close();
 			}
 		}
-		markdown = "请先登录";
+		for (const bad of [
+			() => new Response("<html>错误</html>", { status: 567 }),
+			() => new Response("<html>错误</html>"),
+			() => Response.redirect("https://other.invalid/stop"),
+			() => Response.redirect(`${permit.origin}/ys/other`),
+			() => Response.json({ error: { code: "badvalue" } }),
+		]) {
+			const count = fetches;
+			fault = (isSearch) => (isSearch ? bad() : undefined);
+			await assert.rejects(check(supplement), {
+				message: "WEB_SOURCE_UNAVAILABLE",
+			});
+			assert.equal(fetches, count);
+		}
+		for (const bad of [
+			() => fakeWikiParse(title, content, false, revision.id + 1),
+			() => fakeWikiParse(title, "== 培养 ==\n其他章节", false),
+		]) {
+			const count = fetches;
+			fault = (_isSearch, isRead) => (isRead ? bad() : undefined);
+			await assert.rejects(check(supplement), {
+				message: "WEB_SOURCE_UNAVAILABLE",
+			});
+			assert.equal(fetches - count, 2);
+		}
+		fault = undefined;
+		wikitext = "== 阵容搭配 ==\n{{配队|占位}}";
 		assert.equal(await check(supplement), "no_readable_body");
-		markdown = content.replace(webVersion, "1.0");
+		wikitext = content.replace(webVersion, "1.0");
 		assert.equal(await check(supplement), "scope_mismatch");
-		markdown = content.replace(`适用游戏版本：${webVersion}`, "");
+		wikitext = content.replace("目标角色：钟离", "");
+		profileFirst = true;
+		const callsBeforeIncomplete = [searches, fetches];
 		assert.equal(await check(supplement), "metadata_incomplete");
+		assert.deepEqual(
+			[
+				searches - (callsBeforeIncomplete[0] ?? 0),
+				fetches - (callsBeforeIncomplete[1] ?? 0),
+			],
+			[1, 2],
+		);
 		assert.equal(
 			(
 				await pool.query(
@@ -1047,7 +1428,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			).rowCount,
 			0,
 		);
-		markdown = content;
+		wikitext = content;
 		const notVisible: VectorWritePort = {
 			hasAll: async () => false,
 			upsert: async () => {},
@@ -1078,15 +1459,24 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		const first = await runQuestion(webVersion, supplement);
 		assert.ok(first.includes(`原文：${url}`), first);
 		assert.match(first, /参考配队：钟离＋班尼特＋香菱＋行秋/u);
-		assert.match(first, /隔离样本阵容为钟离、班尼特、香菱、行秋。/u);
+		assert.match(first, /示例阵容为钟离、班尼特、香菱、行秋。/u);
 		assert.equal(first.match(/正在执行工具/gu)?.length, 4);
-		assert.deepEqual([requests, searches, fetches], [5, 1, 1]);
+		assert.deepEqual([requests, searches, fetches], [5, 1, 2]);
 		const second = await runQuestion(webVersion, supplement);
 		assert.ok(second.includes(`原文：${url}`), second);
 		assert.equal(second.match(/正在执行工具/gu)?.length, 2);
-		assert.deepEqual([requests, searches, fetches], [3, 1, 1]);
+		assert.deepEqual([requests, searches, fetches], [3, 1, 2]);
+		profileFirst = false;
+		const published = await pool.query<{
+			web_evidence: { revision: typeof revision };
+		}>(
+			"SELECT web_evidence FROM guide_version JOIN guide_source ON source_id = guide_source.id WHERE source_url=$1 AND status='published'",
+			[url],
+		);
+		assert.equal(published.rowCount, 1);
+		assert.deepEqual(published.rows[0]?.web_evidence.revision, revision);
 		const nextVersion = webVersion.replace(/\.1$/u, ".2");
-		markdown = content.replace(webVersion, nextVersion);
+		wikitext = content.replace(webVersion, nextVersion);
 		webVersion = nextVersion;
 		let rechecks = 0;
 		const missedAgain = await runQuestion(webVersion, async () => {
@@ -1105,13 +1495,13 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			const limited = await runQuestion(webVersion, supplement, tools, models);
 			assert.match(limited, /BUDGET_EXHAUSTED/u);
 			assert.doesNotMatch(limited, /原文：/u);
-			assert.deepEqual([requests, searches, fetches], [2, 1, 1]);
+			assert.deepEqual([requests, searches, fetches], [2, 1, 2]);
 		}
 		for (const [status, reason] of [
 			["no_results", "未找到相关攻略"],
 			["source_restricted", "没有获准"],
 			["no_readable_body", "没有可读取的正文"],
-			["metadata_incomplete", "适用信息"],
+			["metadata_incomplete", "目标角色、类型或适用版本声明"],
 			["scope_mismatch", "不适用于本轮"],
 			["inventory_mismatch", "不符合本轮已确认的库存或排除条件"],
 		] as const) {
@@ -1155,7 +1545,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			for (let minor = start; minor < 100; minor++) {
 				const gameVersion = `984.${minor}`;
 				const probe = await retrieval.searchGuides(
-					{ ...scope, gameVersion, entityId },
+					{
+						...scope,
+						versionScope: { kind: "exact", version: gameVersion },
+						entityId,
+					},
 					`${entityId}配队`,
 					signal,
 				);
@@ -1263,19 +1657,159 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			return id;
 		};
 		await t.test(
-			"AT-10 · 补查按冻结库存继续选择获准候选，不泄漏库存",
+			"V2-P05 · 补查后只给配队思路，重检引用及历史复用",
 			async () => {
-				for (const [target, allowed, blocked, order, expected] of [
-					["钟离", "西风长枪", "黑缨枪", ["blocked", "allowed"], "indexed"],
-					["香菱", "绝缘之旗印", "教官", ["allowed", "blocked"], "indexed"],
-					["香菱", "绝缘之旗印", "教官", ["blocked"], "inventory_mismatch"],
-					["钟离", "西风长枪", "黑缨枪", ["blocked", "allowed"], "budget"],
+				const target = "行秋";
+				const page = `${target}/${randomUUID()}/攻略`;
+				const pageUrl = wikiUrl(page);
+				const quote = "备选辅助：香菱。";
+				const summary = "辅助位可考虑香菱，再根据其他位置调整队伍。";
+				const wiki = [
+					"== 阵容搭配 ==",
+					`目标角色：${target}`,
+					"=== 输出位置 ===",
+					"只说明位置，不指定完整队伍。",
+					"=== 辅助位置 ===",
+					quote,
+				].join("\n");
+				const trace: string[] = [];
+				const pull = webSupplement({
+					...options,
+					source: new BwikiSource(async (input, init) => {
+						const params = wikiRequest(input, init);
+						if (params.get("action") === "opensearch") {
+							assert.equal(params.get("search"), target);
+							trace.push("search");
+							return Response.json([target, [page], [], [pageUrl]]);
+						}
+						const inspected = params.has("page");
+						trace.push(inspected ? "inspect" : "read");
+						return fakeWikiParse(page, wiki, inspected);
+					}),
+				});
+				scripted = (n, value) => {
+					const result = value as
+						| {
+								status: string;
+								candidates?: { candidateId: string; preview: string }[];
+								evidenceId?: string;
+								body?: string;
+								applicability?: string;
+						  }
+						| undefined;
+					const tool = (name: string, args: object) => ({
+						type: "function_call",
+						id: `fc_${n}`,
+						call_id: `call_${n}`,
+						name,
+						arguments: JSON.stringify(args),
+					});
+					if (!result || result.status === "indexed")
+						return tool("search_guides", { query: `${target} 配队` });
+					if (result.status === "miss")
+						return tool("search_web_guides", { query: `${target} 配队` });
+					if (result.status === "hit") {
+						const candidate = result.candidates?.find(({ preview }) =>
+							preview.includes(quote),
+						);
+						assert.ok(candidate, JSON.stringify(result));
+						return tool("read_guide", { candidateId: candidate.candidateId });
+					}
+					assert.equal(result.status, "complete");
+					assert.equal(result.applicability, "unknown");
+					assert.ok(result.body?.includes(quote));
+					return {
+						type: "message",
+						id: `msg_${n}`,
+						role: "assistant",
+						content: [
+							{
+								type: "output_text",
+								text: JSON.stringify({
+									recommendations: [],
+									gaps: [],
+									observations: [
+										{
+											kind: "teammate",
+											text: summary,
+											evidenceId: result.evidenceId,
+											excerpt: quote,
+										},
+									],
+								}),
+							},
+						],
+					};
+				};
+				const warning = /该攻略版本未知，请注意时效性/u;
+				const run = () =>
+					playCli(
+						[
+							[/命令：/u, "/new"],
+							[/已创建会话/u, `${target}最新通用配队`],
+							[warning, "/exit"],
+						],
+						pull,
+					);
+				const labeled = (transcript: string) => {
+					assert.match(transcript, /配队思路：\n队友选择：辅助位可考虑香菱/u);
+					assert.equal(transcript.split(quote).length - 1, 1);
+					assert.doesNotMatch(transcript, /资料不足：/u);
+					assert.ok(transcript.includes(`原文：${pageUrl}`));
+					assert.equal(
+						transcript.match(/该攻略版本未知，请注意时效性/gu)?.length,
+						1,
+					);
+					assert.doesNotMatch(transcript, /参考配队：|可用配队：/u);
+				};
+				try {
+					const first = await run();
+					labeled(first);
+					assert.deepEqual(
+						[requests, trace],
+						[5, ["search", "inspect", "read"]],
+					);
+					labeled(await run());
+					assert.deepEqual(
+						[requests, trace],
+						[3, ["search", "inspect", "read"]],
+					);
+					const history = await playCli(
+						[
+							[/命令：/u, `/open ${sessionFrom(first)}`],
+							[/已打开会话/u, "/history"],
+							[warning, "/exit"],
+						],
+						pull,
+					);
+					labeled(history);
+					assert.equal(requests, 0);
+					const rows = await pool.query(
+						`SELECT status, game_from, applicability->>'kind' AS applicability
+					 FROM guide_version JOIN guide_source ON source_id = guide_source.id WHERE source_url = $1`,
+						[pageUrl],
+					);
+					assert.deepEqual(rows.rows, [
+						{ status: "published", game_from: null, applicability: "unknown" },
+					]);
+				} finally {
+					scripted = undefined;
+				}
+			},
+		);
+		await t.test(
+			"AT-10 · 补查可发布与库存冲突的同范围攻略，不发送库存",
+			async () => {
+				for (const [target, allowed, blocked, order] of [
+					["钟离", "西风长枪", "黑缨枪", ["blocked", "allowed"]],
+					["香菱", "绝缘之旗印", "教官", ["allowed", "blocked"]],
+					["香菱", "绝缘之旗印", "教官", ["blocked"]],
 				] as const) {
 					const gameVersion = await unusedVersion(70, target);
 					const frozen = {
 						...scope,
 						entityId: target,
-						gameVersion,
+						versionScope: { kind: "exact" as const, version: gameVersion },
 						teamMode: "inventory" as const,
 						scopeId: "ordered-web-fixture",
 						playerConstraints: {
@@ -1290,67 +1824,64 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							excludedEquipment: [blocked],
 						},
 					};
-					const root = `${permit.origin}${permit.path}${randomUUID()}/`;
-					const links = order.map((tag) => root + tag);
+					const root = `${target}/${randomUUID()}/`;
+					const titles = order.map((tag) => root + tag);
 					const calls: string[] = [];
+					const read: string[] = [];
 					let searched = 0;
 					const pull = webSupplement({
 						...options,
-						source: {
-							canFetch: () => true,
-							async search(query) {
+						source: new BwikiSource(async (input, init) => {
+							const params = wikiRequest(input, init);
+							if (params.get("action") === "opensearch") {
 								searched++;
-								assert.equal(
-									query,
-									`${target} ${gameVersion} 配队 site:example.invalid`,
-								);
-								return links;
-							},
-							async fetch(candidate) {
-								calls.push(candidate);
-								assert.ok(links.includes(candidate));
-								const gear = candidate.endsWith("/allowed") ? allowed : blocked;
-								return {
-									title: `${target}隔离补查`,
-									content: `# ${target}隔离补查\n适用版本：${gameVersion}\n目标角色：${target}\n攻略类型：配队\n适用条件：持有装备 ${gear}\n\n## 配队建议\n隔离阵容为钟离、班尼特、香菱、行秋；为${target}装备${gear}。`,
-								};
-							},
-						},
+								assert.equal(params.get("search"), target);
+								return Response.json([target, titles, [], titles.map(wikiUrl)]);
+							}
+							const inspect = params.has("page");
+							const offset = inspect
+								? titles.indexOf(params.get("page") ?? "")
+								: Number(params.get("oldid")) - revision.id;
+							const candidate = titles[offset];
+							assert.ok(candidate);
+							(inspect ? calls : read).push(candidate);
+							const gear = candidate.endsWith("/allowed") ? allowed : blocked;
+							return fakeWikiParse(
+								candidate,
+								`== 阵容搭配 ==\n适用版本：${gameVersion}\n目标角色：${target}\n攻略类型：配队\n适用条件：持有装备 ${gear}\n\n阵容为钟离、班尼特、香菱、行秋；为${target}装备${gear}。`,
+								inspect,
+								revision.id + offset,
+							);
+						}),
 					});
 					const budget = new TurnBudget(
 						{
 							...readConfig({}).limits,
-							fetchCalls: expected === "budget" ? 1 : 3,
+							fetchCalls: 3,
 						},
 						signal,
 					);
 					try {
-						if (expected === "budget")
-							await assert.rejects(pull(frozen, budget, signal), {
-								message: "BUDGET_EXHAUSTED",
-							});
-						else assert.equal(await pull(frozen, budget, signal), expected);
+						assert.equal(await pull(frozen, budget, signal), "indexed");
 						assert.equal(searched, 1);
-						const shouldFetch =
-							order[0] === "allowed" || expected === "budget"
-								? links.slice(0, 1)
-								: links;
-						assert.deepEqual(calls, shouldFetch);
+						const shouldRead = titles.slice(0, 1);
+						assert.deepEqual(read, shouldRead);
+						assert.deepEqual(calls, shouldRead);
+						assert.equal(
+							budget.summary().fetchCalls,
+							calls.length + read.length,
+						);
 						const hit = await retrieval.searchGuides(
 							frozen,
 							`${target} 配队`,
 							signal,
 						);
-						if (expected === "indexed") {
-							assert.equal(hit.kind, "hit");
-							if (hit.kind === "hit") {
-								assert.equal(hit.candidates.length, 1);
-								assert.equal(
-									hit.candidates[0]?.chunk.sourceUrl,
-									`${root}allowed`,
-								);
-							}
-						} else assert.equal(hit.kind, "miss");
+						assert.ok(hit.kind === "hit");
+						assert.equal(hit.candidates.length, 1);
+						assert.equal(
+							hit.candidates[0]?.chunk.sourceUrl,
+							wikiUrl(titles[0] ?? ""),
+						);
 					} finally {
 						budget.close();
 					}
@@ -1393,20 +1924,16 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						[/命令：/u, "/new"],
 						[
 							/已创建会话/u,
-							`${target} ${gameVersion} 按库存配队我有${target}、${owned}${restriction}${blocked}`,
+							`${target} ${gameVersion} 按库存配队；我有${lineup.join("、")}、${owned}；${restriction}${blocked}`,
 						],
-						[/需要补充条件：.*队友：/u, `队友：${lineup.slice(1).join("、")}`],
-						[/补充条件待确认/u, "确认"],
-						[
-							chosen === blocked
-								? /INVALID_ANSWER_CONDITIONS：/u
-								: /原文：.*\/actual-lineup\//u,
-							"/exit",
-						],
+						[/原文：.*\/actual-lineup\//u, "/exit"],
 					]);
 					assert.equal(requests, 3);
 					if (chosen === blocked) {
-						assert.doesNotMatch(transcript, /可用配队：|引用：|原文：/u);
+						assert.match(transcript, /参考配队：/u);
+						assert.match(transcript, /(?:尚未持有|本轮排除)装备/u);
+						assert.doesNotMatch(transcript, /可用配队：/u);
+						assert.ok(transcript.includes(guide.sourceUrl));
 					} else {
 						const recommendation = transcript
 							.split("\n")
@@ -1414,6 +1941,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 						assert.equal(
 							recommendation,
 							`可用配队：${target}（${owned}）＋${lineup.slice(1).join("＋")}`,
+							transcript,
 						);
 						assert.ok(transcript.includes(guide.sourceUrl));
 					}
@@ -1427,7 +1955,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			const previous = {
 				title: "钟离配队修订前",
 				sourceUrl,
-				body: "## 初版方案\n初版隔离资料推荐钟离、班尼特、香菱、行秋组队。",
+				body: "## 初版方案\n推荐钟离、班尼特、香菱、行秋组队。",
 			};
 			const oldId = await importFor(gameVersion, previous);
 			scripted = forGuides(
@@ -1440,7 +1968,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			const revised = {
 				title: "钟离配队修订稿",
 				sourceUrl,
-				body: "## 修订方案\n修订隔离资料改为推荐钟离、班尼特、香菱、砂糖组队。",
+				body: "## 修订方案\n推荐钟离、班尼特、香菱、砂糖组队。",
 			};
 			const newId = await importFor(gameVersion, revised);
 			assert.notEqual(newId, oldId);
@@ -1459,22 +1987,21 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			assert.equal(old?.chunks.length, 1);
 			const oldChunk = old?.chunks[0];
 			assert.ok(oldChunk);
-			const oldScope = { ...scope, gameVersion };
-			const oldSnapshot = await repository.snapshot(oldScope, signal);
+			const oldSnapshot = await repository.snapshot(
+				{ ...filter, gameVersion },
+				signal,
+			);
 			const archived = await repository.read(oldSnapshot, oldChunk.id, signal);
 			assert.equal(archived?.chunk.documentVersionId, oldId);
 			assert.equal(archived.chunk.sourceUrl, sourceUrl);
-			assert.equal(
-				archived.body,
-				"初版隔离资料推荐钟离、班尼特、香菱、行秋组队。",
-			);
+			assert.equal(archived.body, "推荐钟离、班尼特、香菱、行秋组队。");
 			assert.ok(
 				history.includes(
 					`引用：${previous.title}｜${gameVersion}｜${archived.chunk.location}\n${archived.body}\n原文：${sourceUrl}`,
 				),
 				history,
 			);
-			assert.doesNotMatch(history, /修订隔离资料改为/u);
+			assert.doesNotMatch(history, /推荐钟离、班尼特、香菱、砂糖组队/u);
 			const log = await readFile(
 				join(temp, "sessions", sessionId, "turns.jsonl"),
 				"utf8",
@@ -1499,7 +2026,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			assert.equal(requests, 3);
 			assert.match(newAnswer, /引用：钟离配队修订稿.*修订方案/u);
 			assert.match(newAnswer, /参考配队：钟离＋班尼特＋香菱＋砂糖/u);
-			assert.doesNotMatch(newAnswer, /初版隔离资料推荐/u);
+			assert.doesNotMatch(newAnswer, /推荐钟离、班尼特、香菱、行秋组队/u);
 			const combined = await readFile(
 				join(temp, "sessions", sessionId, "turns.jsonl"),
 				"utf8",
@@ -1593,6 +2120,121 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			assert.match(rejected, /INVALID_CITATION/u);
 			assert.doesNotMatch(rejected, /观点 [12]：|引用：|原文：/u);
 		});
+
+		await t.test(
+			"V2-P04 · 未知版本发布、最新优先、指定版本确认与历史提示",
+			async () => {
+				scripted = undefined;
+				wikitext = content.replace(/^适用游戏版本：[^\n]*\n/mu, "");
+				const caution = /该攻略版本未知，请注意时效性/gu;
+				const stopAfterCaution = /该攻略版本未知，请注意时效性/u;
+				const latest = (
+					input: string,
+					currentVersion = "",
+					finish = stopAfterCaution,
+				) =>
+					playCli(
+						[
+							[/命令：/u, "/new"],
+							[/已创建会话/u, input],
+							[finish, "/exit"],
+						],
+						supplement,
+						8,
+						6,
+						currentVersion,
+					);
+				searches = 0;
+				fetches = 0;
+				const firstLatest = await latest("钟离最新通用配队");
+				assert.match(firstLatest, /｜版本未知｜/u);
+				assert.ok(firstLatest.includes(`原文：${url}`), firstLatest);
+				assert.equal(firstLatest.match(caution)?.length, 1);
+				assert.deepEqual([requests, searches, fetches], [5, 1, 2]);
+				const nullable = await pool.query(
+					`SELECT game_from, game_through, game_from_key, game_through_key,
+					web_evidence->>'unknownGameVersionReason' AS reason
+				 FROM guide_version JOIN guide_source ON source_id = guide_source.id
+				 WHERE source_url = $1 AND game_from IS NULL AND status = 'published'`,
+					[url],
+				);
+				assert.deepEqual(nullable.rows, [
+					{
+						game_from: null,
+						game_through: null,
+						game_from_key: null,
+						game_through_key: null,
+						reason: "not_stated",
+					},
+				]);
+				await assert.rejects(
+					pool.query(
+						"UPDATE guide_version SET game_from = '7.1' WHERE game_from IS NULL",
+					),
+					{ code: "23514" },
+				);
+
+				const unversioned = await latest("钟离怎么配队");
+				assert.equal(unversioned.match(caution)?.length, 1);
+				assert.deepEqual([requests, searches, fetches], [3, 1, 2]);
+				const preferred = await latest(
+					"钟离最新通用配队",
+					filter.gameVersion,
+					/原文：/u,
+				);
+				assert.match(preferred, /原文：https:\/\/example\.invalid\//u);
+				assert.doesNotMatch(preferred, /版本未知|注意时效性/u);
+				assert.deepEqual([requests, searches, fetches], [3, 1, 2]);
+
+				const absentVersion = await unusedVersion(95);
+				const question = await runQuestion(
+					absentVersion,
+					async () => "no_results",
+				);
+				assert.match(question, /是否查看版本未知的参考/u);
+				assert.doesNotMatch(
+					question,
+					/参考配队：|引用：|原文：|该攻略版本未知/u,
+				);
+				const resume = (id: string, option: string, finish: RegExp) =>
+					playCli(
+						[
+							[/命令：/u, `/open ${id}`],
+							[/是否查看版本未知的参考/u, option],
+							[finish, "/exit"],
+						],
+						async () => assert.fail("确认参考不能重新补查"),
+					);
+				const accepted = await resume(
+					sessionFrom(question),
+					"接受",
+					stopAfterCaution,
+				);
+				assert.match(accepted, /｜版本未知｜/u);
+				assert.equal(accepted.match(caution)?.length, 1);
+				assert.equal(requests, 3);
+				const reopened = await playCli([
+					[/命令：/u, `/open ${sessionFrom(question)}`],
+					[/已打开会话/u, "/history"],
+					[stopAfterCaution, "/exit"],
+				]);
+				assert.equal(reopened.match(caution)?.length, 1);
+				assert.equal(requests, 0);
+				assert.deepEqual([searches, fetches], [1, 2]);
+
+				const declineQuestion = await runQuestion(
+					absentVersion,
+					async () => "source_restricted",
+				);
+				const declined = await resume(
+					sessionFrom(declineQuestion),
+					"拒绝",
+					/未使用版本未知的参考/u,
+				);
+				assert.doesNotMatch(declined, /参考配队：|原文：|该攻略版本未知/u);
+				assert.equal(requests, 0);
+			},
+		);
 	} finally {
 		await pool.end();
 		await rm(temp, { recursive: true, force: true });

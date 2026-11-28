@@ -173,6 +173,7 @@ function guideData(): GuideData {
 		entityId: "角色甲",
 		guideKind: "team",
 		gameVersions: { from: "7.1", through: "7.1" },
+		fromWeb: scenario === "guides-observations",
 		applicability:
 			scenario === "guides-constraints"
 				? {
@@ -223,7 +224,9 @@ function guideData(): GuideData {
 		},
 	};
 	const inScope =
-		scenario === "guides-constraints" ? [chunk, alternate] : [chunk];
+		scenario === "guides-constraints" || scenario === "guides-condition-unread"
+			? [chunk, alternate]
+			: [chunk];
 	const rows = [...wrong, ...inScope];
 	return {
 		repository: {
@@ -252,7 +255,12 @@ function guideData(): GuideData {
 							? id === alternate.id
 								? "角色甲、队友丙、队友丁、队友戊组队，队友丙携带试验弓。"
 								: "角色甲、角色乙、队友丁、队友戊组队。"
-							: "隔离样本原文：角色甲、队友丙、队友丁、队友戊组队。",
+							: scenario === "guides-observations" ||
+									scenario === "guides-condition-unread"
+								? "角色甲的队友备选：队友丙。\n辅助位置参考：队友丁。"
+								: scenario === "guides-equipment"
+									? "阵容：角色甲＋队友丙＋队友丁＋队友戊；为队友丙装备试验弓。"
+									: "阵容：角色甲＋队友丙＋队友丁＋队友戊。",
 					complete: scenario !== "guides-truncated",
 				};
 			},
@@ -298,8 +306,9 @@ const runGuideModel: StreamFn = (model, context) => {
 		const prompt = JSON.stringify(
 			context.messages.filter((message) => message.role === "system"),
 		);
-		assert.match(prompt, /gaps 必须是 \[\]/u);
-		assert.match(prompt, /recommendations 必须是 \[\]/u);
+		assert.match(prompt, /顶层必须有 recommendations 和 gaps 两个数组/u);
+		assert.match(prompt, /gaps 填 \[\]/u);
+		assert.match(prompt, /不要同时填写建议和缺口/u);
 		assert.match(prompt, /不要加 Markdown 代码围栏/u);
 	}
 	const results = context.messages.filter(
@@ -338,12 +347,43 @@ const runGuideModel: StreamFn = (model, context) => {
 	const gap = () =>
 		answer({
 			recommendations: [],
-			gaps: [{ kind: "insufficient_evidence", text: "未取得证据" }],
+			gaps: [
+				{
+					kind: "insufficient_evidence",
+					text: "未取得证据：不公开的模拟模型原文",
+				},
+			],
 		});
 	if (retrieved.status === "miss") return gap();
-	if (scenario !== "guides-constraints")
+	if (scenario === "guides-condition-unread")
+		assert.equal(retrieved.candidates.length, 2);
+	else if (scenario !== "guides-constraints")
 		assert.equal(retrieved.candidates.length, 1);
-	const id = retrieved.candidates[0].candidateId;
+	const projection = context.messages.find(
+		(item) =>
+			item.role === "user" &&
+			typeof item.content === "string" &&
+			item.content.startsWith(conditionsPrefix),
+	);
+	const constraints =
+		projection?.role === "user" && typeof projection.content === "string"
+			? JSON.parse(projection.content.slice(conditionsPrefix.length)).queryScope
+					.playerConstraints
+			: {};
+	const candidates = retrieved.candidates;
+	if (scenario === "guides-constraints") assert.equal(candidates.length, 2);
+	const preferred =
+		scenario === "guides-constraints"
+			? candidates.find(
+					(item: { title: string }) =>
+						item.title ===
+						(constraints.excludedCharacters?.includes("角色乙")
+							? "替代队攻略"
+							: "隔离攻略 G-01"),
+				)
+			: candidates[0];
+	assert.ok(preferred);
+	const id = preferred.candidateId;
 	const team = (teammate: string, weapon?: string) =>
 		["角色甲", teammate, "队友丁", "队友戊"].map((characterId) => ({
 			characterId,
@@ -366,6 +406,22 @@ const runGuideModel: StreamFn = (model, context) => {
 			call("body_2", "read_guide", { candidateId: id }),
 		]);
 	if (evidence.status === "incomplete") return gap();
+	if (scenario === "guides-condition-unread") return gap();
+	if (scenario === "guides-observations")
+		return answer({
+			recommendations: [
+				{ team: team("队友丙"), evidenceIds: [evidence.evidenceId] },
+			],
+			observations: [
+				{
+					kind: "teammate",
+					text: "可以从队友丙入手，再给辅助位留出调整空间。",
+					evidenceId: evidence.evidenceId,
+					excerpt: "角色甲的队友备选：队友丙。",
+				},
+			],
+			gaps: [],
+		});
 	const formatProbe = {
 		text: "不能进入普通诊断的模拟正文",
 		evidenceIds: [evidence.evidenceId],
@@ -398,32 +454,8 @@ const runGuideModel: StreamFn = (model, context) => {
 				? team("队友丙", evidence.requiredEquipmentIds[0])
 				: team("角色乙"),
 		);
-	if (scenario === "guides-equipment") {
-		const projection = context.messages.find(
-			(item) =>
-				item.role === "user" &&
-				typeof item.content === "string" &&
-				item.content.startsWith(conditionsPrefix),
-		);
-		assert.ok(
-			projection?.role === "user" && typeof projection.content === "string",
-		);
-		const { queryScope } = JSON.parse(
-			projection.content.slice(conditionsPrefix.length),
-		);
-		if (queryScope.playerConstraints.equipment.kind === "unknown")
-			return answer({
-				recommendations: [],
-				gaps: [
-					{
-						kind: "equipment_required",
-						equipmentId: "试验弓",
-						evidenceIds: [evidence.evidenceId],
-					},
-				],
-			});
+	if (scenario === "guides-equipment")
 		return rec(evidence.evidenceId, team("队友丙", "试验弓"));
-	}
 	return rec(evidence.evidenceId);
 };
 
@@ -445,21 +477,25 @@ const stream: StreamFn = (model, context, options) => {
 			projection.content.slice(conditionsPrefix.length),
 		);
 		assert.ok(queryScope.scopeId);
-		if (scenario === "v2-never" || scenario === "v2-local-terminology")
-			assert.fail("缺少范围或已确认无组合时不能发出模型请求");
+		if (scenario === "v2-local-terminology")
+			assert.fail("缺少查询范围时不能发出模型请求");
 		if (scenario === "v2-restored" || scenario === "v2-fail") {
 			assert.equal(queryScope.entityId, "角色甲");
-			assert.equal(queryScope.gameVersion, "7.1");
+			assert.deepEqual(queryScope.versionScope, {
+				kind: "exact",
+				version: "7.1",
+			});
 			assert.equal(queryScope.teamMode, "inventory");
 			assert.deepEqual(queryScope.playerConstraints.teammates, {
-				kind: "known",
-				items: ["队友丙"],
+				kind: "unknown",
 			});
-			assert.equal(queryScope.playerConstraints.targetHolding, "owned");
 		}
 		if (scenario === "v2-switch") {
 			assert.equal(queryScope.entityId, "角色乙");
-			assert.equal(queryScope.gameVersion, "7.2");
+			assert.deepEqual(queryScope.versionScope, {
+				kind: "exact",
+				version: "7.2",
+			});
 			assert.equal(queryScope.teamMode, "general");
 			assert.deepEqual(queryScope.playerConstraints.teammates, {
 				kind: "unknown",
@@ -480,17 +516,25 @@ const stream: StreamFn = (model, context, options) => {
 				inheritanceScopes.set(round, queryScope.scopeId);
 			}
 			assert.equal(queryScope.entityId, changedRole ? "队友丙" : "角色甲");
-			assert.equal(queryScope.gameVersion, initial ? "7.1" : "7.2");
+			assert.deepEqual(queryScope.versionScope, {
+				kind: "exact",
+				version: initial ? "7.1" : "7.2",
+			});
 			assert.equal(queryScope.teamMode, round < 2 ? "inventory" : "general");
 			assert.equal(queryScope.goal, "配队");
 			assert.deepEqual(queryScope.playerConstraints, {
 				...(initial
-					? { limitEquipment: true, excludedEquipment: ["试验弓"] }
+					? {
+							limitEquipment: true,
+							excludedEquipment: ["试验弓"],
+							avoidedEquipment: ["试验弓"],
+						}
 					: {}),
 				excludedCharacters: ["角色乙"],
-				targetHolding: changedRole ? "unknown" : "owned",
-				teammates: { kind: "known", items: changedRole ? [] : ["队友丙"] },
-				equipment: { kind: "known", items: [] },
+				targetHolding: "owned",
+				ownedCharacters: changedRole ? ["角色甲"] : ["队友丙"],
+				teammates: { kind: "unknown" },
+				equipment: { kind: "unknown" },
 			});
 			if (!initial)
 				assert.doesNotMatch(

@@ -4,7 +4,7 @@ import type { JsonObject } from "./agent.js";
 export interface CitationSnapshot {
 	readonly source: string;
 	readonly url?: string;
-	readonly version: string;
+	readonly version: string | null;
 	readonly documentVersionId?: string;
 	readonly location: string;
 	readonly excerpt: string;
@@ -15,14 +15,18 @@ export type TurnOutcome =
 			readonly status: "answered";
 			readonly text: string;
 			readonly citations: readonly CitationSnapshot[];
+			readonly versionCaution?: true;
 	  }
 	| {
 			readonly status: "needs_clarification";
 			readonly text: string;
+			readonly referencePrompt?: true;
 	  }
 	| {
 			readonly status: "insufficient_evidence";
 			readonly text: string;
+			readonly citations?: readonly CitationSnapshot[];
+			readonly versionCaution?: true;
 			readonly supplementGap?: import("../../domain/answer-validation.js").SupplementGap;
 	  }
 	| { readonly status: "failed"; readonly code: string }
@@ -49,6 +53,7 @@ export interface PendingClarification {
 	readonly scope?: ScopeDraft;
 	readonly fields?: readonly ScopeField[];
 	readonly equipmentId?: string;
+	readonly versionReference?: "offer" | "accepted";
 }
 
 export interface ConfirmedConditionUpdate {

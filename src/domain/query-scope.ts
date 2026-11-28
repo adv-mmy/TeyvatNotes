@@ -46,6 +46,7 @@ export interface ScopeDraft {
 	readonly inventoryFacts?: readonly InventoryFact[] | null;
 	readonly entityId?: string;
 	readonly gameVersion?: string;
+	readonly versionIntent?: "latest" | "ambiguous";
 	readonly goal?: string;
 	readonly teamMode?: TeamMode;
 	readonly holding?: Holding;
@@ -64,9 +65,17 @@ export interface PlayerInventory {
 type KnownItems =
 	| { kind: "unknown" }
 	| { kind: "known"; items: readonly string[] };
+export type GameVersions = {
+	readonly from: string;
+	readonly through: string;
+} | null;
+export type VersionScope =
+	| { readonly kind: "exact" | "unknown_reference"; readonly version: string }
+	| { readonly kind: "latest"; readonly currentVersion: string | null };
+
 export interface QueryScope {
 	readonly entityId: string;
-	readonly gameVersion: string;
+	readonly versionScope: VersionScope;
 	readonly guideKind: "team";
 	readonly goal: string;
 	readonly teamMode: TeamMode;
@@ -76,6 +85,9 @@ export interface QueryScope {
 		readonly equipment: KnownItems;
 		readonly excludedCharacters?: readonly string[];
 		readonly excludedEquipment?: readonly string[];
+		readonly avoidedCharacters?: readonly string[];
+		readonly avoidedEquipment?: readonly string[];
+		readonly ownedCharacters?: readonly string[];
 		readonly ownedEquipment?: readonly string[];
 		readonly limitEquipment?: boolean;
 		readonly noTeammates?: boolean;
@@ -84,57 +96,93 @@ export interface QueryScope {
 
 export type FrozenQueryScope = Readonly<QueryScope & { scopeId: string }>;
 
-/** 未知装备可供回读以判断是否需要追问；明确不适用的候选不能算命中。 */
-export function inventoryFit(
+type InventoryRule = {
+	readonly requiredCharacterIds: readonly string[];
+	readonly requiredEquipmentIds: readonly string[];
+};
+
+export type InventoryRejection =
+	| "teammates_disallowed"
+	| "character_excluded"
+	| "target_not_owned"
+	| "target_unconfirmed"
+	| "teammates_unconfirmed"
+	| "character_not_in_confirmed_list"
+	| "equipment_excluded"
+	| "equipment_list_empty"
+	| "equipment_not_in_allowed_list"
+	| "equipment_unconfirmed";
+
+/** 只返回固定规则名，保留现有匹配优先级，不输出玩家数据。 */
+export function inventoryRejection(
 	scope: QueryScope,
-	rule: {
-		readonly requiredCharacterIds: readonly string[];
-		readonly requiredEquipmentIds: readonly string[];
-	},
-): "usable" | "unknown_equipment" | "unavailable" {
+	rule: InventoryRule,
+): InventoryRejection | undefined {
 	const c = scope.playerConstraints;
 	if (
-		(c.noTeammates &&
-			rule.requiredCharacterIds.some((id) => id !== scope.entityId)) ||
-		rule.requiredCharacterIds.some(
-			(id) =>
-				c.excludedCharacters?.includes(id) ||
-				(id === scope.entityId &&
-					scope.teamMode === "inventory" &&
-					c.targetHolding === "not_owned"),
-		) ||
-		rule.requiredEquipmentIds.some((id) => c.excludedEquipment?.includes(id)) ||
-		(rule.requiredEquipmentIds.length > 0 &&
-			c.equipment.kind === "known" &&
-			!c.equipment.items.length)
+		c.noTeammates &&
+		rule.requiredCharacterIds.some((id) => id !== scope.entityId)
 	)
-		return "unavailable";
-	if (scope.teamMode === "general") return "usable";
+		return "teammates_disallowed";
 	if (
-		rule.requiredCharacterIds.some((id) =>
-			id === scope.entityId
-				? c.targetHolding !== "owned"
-				: c.teammates.kind !== "known" || !c.teammates.items.includes(id),
-		)
+		rule.requiredCharacterIds.some((id) => c.excludedCharacters?.includes(id))
 	)
-		return "unavailable";
+		return "character_excluded";
+	if (
+		scope.teamMode === "inventory" &&
+		c.targetHolding === "not_owned" &&
+		rule.requiredCharacterIds.includes(scope.entityId)
+	)
+		return "target_not_owned";
+	if (rule.requiredEquipmentIds.some((id) => c.excludedEquipment?.includes(id)))
+		return "equipment_excluded";
+	if (
+		rule.requiredEquipmentIds.length > 0 &&
+		c.equipment.kind === "known" &&
+		!c.equipment.items.length
+	)
+		return "equipment_list_empty";
+	if (scope.teamMode === "general") return;
+	const teammates = c.teammates;
+	for (const id of rule.requiredCharacterIds) {
+		if (id === scope.entityId) {
+			if (c.targetHolding !== "owned") return "target_unconfirmed";
+		} else {
+			if (teammates.kind !== "known") {
+				if (!c.ownedCharacters?.includes(id)) return "teammates_unconfirmed";
+			} else if (!teammates.items.includes(id)) {
+				return "character_not_in_confirmed_list";
+			}
+		}
+	}
 	const equipment = c.equipment;
-	if (!rule.requiredEquipmentIds.length) return "usable";
 	if (equipment.kind === "unknown")
 		return rule.requiredEquipmentIds.every((id) =>
 			c.ownedEquipment?.includes(id),
 		)
-			? "usable"
-			: "unknown_equipment";
+			? undefined
+			: "equipment_unconfirmed";
 	return rule.requiredEquipmentIds.every(
 		(id) =>
 			equipment.items.includes(id) ||
 			(!c.limitEquipment && c.ownedEquipment?.includes(id)),
 	)
-		? "usable"
+		? undefined
 		: c.limitEquipment
-			? "unavailable"
-			: "unknown_equipment";
+			? "equipment_not_in_allowed_list"
+			: "equipment_unconfirmed";
+}
+
+/** 库存可用性分类；检索资格与原文是否可引用不使用该分类。 */
+export function inventoryFit(
+	scope: QueryScope,
+	rule: InventoryRule,
+): "usable" | "unknown_equipment" | "unavailable" {
+	const rejection = inventoryRejection(scope, rule);
+	if (!rejection) return "usable";
+	return rejection === "equipment_unconfirmed"
+		? "unknown_equipment"
+		: "unavailable";
 }
 
 export function updatedInventory(
@@ -171,10 +219,8 @@ export function updatedInventory(
 	};
 }
 
-export function versionApplies(
-	version: string,
-	range: { from: string; through: string },
-): boolean {
+export function versionApplies(version: string, range: GameVersions): boolean {
+	if (range === null) return false;
 	const value = gameVersionKey(version);
 	const from = gameVersionKey(range.from);
 	const through = gameVersionKey(range.through);
@@ -187,6 +233,24 @@ export function versionApplies(
 	);
 }
 
+export function requestedGameVersion(scope: VersionScope): string | null {
+	return scope.kind === "latest" ? scope.currentVersion : scope.version;
+}
+
+export function versionLayers(scope: VersionScope): readonly (string | null)[] {
+	const version = requestedGameVersion(scope);
+	return scope.kind === "exact" || version === null
+		? [version]
+		: [version, null];
+}
+
+export function matchesVersionLayer(
+	layer: string | null,
+	range: GameVersions,
+): boolean {
+	return layer === null ? range === null : versionApplies(layer, range);
+}
+
 /** 三段数字比较，7.10 大于 7.2，7.1 等价于 7.1.0。 */
 export function gameVersionKey(value: string): number | undefined {
 	if (!versionPattern.test(value)) return undefined;
@@ -196,10 +260,6 @@ export function gameVersionKey(value: string): number | undefined {
 
 export type ScopeResolution =
 	| { readonly kind: "missing"; readonly fields: readonly ScopeField[] }
-	| {
-			readonly kind: "no_team";
-			readonly reason: "target_absent" | "target_excluded" | "no_teammates";
-	  }
 	| { readonly kind: "ready"; readonly scope: QueryScope };
 
 const versionPattern = /^\d{1,3}\.\d{1,3}(?:\.\d{1,3})?$/u;
@@ -398,6 +458,13 @@ export function parseQuestion(
 		),
 	];
 	const gameVersion = one(versions);
+	const versionIntent =
+		versions.length > 1 ||
+		(!gameVersion && /上(?:一|个|一个)?版本|旧版本/u.test(input))
+			? "ambiguous"
+			: !gameVersion && /最新(?:版|版本)?|当前版本/u.test(input)
+				? "latest"
+				: undefined;
 	const goal = /配队|组队|阵容/u.test(input) ? "配队" : undefined;
 	const explicitMode = teamMode(input);
 	const ambiguousMode =
@@ -412,6 +479,7 @@ export function parseQuestion(
 				: {}),
 		...(entityId ? { entityId } : {}),
 		...(gameVersion ? { gameVersion } : {}),
+		...(versionIntent ? { versionIntent } : {}),
 		...(goal ? { goal } : {}),
 		...(mode ? { teamMode: mode } : {}),
 		...(equipmentRequired ? { equipmentRequired: true } : {}),
@@ -474,8 +542,10 @@ export function parseSupplement(
 			patch = { ...patch, entityId: canonical };
 			changes.push(`角色：${canonical}`);
 		} else if (field === "gameVersion") {
-			if (!versionPattern.test(value)) return undefined;
-			patch = { ...patch, gameVersion: value };
+			if (versionPattern.test(value)) patch = { ...patch, gameVersion: value };
+			else if (/^(?:最新(?:版|版本)?|当前版本)$/u.test(value))
+				patch = { ...patch, versionIntent: "latest" };
+			else return undefined;
 			changes.push(`版本：${value}`);
 		} else if (field === "goal") {
 			if (!/^(配队|组队|阵容)$/u.test(value)) return undefined;
@@ -538,6 +608,10 @@ export function applySupplement(
 	current: ScopeDraft,
 	patch: ScopeDraft,
 ): ScopeDraft {
+	if (patch.gameVersion || patch.versionIntent) {
+		const { gameVersion: _version, versionIntent: _intent, ...rest } = current;
+		current = rest;
+	}
 	// 补答一件装备不能抹去原问题的“本轮不用某队友”；只替换被纠正的那项事实。
 	if (current.inventoryFacts?.length) {
 		const keep = current.inventoryFacts.filter((f) => {
@@ -571,18 +645,22 @@ export function applySupplement(
 export function resolveScope(
 	input: ScopeDraft,
 	player: PlayerInventory,
+	currentVersion: string | null = null,
 ): ScopeResolution {
 	const { entityId, gameVersion, goal, teamMode } = input;
+	const badVersion =
+		input.versionIntent === "ambiguous" ||
+		(gameVersion !== undefined && gameVersionKey(gameVersion) === undefined);
 	if (
 		!entityId ||
-		!gameVersion ||
+		badVersion ||
 		!goal ||
 		!teamMode ||
 		input.inventoryFacts === null
 	) {
 		const fields: ScopeField[] = [];
 		if (!entityId) fields.push("entityId");
-		if (!gameVersion) fields.push("gameVersion");
+		if (badVersion) fields.push("gameVersion");
 		if (!goal) fields.push("goal");
 		if (!teamMode && goal) fields.push("teamMode");
 		if (input.inventoryFacts === null) fields.push("inventoryFacts");
@@ -601,48 +679,38 @@ export function resolveScope(
 				.map((f) => f.id),
 		]),
 	];
-	const excludedCharacters = excluded("character", player.holdings).filter(
-		(id) => teamMode === "inventory" || id !== entityId,
-	);
+	const excludedCharacters = excluded("character", player.holdings);
 	const excludedEquipment = excluded(
 		"equipment",
 		player.equipmentHoldings ?? {},
 	);
+	const avoided = (category: InventoryFact["category"]) => [
+		...new Set(
+			facts
+				.filter((f) => f.category === category && f.state === "avoid")
+				.map((f) => f.id),
+		),
+	];
+	const avoidedCharacters = avoided("character");
+	const avoidedEquipment = avoided("equipment");
+	const ownedCharacters = Object.entries(player.holdings)
+		.filter(([id, value]) => value === "owned" && id !== entityId)
+		.map(([id]) => id);
 	const ownedEquipment = Object.entries(player.equipmentHoldings ?? {})
 		.filter(([, v]) => v === "owned")
 		.map(([id]) => id);
 	const targetHolding = input.holding ?? player.holdings[entityId] ?? "unknown";
 	const teammates = input.teammates ?? player.teammates;
 	const equipment = input.equipment ?? player.equipment;
-	if (
-		facts.some(
-			(f) =>
-				f.category === "character" && f.id === entityId && f.state === "avoid",
-		)
-	)
-		return { kind: "no_team", reason: "target_excluded" };
-	if (teamMode === "inventory" && targetHolding === "not_owned")
-		return { kind: "no_team", reason: "target_absent" };
-	if (teamMode === "inventory") {
-		if (
-			teammates?.filter(
-				(id) => id !== entityId && !excludedCharacters.includes(id),
-			).length === 0
-		)
-			return { kind: "no_team", reason: "no_teammates" };
-		const fields: ScopeField[] = [];
-		if (targetHolding === "unknown") fields.push("holding");
-		if (!teammates) fields.push("teammates");
-		if (input.equipmentRequired && !equipment) fields.push("equipment");
-		if (fields.length) return { kind: "missing", fields };
-	}
 	const inventory = (items: readonly string[] | undefined): KnownItems =>
 		items ? { kind: "known", items } : { kind: "unknown" };
 	return {
 		kind: "ready",
 		scope: {
 			entityId,
-			gameVersion,
+			versionScope: gameVersion
+				? { kind: "exact", version: gameVersion }
+				: { kind: "latest", currentVersion },
 			goal,
 			teamMode,
 			guideKind: "team",
@@ -651,6 +719,9 @@ export function resolveScope(
 				...(input.equipmentRequired ? { limitEquipment: true } : {}),
 				...(excludedCharacters.length ? { excludedCharacters } : {}),
 				...(excludedEquipment.length ? { excludedEquipment } : {}),
+				...(avoidedCharacters.length ? { avoidedCharacters } : {}),
+				...(avoidedEquipment.length ? { avoidedEquipment } : {}),
+				...(ownedCharacters.length ? { ownedCharacters } : {}),
 				...(ownedEquipment.length ? { ownedEquipment } : {}),
 				targetHolding,
 				teammates: inventory(
@@ -682,6 +753,8 @@ export function isScopeDraft(value: unknown): value is ScopeDraft {
 				return text(item);
 			case "gameVersion":
 				return typeof item === "string" && versionPattern.test(item);
+			case "versionIntent":
+				return item === "latest" || item === "ambiguous";
 			case "teamMode":
 				return item === "general" || item === "inventory";
 			case "holding":

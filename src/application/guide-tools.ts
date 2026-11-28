@@ -4,7 +4,10 @@ import type {
 	GuideEvidenceView,
 } from "../domain/answer-validation.js";
 import { isSupplementGap } from "../domain/answer-validation.js";
-import type { FrozenQueryScope } from "../domain/query-scope.js";
+import {
+	type FrozenQueryScope,
+	requestedGameVersion,
+} from "../domain/query-scope.js";
 import {
 	type JsonObject,
 	type JsonValue,
@@ -62,6 +65,7 @@ export interface TurnToolEnvironment {
 	executeBatch(batch: ToolBatch): Promise<readonly ToolResult[]>;
 	confirmDelivery(callIds: readonly string[]): void;
 	evidenceView(): EvidenceView;
+	unknownReferenceAvailable?(): Promise<boolean>;
 	close(): void;
 }
 export type TurnToolEnvironmentFactory = (context: {
@@ -283,6 +287,7 @@ export function createGuideTools(
 		let webSpent = false;
 		let recheck: string | undefined;
 		let lastMiss: string | undefined;
+		let versionLayer: string | null | undefined;
 		const tools: readonly TurnTool[] = [
 			{
 				definition: schemaOf(
@@ -293,6 +298,7 @@ export function createGuideTools(
 				authorize(call, previous, batch) {
 					if (
 						webSpent ||
+						scope.versionScope.kind === "unknown_reference" ||
 						candidates.size ||
 						[...batch.calls, ...batch.rejected].some(
 							(c) => c.name === "search_guides",
@@ -312,14 +318,17 @@ export function createGuideTools(
 						return "INVALID_TOOL_ARGUMENT";
 					for (const term of [
 						scope.entityId,
-						scope.gameVersion,
+						requestedGameVersion(scope.versionScope),
+						...(scope.versionScope.kind === "latest"
+							? ["最新版本", "最新版", "最新"]
+							: []),
 						"原神",
 						"配队",
 						"阵容",
 						"攻略",
 						"推荐",
 					])
-						residue = residue.replaceAll(term, "");
+						if (term) residue = residue.replaceAll(term, "");
 					if (residue.trim()) return "INVALID_TOOL_ARGUMENT";
 					// 同批多个合法补查也只给第一个执行资格。
 					webSpent = true;
@@ -355,6 +364,7 @@ export function createGuideTools(
 						scope,
 						recheck ?? query.trim(),
 						signal,
+						versionLayer,
 					);
 					signal.throwIfAborted();
 					if (result.kind === "error") throw new TurnToolError(result.code);
@@ -371,13 +381,14 @@ export function createGuideTools(
 							gap: true,
 						};
 					}
+					versionLayer = result.candidates[0]?.versionLayer;
 					const summaries = result.candidates.map((candidate) => {
 						const candidateId = randomUUID();
 						candidates.set(candidateId, candidate);
 						return {
 							candidateId,
 							title: candidate.chunk.title,
-							gameVersion: scope.gameVersion,
+							gameVersions: candidate.chunk.gameVersions,
 							preview: candidate.chunk.preview,
 						};
 					});
@@ -419,7 +430,12 @@ export function createGuideTools(
 					const citation = {
 						source: chunk.title,
 						url: chunk.sourceUrl,
-						version: scope.gameVersion,
+						version:
+							chunk.gameVersions === null
+								? null
+								: chunk.gameVersions.from === chunk.gameVersions.through
+									? chunk.gameVersions.from
+									: `${chunk.gameVersions.from}–${chunk.gameVersions.through}`,
 						documentVersionId: chunk.documentVersionId,
 						location: chunk.location,
 						excerpt: body,
@@ -433,6 +449,8 @@ export function createGuideTools(
 						gameVersions: chunk.gameVersions,
 						windowComplete: true,
 						chunkId: chunk.id,
+						fromWeb: chunk.fromWeb === true,
+						applicabilityUnknown: chunk.applicability.kind === "unknown",
 						citation,
 						conditions: applicability?.conditions ?? [],
 						requiredCharacterIds: applicability?.requiredCharacterIds ?? [],
@@ -446,6 +464,8 @@ export function createGuideTools(
 							sourceUrl: chunk.sourceUrl,
 							documentVersionId: chunk.documentVersionId,
 							location: chunk.location,
+							gameVersions: guide.gameVersions,
+							applicability: chunk.applicability.kind,
 							conditions: guide.conditions,
 							requiredCharacterIds: guide.requiredCharacterIds,
 							requiredEquipmentIds: guide.requiredEquipmentIds,
@@ -478,8 +498,9 @@ export function createGuideTools(
 			)?.content;
 			return {
 				evidence,
+				...(versionLayer !== undefined ? { versionLayer } : {}),
 				gap: gap && recheck === undefined,
-				readAllCandidates,
+				hasUnreadCandidates: candidates.size > 0 && !readAllCandidates,
 				...(!candidates.size &&
 				observations.some(
 					(o) =>
@@ -495,17 +516,45 @@ export function createGuideTools(
 		})(context);
 		return {
 			...env,
+			async unknownReferenceAvailable() {
+				if (
+					scope.versionScope.kind !== "exact" ||
+					candidates.size ||
+					!env.evidenceView().guide?.gap
+				)
+					return false;
+				const { budget } = context;
+				const timeout = AbortSignal.timeout(budget.limits.toolMs);
+				const signal = AbortSignal.any([budget.signal, timeout]);
+				try {
+					return await untilAborted(
+						() => retrieval.hasUnknownReference(scope, signal),
+						signal,
+					);
+				} catch (error) {
+					budget.signal.throwIfAborted();
+					throw new TurnToolError(
+						timeout.aborted
+							? "TOOL_TIMEOUT"
+							: error instanceof Error &&
+									error.message === "RETRIEVAL_INCOMPLETE"
+								? "RETRIEVAL_INCOMPLETE"
+								: "RETRIEVAL_UNAVAILABLE",
+					);
+				}
+			},
 			answerInstructions: [
 				"工具阶段直接发出工具调用，不写答复。结束时只输出一个裸 JSON 对象：首字符是 {，末字符是 }。不要加 Markdown 代码围栏、开场白、结语或额外字段。",
-				"顶层必须同时有 recommendations 和 gaps，两个字段都必须是数组。能给建议时 recommendations 至少一项、gaps 必须是 []；资料不足、确需确认装备或证据冲突时 recommendations 必须是 []、gaps 必须恰好一项。不要省略空数组，不要同时填两个数组。",
+				"顶层必须有 recommendations 和 gaps 两个数组，可附 observations 数组。能根据证据回答时先给 observations；可附完整队伍建议，gaps 填 []。两种建议都没有时，gaps 必须恰好一项。不要同时填写建议和缺口。",
 				"先检索再在下一批完整回读。摘要不是证据。所有 evidenceIds 都是非空字符串数组，使用 read_guide 返回的真实 evidenceId，不填候选 ID、链接或示例占位符。",
-				"只有查库明确 miss 后才可在不含查库的下一批用 search_web_guides 补查一次。query 仅用本轮角色、版本、配队。indexed 后必须用原范围重新查库、回读；其他状态说明具体缺口。",
+				"除用户已确认的版本未知参考轮外，只有查库明确 miss 后才可在下一批用 search_web_guides 补查一次。query 仅用本轮角色、版本、配队。indexed 后必须用原范围重新查库、回读。版本未知是应用允许的参考，不意味着适用当前或指定版本。时效提示由应用添加。",
 				"每项建议只能包含 team 和 evidenceIds。team 恰有四个不同角色且包含目标角色；每个槽位只写 characterId 和 equipmentIds，后者是实际选用的装备名数组，不选装备时必须填 []。一槽至多一把武器；不能把备选写在同一槽位。角色和装备使用标准名称。证据前提由应用提取，不重复写入 JSON。",
-				"按库存配队只能选确已持有、且未被排除的角色和装备。不要将未知装备当作持有，也不要组合出原文未支持的队伍。仅在确需且无法用已确认库存替代时追问必需装备。若用户只要一套，不补充其他候选。",
-				"以下是四种输出形状。只选一种，例文与占位符不能照抄进实际答复。",
+				"用 observations 提炼可确认的队友选择、位置分工或限制。text 用自己的话直接回答建议及理由，不要只复述摘录，不要写链接、完整名单或声称用户已经持有／当前可用。excerpt 必须逐字摘录同条 evidenceId 的连续原文，仅用于引用。只给思路也是完整答复。",
+				"四人队是可选建议，可综合本轮回读，不必寻找或证实原文有同一队，不要把模型组合说成原文推荐。明确缺少或排除的方案只作参考；已知和未知前提由应用标注。没有可引用资料才用 insufficient_evidence。",
+				"以下示例只用于说明形状，例文与占位符不能照抄进实际答复。",
 				'有建议：{"recommendations":[{"team":[{"characterId":"<目标角色>","equipmentIds":[]},{"characterId":"<队友一>","equipmentIds":[]},{"characterId":"<队友二>","equipmentIds":[]},{"characterId":"<队友三>","equipmentIds":[]}],"evidenceIds":["<本轮证据ID>"]}],"gaps":[]}',
 				'资料不足：{"recommendations":[],"gaps":[{"kind":"insufficient_evidence","text":"无法取得适用的完整证据"}]}',
-				'完整回读发现有必需但持有未知的装备且无可用替代：{"recommendations":[],"gaps":[{"kind":"equipment_required","equipmentId":"<必需装备标准名>","evidenceIds":["<本轮证据ID>"]}]}',
+				'只有思路：{"observations":[{"kind":"teammate","text":"<根据原文用自然语言说明队友选择和原因>","evidenceId":"<本轮证据ID>","excerpt":"<回读原文的连续摘录>"}],"recommendations":[],"gaps":[]}。也可以在同一个回答里同时填写 observations 和 recommendations。observations 每项 kind 只能是 teammate、role 或 restriction。',
 				'回读后仍有冲突：{"recommendations":[],"gaps":[{"kind":"conflict","sides":[{"conclusion":"观点一","conditions":[],"evidenceIds":["<本轮甲方证据ID>"]},{"conclusion":"观点二","conditions":[],"evidenceIds":["<本轮乙方证据ID>"]}]}]}',
 			].join("\n"),
 			close() {
