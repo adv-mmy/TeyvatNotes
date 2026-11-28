@@ -976,9 +976,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 							call_id: `call_${requests}`,
 							name: tool,
 							arguments: JSON.stringify(
-								tool !== "read_guide"
-									? { query: "钟离配队" }
-									: { candidateId: candidate?.candidateId },
+								tool === "read_guide"
+									? { candidateId: candidate?.candidateId }
+									: tool === "search_web_guides"
+										? {}
+										: { query: "钟离配队" },
 							),
 						}
 					: {
@@ -1261,11 +1263,11 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 			turnId: "fixture",
 			budget: gateBudget,
 		});
-		const invoke = async (...pairs: [string, string][]) => {
-			const calls = pairs.map(([name, query]) => ({
+		const invoke = async (...pairs: [string, Record<string, string>][]) => {
+			const calls = pairs.map(([name, args]) => ({
 				id: randomUUID(),
 				name,
-				arguments: { query },
+				arguments: args,
 			}));
 			const result = await envTools.executeBatch({
 				calls,
@@ -1278,16 +1280,21 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 		try {
 			for (let i = 0; i < 2; i++) {
 				const mixed = await invoke(
-					["search_guides", "钟离"],
-					["search_web_guides", "钟离配队"],
+					["search_guides", { query: "钟离" }],
+					["search_web_guides", {}],
 				);
+				assert.ok(mixed[0]?.ok);
+				assert.deepEqual(mixed[0].content, {
+					status: "miss",
+					nextTool: "search_web_guides",
+				});
 				assert.ok(
 					mixed[1] && !mixed[1].ok && mixed[1].code === "TOOL_NOT_ALLOWED",
 				);
 			}
 			const invalid = await invoke([
 				"search_web_guides",
-				"钟离 site:other.invalid",
+				{ query: "https://other.invalid" },
 			]);
 			assert.ok(
 				invalid[0] &&
@@ -1706,8 +1713,7 @@ test(`隔离 Compose：真实迁移、CLI 导入与发布、混合检索及回�
 					});
 					if (!result || result.status === "indexed")
 						return tool("search_guides", { query: `${target} 配队` });
-					if (result.status === "miss")
-						return tool("search_web_guides", { query: `${target} 配队` });
+					if (result.status === "miss") return tool("search_web_guides", {});
 					if (result.status === "hit") {
 						const candidate = result.candidates?.find(({ preview }) =>
 							preview.includes(quote),

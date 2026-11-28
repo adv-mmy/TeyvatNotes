@@ -4,10 +4,7 @@ import type {
 	GuideEvidenceView,
 } from "../domain/answer-validation.js";
 import { isSupplementGap } from "../domain/answer-validation.js";
-import {
-	type FrozenQueryScope,
-	requestedGameVersion,
-} from "../domain/query-scope.js";
+import type { FrozenQueryScope } from "../domain/query-scope.js";
 import {
 	type JsonObject,
 	type JsonValue,
@@ -244,14 +241,16 @@ export function registeredTurnTools(
 const schemaOf = (
 	name: string,
 	description: string,
-	field: string,
+	field?: string,
 ): ToolDefinition => ({
 	name,
 	description,
 	parameters: {
 		type: "object",
-		properties: { [field]: { type: "string", minLength: 1, maxLength: 240 } },
-		required: [field],
+		properties: field
+			? { [field]: { type: "string", minLength: 1, maxLength: 240 } }
+			: {},
+		required: field ? [field] : [],
 		additionalProperties: false,
 	},
 });
@@ -292,8 +291,7 @@ export function createGuideTools(
 			{
 				definition: schemaOf(
 					"search_web_guides",
-					"仅在前一批已确认库内未命中时，按角色、版本和配队目标补查一次。",
-					"query",
+					"当前一批查库明确提示可补查时，单独调用一次。无需参数；应用使用本轮已确认的角色。",
 				),
 				authorize(call, previous, batch) {
 					if (
@@ -311,25 +309,8 @@ export function createGuideTools(
 						)
 					)
 						return false;
-					const q = call.arguments.query;
-					if (typeof q !== "string") return "INVALID_TOOL_ARGUMENT";
-					let residue = q.normalize("NFKC").trim();
-					if (!residue || /(?:\b(?:OR|AND|NOT)\b|[:："'()-])/iu.test(residue))
+					if (Object.keys(call.arguments).length > 0)
 						return "INVALID_TOOL_ARGUMENT";
-					for (const term of [
-						scope.entityId,
-						requestedGameVersion(scope.versionScope),
-						...(scope.versionScope.kind === "latest"
-							? ["最新版本", "最新版", "最新"]
-							: []),
-						"原神",
-						"配队",
-						"阵容",
-						"攻略",
-						"推荐",
-					])
-						if (term) residue = residue.replaceAll(term, "");
-					if (residue.trim()) return "INVALID_TOOL_ARGUMENT";
 					// 同批多个合法补查也只给第一个执行资格。
 					webSpent = true;
 					return true;
@@ -346,7 +327,12 @@ export function createGuideTools(
 							throw new TurnToolError("BUDGET_EXHAUSTED");
 						recheck = lastMiss;
 					}
-					return { content: { status } };
+					return {
+						content: {
+							status,
+							...(status === "indexed" ? { nextTool: "search_guides" } : {}),
+						},
+					};
 				},
 			},
 			{
@@ -516,6 +502,30 @@ export function createGuideTools(
 		})(context);
 		return {
 			...env,
+			async executeBatch(batch) {
+				const results = await env.executeBatch(batch);
+				if (
+					!supplement ||
+					webSpent ||
+					candidates.size ||
+					scope.versionScope.kind === "unknown_reference"
+				)
+					return results;
+				// 给模型提示但不提前授权；批次中一旦命中，连未命中项也不提示补查。
+				return results.map((result) =>
+					result.ok &&
+					isObject(result.content) &&
+					result.content.status === "miss" &&
+					batch.calls.some(
+						({ id, name }) => id === result.id && name === "search_guides",
+					)
+						? {
+								...result,
+								content: { ...result.content, nextTool: "search_web_guides" },
+							}
+						: result,
+				);
+			},
 			async unknownReferenceAvailable() {
 				if (
 					scope.versionScope.kind !== "exact" ||
@@ -547,7 +557,7 @@ export function createGuideTools(
 				"工具阶段直接发出工具调用，不写答复。结束时只输出一个裸 JSON 对象：首字符是 {，末字符是 }。不要加 Markdown 代码围栏、开场白、结语或额外字段。",
 				"顶层必须有 recommendations 和 gaps 两个数组，可附 observations 数组。能根据证据回答时先给 observations；可附完整队伍建议，gaps 填 []。两种建议都没有时，gaps 必须恰好一项。不要同时填写建议和缺口。",
 				"先检索再在下一批完整回读。摘要不是证据。所有 evidenceIds 都是非空字符串数组，使用 read_guide 返回的真实 evidenceId，不填候选 ID、链接或示例占位符。",
-				"除用户已确认的版本未知参考轮外，只有查库明确 miss 后才可在下一批用 search_web_guides 补查一次。query 仅用本轮角色、版本、配队。indexed 后必须用原范围重新查库、回读。版本未知是应用允许的参考，不意味着适用当前或指定版本。时效提示由应用添加。",
+				"先单独调用 search_guides。它若返回 miss 且 nextTool 是 search_web_guides，普通配队问题默认在下一批单独调用 search_web_guides，参数固定 {}，不要加字段，也不需要用户明确提出联网。没有这一提示、已命中或回读失败时不要联网。indexed 后使用 search_guides 重检，然后回读。版本未知不意味着适用当前或指定版本，时效提示由应用添加。",
 				"每项建议只能包含 team 和 evidenceIds。team 恰有四个不同角色且包含目标角色；每个槽位只写 characterId 和 equipmentIds，后者是实际选用的装备名数组，不选装备时必须填 []。一槽至多一把武器；不能把备选写在同一槽位。角色和装备使用标准名称。证据前提由应用提取，不重复写入 JSON。",
 				"用 observations 提炼可确认的队友选择、位置分工或限制。text 用自己的话直接回答建议及理由，不要只复述摘录，不要写链接、完整名单或声称用户已经持有／当前可用。excerpt 必须逐字摘录同条 evidenceId 的连续原文，仅用于引用。只给思路也是完整答复。",
 				"四人队是可选建议，可综合本轮回读，不必寻找或证实原文有同一队，不要把模型组合说成原文推荐。明确缺少或排除的方案只作参考；已知和未知前提由应用标注。没有可引用资料才用 insufficient_evidence。",

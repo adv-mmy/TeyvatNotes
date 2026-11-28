@@ -115,25 +115,26 @@ export async function startCli(
 					data.vectorIndex,
 					data.config,
 				);
+				const supplement: WebSupplement = async (scope, budget, signal) => {
+					const config = await readWebConfig(env).catch(() => {
+						throw new TurnToolError("WEB_SOURCE_UNAVAILABLE");
+					});
+					if (!config) return "source_restricted";
+					return webSupplement({
+						source: new BwikiSource(),
+						permits: config.permits,
+						terms: terminology,
+						parse: parseWebGuide,
+						ingest,
+						archive: (page, s) => data.repository.archiveIncomplete(page, s),
+					})(scope, budget, signal);
+				};
 				questions = {
 					runtime,
 					data,
 					terminology,
 					mode: "guide",
-					supplement: async (scope, budget, signal) => {
-						const config = await readWebConfig(env).catch(() => {
-							throw new TurnToolError("WEB_SOURCE_UNAVAILABLE");
-						});
-						if (!config) return "source_restricted";
-						return webSupplement({
-							source: new BwikiSource(),
-							permits: config.permits,
-							terms: terminology,
-							parse: parseWebGuide,
-							ingest,
-							archive: (page, s) => data.repository.archiveIncomplete(page, s),
-						})(scope, budget, signal);
-					},
+					...(env.TEYVAT_SOURCE_POLICY_FILE ? { supplement } : {}),
 				};
 			}
 		}

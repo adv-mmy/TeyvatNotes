@@ -44,7 +44,25 @@ docker compose exec ollama ollama pull qwen3-embedding:0.6b
 docker compose run --rm teyvatnotes-ask
 ```
 
-问答入口读取本地攻略库，调用配置的回答模型；真实联网补查未启用。本地找不到适用攻略时，不会自动从网站抓取正文。
+`teyvatnotes-ask` 只查本地攻略库。要启用 BWIKI 补查，在本机的 `secrets/source_policy.json` 写入以下许可配置；也可用 `TEYVAT_SOURCE_POLICY_FILE` 指向其他本机路径。仅在获准的范围内使用，页面单独声明的限制优先。
+
+```json
+[
+  {
+    "origin": "https://wiki.biligame.com",
+    "api": "https://wiki.biligame.com/ys/api.php",
+    "path": "/ys/",
+    "reference": "原神 BWIKI 公开攻略非商业使用，见项目来源约定",
+    "access": "fetch_store_cite"
+  }
+]
+```
+
+```bash
+docker compose run --rm teyvatnotes-web
+```
+
+进入后输入 `/new`，直接用自然语言提问即可。库内真正未命中时，应用可以补查并保存符合条件的攻略，再重查后回答；本地命中时不会重复联网。不需要额外的搜索密钥。
 
 ### 维护命令（在 CLI 容器内一次性运行）
 
